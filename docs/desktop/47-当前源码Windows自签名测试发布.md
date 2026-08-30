@@ -1,4 +1,4 @@
-# 当前源码 Windows 自签名测试发布
+# v0.1.0-test.1 Windows 自签名测试发布
 
 ## 1. 构建基线
 
@@ -34,6 +34,8 @@
 `build/` 和 `target/` 是 Git 忽略的本地制品目录，不提交私钥、密码、PFX 或安装包二进制。
 
 GitHub prerelease：<https://github.com/DepartureZSH/AcademicAffairsSystemDesk/releases/tag/v0.1.0-test.1>。Release tag 精确指向二进制源码提交 `bc37324`。公开下载名使用 ASCII，避免托管平台归一化中文文件名后与 manifest 不一致；安装后的产品名和界面仍为“时奕教务排课”。
+
+这是不可变的历史测试发布证据。`bc37324` 之后的源码变更不在这些二进制中；新源码必须使用新标签和重新生成的 manifest、哈希、SBOM 与签名发布。
 
 ## 3. 自动验证结果
 

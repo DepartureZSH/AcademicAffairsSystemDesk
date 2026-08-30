@@ -43,6 +43,8 @@ export const accessGate = {
     invoke<AuthStatus>("auth_sign_up", { email, password }),
   requestPasswordReset: (email: string) =>
     invoke<string>("auth_request_password_reset", { email }),
+  completePasswordReset: (recoveryLink: string, newPassword: string) =>
+    invoke<string>("auth_complete_password_reset", { recoveryLink, newPassword }),
   signOut: () => invoke<GateStatus>("auth_sign_out"),
   activateLicense: (enterpriseKey: string) =>
     invoke<GateStatus>("license_activate", { enterpriseKey }),

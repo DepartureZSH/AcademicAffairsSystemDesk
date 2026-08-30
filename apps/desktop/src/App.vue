@@ -24,7 +24,7 @@ import {
 } from "./lib/sidecar";
 
 type NavItem = { key: string; label: string; enabled: boolean };
-type AuthMode = "signin" | "signup" | "reset";
+type AuthMode = "signin" | "signup" | "reset" | "recover";
 
 const navItems: NavItem[] = [
   { key: "workspace", label: "项目工作台", enabled: true },
@@ -44,6 +44,9 @@ const gateBusy = ref(true);
 const authMode = ref<AuthMode>("signin");
 const email = ref("");
 const password = ref("");
+const recoveryLink = ref("");
+const newPassword = ref("");
+const confirmNewPassword = ref("");
 const enterpriseKey = ref("");
 const gateError = ref("");
 const gateNotice = ref("");
@@ -140,8 +143,17 @@ async function submitAuth() {
       gateNotice.value = status.message ?? "注册成功，请登录";
       if (status.authenticated) await bootstrapGate();
       else authMode.value = "signin";
-    } else {
+    } else if (authMode.value === "reset") {
       gateNotice.value = await accessGate.requestPasswordReset(email.value.trim());
+      authMode.value = "recover";
+    } else {
+      if (newPassword.value !== confirmNewPassword.value) throw new Error("两次输入的新密码不一致");
+      const link = recoveryLink.value.trim();
+      const replacement = newPassword.value;
+      recoveryLink.value = "";
+      newPassword.value = "";
+      confirmNewPassword.value = "";
+      gateNotice.value = await accessGate.completePasswordReset(link, replacement);
       authMode.value = "signin";
     }
   } catch (error) {
@@ -520,24 +532,35 @@ onMounted(bootstrapGate);
       <section v-else-if="!gate.auth.authenticated" class="auth-layout">
         <article class="auth-card">
           <p class="eyebrow">SUPABASE AUTH</p>
-          <h2>{{ authMode === "signin" ? "登录时奕桌面版" : authMode === "signup" ? "注册账号" : "重置密码" }}</h2>
+          <h2>{{ authMode === "signin" ? "登录时奕桌面版" : authMode === "signup" ? "注册账号" : authMode === "reset" ? "申请重置密码" : "设置新密码" }}</h2>
           <p class="form-copy">邮箱密码用于确认账号身份；激活设备时还需要企业密钥。</p>
           <form @submit.prevent="submitAuth">
-            <label for="auth-email">邮箱</label>
-            <input id="auth-email" v-model="email" type="email" autocomplete="email" required />
-            <template v-if="authMode !== 'reset'">
+            <template v-if="authMode !== 'recover'">
+              <label for="auth-email">邮箱</label>
+              <input id="auth-email" v-model="email" type="email" autocomplete="email" required />
+            </template>
+            <template v-if="authMode === 'signin' || authMode === 'signup'">
               <label for="auth-password">密码</label>
               <input id="auth-password" v-model="password" type="password" :autocomplete="authMode === 'signin' ? 'current-password' : 'new-password'" minlength="8" required />
+            </template>
+            <template v-if="authMode === 'recover'">
+              <p class="form-copy recovery-copy">从密码恢复邮件复制完整链接并粘贴到这里。链接只用于本次验证，不会保存到本地凭据或日志。</p>
+              <label for="recovery-link">完整恢复链接</label>
+              <input id="recovery-link" v-model="recoveryLink" type="password" autocomplete="off" spellcheck="false" required />
+              <label for="new-password">新密码</label>
+              <input id="new-password" v-model="newPassword" type="password" autocomplete="new-password" minlength="8" required />
+              <label for="confirm-new-password">再次输入新密码</label>
+              <input id="confirm-new-password" v-model="confirmNewPassword" type="password" autocomplete="new-password" minlength="8" required />
             </template>
             <p v-if="gateError" class="form-message error-copy">{{ gateError }}</p>
             <p v-if="gateNotice" class="form-message notice-copy">{{ gateNotice }}</p>
             <button class="primary-button full-button" :disabled="gateBusy">
-              {{ gateBusy ? "处理中…" : authMode === "signin" ? "登录" : authMode === "signup" ? "注册并验证邮箱" : "发送重置邮件" }}
+              {{ gateBusy ? "处理中…" : authMode === "signin" ? "登录" : authMode === "signup" ? "注册并验证邮箱" : authMode === "reset" ? "发送重置邮件" : "验证链接并更新密码" }}
             </button>
           </form>
           <div class="auth-actions">
             <button class="link-button" @click="authMode = authMode === 'signup' ? 'signin' : 'signup'">{{ authMode === "signup" ? "返回登录" : "注册账号" }}</button>
-            <button class="link-button" @click="authMode = authMode === 'reset' ? 'signin' : 'reset'">{{ authMode === "reset" ? "返回登录" : "忘记密码" }}</button>
+            <button class="link-button" @click="authMode = authMode === 'reset' || authMode === 'recover' ? 'signin' : 'reset'">{{ authMode === "reset" || authMode === "recover" ? "返回登录" : "忘记密码" }}</button>
           </div>
         </article>
         <aside class="security-card">

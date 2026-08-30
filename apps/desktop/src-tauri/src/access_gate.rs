@@ -320,6 +320,50 @@ fn safe_auth_error(status: StatusCode) -> String {
     }
 }
 
+fn recovery_token(config: &IdentityConfig, recovery_link: &str) -> Result<String, String> {
+    let trimmed = recovery_link.trim();
+    if trimmed.is_empty() || trimmed.len() > 8_192 {
+        return Err("密码恢复链接为空或过长".into());
+    }
+    let endpoint = reqwest::Url::parse(&config.endpoint)
+        .map_err(|_| "Supabase endpoint 格式无效".to_string())?;
+    let link = reqwest::Url::parse(trimmed).map_err(|_| "密码恢复链接格式无效".to_string())?;
+    let same_origin = link.scheme() == endpoint.scheme()
+        && link.host_str() == endpoint.host_str()
+        && link.port_or_known_default() == endpoint.port_or_known_default();
+    if !same_origin || !link.username().is_empty() || link.password().is_some() {
+        return Err("密码恢复链接不属于当前身份服务".into());
+    }
+    if link.path() != "/auth/v1/verify" || link.fragment().is_some() {
+        return Err("密码恢复链接路径无效".into());
+    }
+    let mut token: Option<String> = None;
+    let mut recovery_type: Option<String> = None;
+    for (key, value) in link.query_pairs() {
+        match key.as_ref() {
+            "token" | "token_hash" => {
+                if token.replace(value.into_owned()).is_some() {
+                    return Err("密码恢复链接包含重复 token".into());
+                }
+            }
+            "type" => {
+                if recovery_type.replace(value.into_owned()).is_some() {
+                    return Err("密码恢复链接包含重复 type".into());
+                }
+            }
+            _ => {}
+        }
+    }
+    if recovery_type.as_deref() != Some("recovery") {
+        return Err("该链接不是密码恢复链接".into());
+    }
+    let token = token.ok_or("密码恢复链接缺少 token")?;
+    if token.len() < 16 || token.len() > 4_096 {
+        return Err("密码恢复 token 长度无效".into());
+    }
+    Ok(token)
+}
+
 async fn refresh_session(
     client: &Client,
     config: &IdentityConfig,
@@ -591,6 +635,66 @@ pub async fn request_password_reset(root: &Path, email: String) -> Result<String
     Ok("若邮箱已注册，密码重置邮件将发送到该地址".into())
 }
 
+pub async fn complete_password_reset(
+    root: &Path,
+    recovery_link: String,
+    new_password: String,
+) -> Result<String, String> {
+    if new_password.len() < 8 || new_password.len() > 1_024 {
+        return Err("新密码长度必须为 8–1024 个字符".into());
+    }
+    let config = identity_config(root)?;
+    let token_hash = recovery_token(&config, &recovery_link)?;
+    let client = Client::new();
+    let verify_response = supabase_headers(
+        client.post(format!("{}/auth/v1/verify", config.endpoint)),
+        &config,
+    )
+    .json(&json!({"token_hash": token_hash, "type": "recovery"}))
+    .send()
+    .await
+    .map_err(|_| "无法连接身份服务".to_string())?;
+    if !verify_response.status().is_success() {
+        return Err(safe_auth_error(verify_response.status()));
+    }
+    let recovery_session = verify_response
+        .json::<SupabaseSessionResponse>()
+        .await
+        .map_err(|_| "身份服务返回格式无效".to_string())?;
+    let account_id = recovery_session.user.id.clone();
+    let update_response = supabase_headers(
+        client
+            .put(format!("{}/auth/v1/user", config.endpoint))
+            .bearer_auth(&recovery_session.access_token),
+        &config,
+    )
+    .json(&json!({"password": new_password}))
+    .send()
+    .await
+    .map_err(|_| "无法连接身份服务".to_string())?;
+    if !update_response.status().is_success() {
+        return Err(safe_auth_error(update_response.status()));
+    }
+    let updated_user = update_response
+        .json::<SupabaseUser>()
+        .await
+        .map_err(|_| "身份服务返回格式无效".to_string())?;
+    if updated_user.id != account_id {
+        return Err("身份服务返回了不匹配的账号".into());
+    }
+    let _ = supabase_headers(
+        client
+            .post(format!("{}/auth/v1/logout", config.endpoint))
+            .bearer_auth(recovery_session.access_token),
+        &config,
+    )
+    .send()
+    .await;
+    delete_credential(SESSION_CREDENTIAL)?;
+    delete_credential(ENTITLEMENT_CREDENTIAL)?;
+    Ok("密码已更新，请使用新密码登录".into())
+}
+
 pub async fn sign_out(root: &Path) -> Result<GateStatus, String> {
     if let (Ok(config), Some(session)) = (identity_config(root), load_session()?) {
         let _ = supabase_headers(
@@ -661,6 +765,13 @@ mod tests {
         SigningKey::from_bytes(&[7_u8; 32])
     }
 
+    fn identity() -> IdentityConfig {
+        IdentityConfig {
+            endpoint: "https://auth.example.test".into(),
+            publishable_key: "publishable-test-key".into(),
+        }
+    }
+
     #[test]
     fn signed_entitlement_detects_tampering() {
         let key = signing_key();
@@ -701,5 +812,43 @@ mod tests {
         assert!(clock_is_acceptable(1_000, Some(1_300)));
         assert!(!clock_is_acceptable(1_000, Some(1_301)));
         assert!(clock_is_acceptable(2_000, Some(1_000)));
+    }
+
+    #[test]
+    fn recovery_link_requires_same_origin_path_and_type() {
+        let valid = "https://auth.example.test/auth/v1/verify?token=1234567890abcdef&type=recovery&redirect_to=https%3A%2F%2Fapp.example.test";
+        assert_eq!(
+            recovery_token(&identity(), valid).unwrap(),
+            "1234567890abcdef"
+        );
+        assert!(recovery_token(
+            &identity(),
+            "https://evil.example/auth/v1/verify?token=1234567890abcdef&type=recovery"
+        )
+        .is_err());
+        assert!(recovery_token(
+            &identity(),
+            "https://auth.example.test/other?token=1234567890abcdef&type=recovery"
+        )
+        .is_err());
+        assert!(recovery_token(
+            &identity(),
+            "https://auth.example.test/auth/v1/verify?token=1234567890abcdef&type=signup"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn recovery_link_rejects_duplicate_or_short_token() {
+        assert!(recovery_token(
+            &identity(),
+            "https://auth.example.test/auth/v1/verify?token=1234567890abcdef&token=abcdef1234567890&type=recovery"
+        )
+        .is_err());
+        assert!(recovery_token(
+            &identity(),
+            "https://auth.example.test/auth/v1/verify?token=short&type=recovery"
+        )
+        .is_err());
     }
 }

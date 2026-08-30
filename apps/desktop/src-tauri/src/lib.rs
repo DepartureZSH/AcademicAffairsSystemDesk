@@ -340,6 +340,15 @@ async fn auth_request_password_reset(app: AppHandle, email: String) -> Result<St
 }
 
 #[tauri::command]
+async fn auth_complete_password_reset(
+    app: AppHandle,
+    recovery_link: String,
+    new_password: String,
+) -> Result<String, String> {
+    access_gate::complete_password_reset(&runtime_root(&app)?, recovery_link, new_password).await
+}
+
+#[tauri::command]
 async fn auth_sign_out(app: AppHandle) -> Result<access_gate::GateStatus, String> {
     access_gate::sign_out(&runtime_root(&app)?).await
 }
@@ -550,6 +559,7 @@ pub fn run() {
             auth_sign_in,
             auth_sign_up,
             auth_request_password_reset,
+            auth_complete_password_reset,
             auth_sign_out,
             license_activate,
             open_purchase_page,
