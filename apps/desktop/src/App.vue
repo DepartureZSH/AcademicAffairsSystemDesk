@@ -166,6 +166,19 @@ async function activateLicense() {
   }
 }
 
+async function openPurchasePage() {
+  gateBusy.value = true;
+  gateError.value = "";
+  try {
+    const result = await accessGate.openPurchasePage();
+    gateNotice.value = result.message;
+  } catch (error) {
+    gateError.value = String(error);
+  } finally {
+    gateBusy.value = false;
+  }
+}
+
 async function signOut() {
   gateBusy.value = true;
   gateError.value = "";
@@ -490,6 +503,10 @@ onMounted(bootstrapGate);
             <p v-else-if="gate.license.message" class="form-message notice-copy">{{ gate.license.message }}</p>
             <button class="primary-button full-button" :disabled="gateBusy || !enterpriseKey.trim()">{{ gateBusy ? "正在验证…" : "验证并激活" }}</button>
           </form>
+          <div class="auth-actions purchase-actions">
+            <span>尚未购买年度许可证？</span>
+            <button class="link-button" :disabled="gateBusy" @click="openPurchasePage">在系统浏览器购买</button>
+          </div>
         </article>
         <aside class="security-card">
           <p class="eyebrow">LICENSE POLICY</p><h2>年度授权 · 最多 {{ gate.license.deviceLimit }} 台设备</h2>

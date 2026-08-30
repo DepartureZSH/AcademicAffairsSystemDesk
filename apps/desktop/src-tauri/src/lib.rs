@@ -1,5 +1,6 @@
 mod access_gate;
 mod app_updates;
+mod purchase;
 
 use hmac::{Hmac, Mac};
 use parking_lot::Mutex;
@@ -338,6 +339,11 @@ async fn license_activate(
     access_gate::activate(&runtime_root(&app)?, enterprise_key).await
 }
 
+#[tauri::command]
+fn open_purchase_page(app: AppHandle) -> Result<purchase::PurchaseLaunchResult, String> {
+    purchase::open(&app, &runtime_root(&app)?)
+}
+
 impl Drop for SidecarRuntime {
     fn drop(&mut self) {
         let _ = self.child.kill();
@@ -462,6 +468,7 @@ async fn install_checked_update(
 pub fn run() {
     let application = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Mutex::new(SidecarManager::default()))
         .manage(app_updates::PendingUpdate::default())
@@ -473,6 +480,7 @@ pub fn run() {
             auth_request_password_reset,
             auth_sign_out,
             license_activate,
+            open_purchase_page,
             start_sidecar,
             sidecar_request,
             stop_sidecar,

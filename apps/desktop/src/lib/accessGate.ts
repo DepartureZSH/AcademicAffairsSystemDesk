@@ -29,6 +29,12 @@ export interface GateStatus {
   canStartSidecar: boolean;
 }
 
+export interface PurchaseLaunchResult {
+  mode: "mock" | "real";
+  opened: boolean;
+  message: string;
+}
+
 export const accessGate = {
   status: () => invoke<GateStatus>("access_gate_status"),
   signIn: (email: string, password: string) =>
@@ -40,4 +46,5 @@ export const accessGate = {
   signOut: () => invoke<GateStatus>("auth_sign_out"),
   activateLicense: (enterpriseKey: string) =>
     invoke<GateStatus>("license_activate", { enterpriseKey }),
+  openPurchasePage: () => invoke<PurchaseLaunchResult>("open_purchase_page"),
 };
