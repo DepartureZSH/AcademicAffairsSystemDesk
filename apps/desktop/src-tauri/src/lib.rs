@@ -64,11 +64,25 @@ fn random_hex(bytes: usize) -> String {
     hex::encode(data)
 }
 
+#[cfg(debug_assertions)]
 fn repository_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
         .canonicalize()
         .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."))
+}
+
+fn runtime_root(app: &AppHandle) -> Result<PathBuf, String> {
+    #[cfg(debug_assertions)]
+    {
+        let root = repository_root();
+        if root.join("config/services.yaml").is_file() {
+            return Ok(root);
+        }
+    }
+    app.path()
+        .resource_dir()
+        .map_err(|error| format!("无法确定应用资源目录: {error}"))
 }
 
 struct SidecarLaunch {
@@ -77,7 +91,7 @@ struct SidecarLaunch {
     environment: Vec<(String, String)>,
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, debug_assertions))]
 fn windows_development_python(root: &Path) -> Result<SidecarLaunch, String> {
     let virtual_environment = root.join(".venv");
     let configuration_path = virtual_environment.join("pyvenv.cfg");
@@ -113,7 +127,7 @@ fn windows_development_python(root: &Path) -> Result<SidecarLaunch, String> {
     })
 }
 
-fn sidecar_launch(root: &Path) -> Result<SidecarLaunch, String> {
+fn sidecar_launch(_root: &Path) -> Result<SidecarLaunch, String> {
     if let Ok(path) = std::env::var("STT_SIDECAR_EXECUTABLE") {
         let candidate = PathBuf::from(path);
         if candidate.is_file() {
@@ -125,12 +139,12 @@ fn sidecar_launch(root: &Path) -> Result<SidecarLaunch, String> {
         }
         return Err("STT_SIDECAR_EXECUTABLE 指向的文件不存在".into());
     }
-    #[cfg(windows)]
-    if root.join(".venv/Scripts/python.exe").is_file() {
-        return windows_development_python(root);
+    #[cfg(all(windows, debug_assertions))]
+    if _root.join(".venv/Scripts/python.exe").is_file() {
+        return windows_development_python(_root);
     }
     #[cfg(not(windows))]
-    let development = root.join(".venv/bin/python");
+    let development = _root.join(".venv/bin/python");
     #[cfg(not(windows))]
     if development.is_file() {
         return Ok(SidecarLaunch {
@@ -139,7 +153,23 @@ fn sidecar_launch(root: &Path) -> Result<SidecarLaunch, String> {
             environment: Vec::new(),
         });
     }
-    Err("找不到 Python sidecar；请先执行 uv sync --extra dev".into())
+    let installed = std::env::current_exe()
+        .map_err(|error| format!("无法确定桌面程序路径: {error}"))?
+        .parent()
+        .ok_or("桌面程序路径缺少父目录")?
+        .join(if cfg!(windows) {
+            "stt-sidecar.exe"
+        } else {
+            "stt-sidecar"
+        });
+    if installed.is_file() {
+        return Ok(SidecarLaunch {
+            executable: installed,
+            arguments: Vec::new(),
+            environment: Vec::new(),
+        });
+    }
+    Err("找不到随安装包发布的 Python sidecar；请重新安装应用".into())
 }
 
 fn status_from_runtime(runtime: Option<&SidecarRuntime>) -> RuntimeStatus {
@@ -177,7 +207,7 @@ fn start_sidecar(
         manager.runtime = None;
     }
 
-    let root = repository_root();
+    let root = runtime_root(&app)?;
     access_gate::ensure_sidecar_allowed(&root)?;
     let launch = sidecar_launch(&root)?;
     let services_config = root.join("config/services.yaml");
@@ -267,33 +297,44 @@ fn start_sidecar(
 }
 
 #[tauri::command]
-async fn access_gate_status() -> Result<access_gate::GateStatus, String> {
-    access_gate::status(&repository_root()).await
+async fn access_gate_status(app: AppHandle) -> Result<access_gate::GateStatus, String> {
+    access_gate::status(&runtime_root(&app)?).await
 }
 
 #[tauri::command]
-async fn auth_sign_in(email: String, password: String) -> Result<access_gate::GateStatus, String> {
-    access_gate::sign_in(&repository_root(), email, password).await
+async fn auth_sign_in(
+    app: AppHandle,
+    email: String,
+    password: String,
+) -> Result<access_gate::GateStatus, String> {
+    access_gate::sign_in(&runtime_root(&app)?, email, password).await
 }
 
 #[tauri::command]
-async fn auth_sign_up(email: String, password: String) -> Result<access_gate::AuthStatus, String> {
-    access_gate::sign_up(&repository_root(), email, password).await
+async fn auth_sign_up(
+    app: AppHandle,
+    email: String,
+    password: String,
+) -> Result<access_gate::AuthStatus, String> {
+    access_gate::sign_up(&runtime_root(&app)?, email, password).await
 }
 
 #[tauri::command]
-async fn auth_request_password_reset(email: String) -> Result<String, String> {
-    access_gate::request_password_reset(&repository_root(), email).await
+async fn auth_request_password_reset(app: AppHandle, email: String) -> Result<String, String> {
+    access_gate::request_password_reset(&runtime_root(&app)?, email).await
 }
 
 #[tauri::command]
-async fn auth_sign_out() -> Result<access_gate::GateStatus, String> {
-    access_gate::sign_out(&repository_root()).await
+async fn auth_sign_out(app: AppHandle) -> Result<access_gate::GateStatus, String> {
+    access_gate::sign_out(&runtime_root(&app)?).await
 }
 
 #[tauri::command]
-async fn license_activate(enterprise_key: String) -> Result<access_gate::GateStatus, String> {
-    access_gate::activate(&repository_root(), enterprise_key).await
+async fn license_activate(
+    app: AppHandle,
+    enterprise_key: String,
+) -> Result<access_gate::GateStatus, String> {
+    access_gate::activate(&runtime_root(&app)?, enterprise_key).await
 }
 
 impl Drop for SidecarRuntime {

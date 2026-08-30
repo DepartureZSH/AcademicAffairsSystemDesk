@@ -14,6 +14,8 @@ src-tauri/target/
 apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/icons/android/
 apps/desktop/src-tauri/icons/ios/
+apps/desktop/src-tauri/binaries/*.exe
+build/sidecar/
 
 .tmp/
 tmp/

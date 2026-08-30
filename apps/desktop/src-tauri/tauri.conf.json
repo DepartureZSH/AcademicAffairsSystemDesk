@@ -29,13 +29,25 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "msi"],
+    "icon": ["icons/icon.ico"],
+    "externalBin": ["binaries/stt-sidecar"],
+    "resources": {
+      "../../../config/services.yaml": "config/services.yaml"
+    },
     "publisher": "杭州格若时科技有限公司",
     "copyright": "Copyright © 2026 杭州格若时科技有限公司",
     "shortDescription": "本地优先的中小学教务排课应用",
     "longDescription": "教务数据和排课算法完全保存在本机运行的跨平台桌面应用。",
     "windows": {
       "digestAlgorithm": "sha256",
-      "timestampUrl": ""
+      "timestampUrl": "",
+      "wix": {
+        "language": "zh-CN",
+        "upgradeCode": "450405c0-85b9-5bc5-a05c-de2bbb1e5805"
+      },
+      "nsis": {
+        "languages": ["SimpChinese"]
+      }
     }
   }
 }
