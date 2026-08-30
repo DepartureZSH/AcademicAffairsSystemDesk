@@ -12,7 +12,9 @@ assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 artifact_record = MODULE.artifact_record
+checksum_records = MODULE.checksum_records
 digest = MODULE.digest
+evidence_record = MODULE.evidence_record
 
 
 def test_release_artifact_record_requires_installer_and_updater_signature(
@@ -32,6 +34,47 @@ def test_release_artifact_record_requires_installer_and_updater_signature(
     assert record["sha256"] == digest(installer)[0]
     assert record["updaterSignature"]["fileName"] == signature.name
     assert len(record["updaterSignature"]["sha256"]) == 64
+
+
+def test_release_checksums_include_signatures_and_additional_evidence(
+    tmp_path: Path,
+) -> None:
+    installer = tmp_path / "Karios-STT-Desktop.exe"
+    installer.write_bytes(b"signed-installer-bytes")
+    signature = Path(f"{installer}.sig")
+    signature.write_bytes(b"updater-signature")
+    certificate = tmp_path / "Karios-Desktop-TEST-ONLY.cer"
+    certificate.write_bytes(b"public-certificate")
+    payload = {
+        "artifacts": [artifact_record(installer, require_signature=True)],
+        "complianceEvidence": [],
+        "additionalEvidence": [evidence_record(certificate)],
+    }
+
+    records = checksum_records(payload)
+
+    assert [record["fileName"] for record in records] == [
+        installer.name,
+        signature.name,
+        certificate.name,
+    ]
+
+
+def test_release_checksums_reject_duplicate_asset_names(tmp_path: Path) -> None:
+    first = tmp_path / "first" / "same.json"
+    second = tmp_path / "second" / "same.json"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_text("first", encoding="utf-8")
+    second.write_text("second", encoding="utf-8")
+    payload = {
+        "artifacts": [],
+        "complianceEvidence": [evidence_record(first)],
+        "additionalEvidence": [evidence_record(second)],
+    }
+
+    with pytest.raises(ValueError, match="文件名重复"):
+        checksum_records(payload)
 
 
 def test_cyclonedx_sbom_has_one_component_per_inventory_package() -> None:

@@ -30,13 +30,17 @@ $thumbprint = (Get-ChildItem Cert:\CurrentUser\My |
   Select-Object -First 1).Thumbprint
 
 uv run python scripts/generate_release_manifest.py `
-  --artifact 'apps/desktop/src-tauri/target/release/bundle/nsis/时奕教务排课_0.1.0_x64-setup.exe' `
-  --artifact 'apps/desktop/src-tauri/target/release/bundle/msi/时奕教务排课_0.1.0_x64_zh-CN.msi' `
+  --artifact 'build/release/assets/Karios-STT-Desktop_0.1.0_x64-setup.exe' `
+  --artifact 'build/release/assets/Karios-STT-Desktop_0.1.0_x64_zh-CN.msi' `
   --authenticode-thumbprint $thumbprint `
+  --source-commit '<实际二进制源码提交>' `
+  --additional-evidence 'build/signing/Karios-Desktop-TEST-ONLY.cer' `
   --require-updater-signature
 ```
 
-输出位于 `build/release/`，包含应用标识、版本、Git commit、公开证书指纹、签名顺序、每个安装包和 `.sig` 的大小与 SHA-256，以及依赖清单/SBOM 哈希。
+输出位于 `build/release/`，包含应用标识、版本、实际二进制源码 commit、公开证书指纹、签名顺序、每个安装包和 `.sig` 的大小与 SHA-256，以及公开 CER、依赖清单和 SBOM 哈希。`SHA256SUMS.txt` 覆盖所有这些可下载文件。
+
+GitHub Release 资产名使用 ASCII，避免托管平台将中文文件名归一化后与 manifest 不一致。安装后的 Windows 产品名和安装包界面仍保持“时奕教务排课”。`--source-commit` 适用于构建后只追加文档提交的场景；生成器会通过 Git 验证其确实解析为 commit，不接受任意未验证字符串。
 
 生成器要求制品是存在的 `.exe` 或 `.msi`；使用 `--require-updater-signature` 时，缺少同名 `.sig` 会失败。它不自行声称 Authenticode 有效，正式发布仍必须先保存验签日志或 SignPath 审批证据。
 

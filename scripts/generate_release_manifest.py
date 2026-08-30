@@ -46,9 +46,10 @@ def artifact_record(path: Path, require_signature: bool) -> dict:
     return record
 
 
-def repository_commit() -> str:
+def repository_commit(revision: str | None = None) -> str:
+    requested = revision or "HEAD"
     result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
+        ["git", "rev-parse", "--verify", f"{requested}^{{commit}}"],
         cwd=ROOT,
         check=True,
         capture_output=True,
@@ -56,6 +57,28 @@ def repository_commit() -> str:
         encoding="utf-8",
     )
     return result.stdout.strip()
+
+
+def evidence_record(path: Path) -> dict:
+    resolved = path.expanduser().resolve()
+    if not resolved.is_file():
+        raise ValueError(f"发布证据文件不存在: {resolved}")
+    sha256, size = digest(resolved)
+    return {"fileName": resolved.name, "sizeBytes": size, "sha256": sha256}
+
+
+def checksum_records(payload: dict) -> list[dict]:
+    records: list[dict] = []
+    for artifact in payload["artifacts"]:
+        records.append(artifact)
+        if artifact.get("updaterSignature"):
+            records.append(artifact["updaterSignature"])
+    records.extend(payload["complianceEvidence"])
+    records.extend(payload["additionalEvidence"])
+    names = [record["fileName"] for record in records]
+    if len(names) != len(set(names)):
+        raise ValueError("发布制品或证据文件名重复")
+    return records
 
 
 def main() -> int:
@@ -68,6 +91,17 @@ def main() -> int:
     )
     parser.add_argument("--authenticode-thumbprint", required=True)
     parser.add_argument("--require-updater-signature", action="store_true")
+    parser.add_argument(
+        "--source-commit",
+        help="构建二进制所使用的 Git commit；默认使用当前 HEAD",
+    )
+    parser.add_argument(
+        "--additional-evidence",
+        action="append",
+        type=Path,
+        default=[],
+        help="加入 manifest 和 SHA256SUMS 的公开证据文件，例如测试 CER",
+    )
     args = parser.parse_args()
 
     tauri = json.loads(
@@ -93,7 +127,7 @@ def main() -> int:
         },
         "source": {
             "repository": "https://github.com/DepartureZSH/AcademicAffairsSystemDesk",
-            "commit": repository_commit(),
+            "commit": repository_commit(args.source_commit),
         },
         "signing": {
             "authenticodeThumbprint": args.authenticode_thumbprint.replace(" ", "").upper(),
@@ -106,6 +140,9 @@ def main() -> int:
             for path in args.artifact
         ],
         "complianceEvidence": evidence,
+        "additionalEvidence": [
+            evidence_record(path) for path in args.additional_evidence
+        ],
     }
     output = args.output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -113,7 +150,7 @@ def main() -> int:
     checksums = output.with_name("SHA256SUMS.txt")
     lines = [
         f'{item["sha256"]}  {item["fileName"]}'
-        for item in [*payload["artifacts"], *payload["complianceEvidence"]]
+        for item in checksum_records(payload)
     ]
     checksums.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"release manifest: {output}")
