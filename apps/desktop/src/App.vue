@@ -9,6 +9,7 @@ import SchedulingView from "./components/SchedulingView.vue";
 import TimetableView from "./components/TimetableView.vue";
 import BackupsView from "./components/BackupsView.vue";
 import ImportView from "./components/ImportView.vue";
+import AboutView from "./components/AboutView.vue";
 import { accessGate, type GateStatus } from "./lib/accessGate";
 import { updater, type UpdateStatus } from "./lib/updater";
 import { savedWorkspacePath, saveWorkspacePath } from "./lib/workspaceSettings";
@@ -35,6 +36,7 @@ const navItems: NavItem[] = [
   { key: "scheduling", label: "排课运行", enabled: true },
   { key: "timetables", label: "课表与导出", enabled: true },
   { key: "backups", label: "备份恢复", enabled: true },
+  { key: "about", label: "关于与开源", enabled: true },
 ];
 
 const gate = ref<GateStatus | null>(null);
@@ -76,6 +78,7 @@ const licenseExpiry = computed(() => {
 });
 
 const pageTitle = computed(() => {
+  if (activeView.value === "about") return "关于与开源";
   if (!gate.value?.canStartSidecar) return "身份与设备授权";
   if (activeView.value === "calendar") return "学期与作息";
   if (activeView.value === "school") return "基础资料";
@@ -397,7 +400,7 @@ onMounted(bootstrapGate);
           :key="item.key"
           class="nav-item"
           :class="{ active: item.key === activeView }"
-          :disabled="!item.enabled || !gate?.canStartSidecar || (item.key !== 'workspace' && !currentProject)"
+          :disabled="!item.enabled || (item.key !== 'about' && (!gate?.canStartSidecar || (item.key !== 'workspace' && !currentProject)))"
           @click="activeView = item.key"
         >
           <span>{{ item.label }}</span><small v-if="!item.enabled">实施中</small>
@@ -433,6 +436,8 @@ onMounted(bootstrapGate);
       <div v-if="gateBusy && !gate" class="state-panel">
         <div class="spinner"></div><h2>正在检查身份与设备授权</h2><p>令牌和设备私钥只从系统凭据库读取…</p>
       </div>
+
+      <AboutView v-else-if="activeView === 'about'" />
 
       <section v-else-if="!gate?.auth.configured" class="auth-layout">
         <article class="auth-card warning-card">

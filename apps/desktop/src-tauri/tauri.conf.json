@@ -43,7 +43,14 @@
     "icon": ["icons/icon.ico"],
     "externalBin": ["binaries/stt-sidecar"],
     "resources": {
-      "../../../config/services.yaml": "config/services.yaml"
+      "../../../config/services.yaml": "config/services.yaml",
+      "../../../LICENSE": "legal/LICENSE.txt",
+      "../../../NOTICE": "legal/NOTICE.txt",
+      "../../../PRIVACY.md": "legal/PRIVACY.md",
+      "../../../SECURITY.md": "legal/SECURITY.md",
+      "../../../TRADEMARKS.md": "legal/TRADEMARKS.md",
+      "../../../CODE_SIGNING_POLICY.md": "legal/CODE_SIGNING_POLICY.md",
+      "../../../THIRD_PARTY_NOTICES.md": "legal/THIRD_PARTY_NOTICES.md"
     },
     "publisher": "杭州格若时科技有限公司",
     "copyright": "Copyright © 2026 杭州格若时科技有限公司",
