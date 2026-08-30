@@ -4,15 +4,19 @@ version = "0.1.0"
 description = "Local-first desktop timetable scheduling application"
 requires-python = ">=3.12,<3.14"
 dependencies = [
+  "fastapi==0.116.1",
   "psycopg[binary]==3.2.9",
   "PyYAML==6.0.2",
+  "uvicorn==0.35.0",
 ]
 
 [project.scripts]
 stt-desktop = "stt_desktop.cli:main"
+stt-sidecar = "stt_desktop.sidecar_main:main"
 
 [project.optional-dependencies]
 dev = [
+  "httpx==0.28.1",
   "pytest==8.3.5",
   "ruff==0.12.10",
 ]

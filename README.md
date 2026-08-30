@@ -23,6 +23,8 @@ uv run pytest
 
 已有网页版 Supabase 项目可通过 `scripts/import-local-supabase.ps1` 只读迁入本地 SQLite，操作和字段边界见 [`docs/desktop/09-网页版数据本地迁移.md`](./docs/desktop/09-网页版数据本地迁移.md)。
 
+本地服务通过回环随机端口和一次性令牌向 Tauri 提供项目 API，协议与安全边界见 [`docs/desktop/10-本地Sidecar协议实现.md`](./docs/desktop/10-本地Sidecar协议实现.md)。
+
 ## 开源许可证
 
 源代码采用 [Apache License 2.0](./LICENSE)。项目名称、图标、官方发布渠道和代码签名身份不随该许可证授权；第三方构建不得冒充官方发行版。

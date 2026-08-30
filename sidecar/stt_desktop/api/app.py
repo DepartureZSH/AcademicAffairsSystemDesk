@@ -1,0 +1,290 @@
+from __future__ import annotations
+
+import hmac
+import ipaddress
+import sqlite3
+import threading
+import uuid
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, ConfigDict, Field
+
+from stt_desktop.service_config import AppServiceConfig
+from stt_desktop.storage import (
+    ProjectError,
+    ProjectLockedError,
+    ProjectRepository,
+    ProjectSchemaTooNewError,
+    ProjectWorkspace,
+    RevisionConflictError,
+)
+from stt_desktop.storage.schema import SCHEMA_VERSION
+
+PROTOCOL_VERSION = "1"
+DEFAULT_ALLOWED_ORIGINS = frozenset(
+    {"tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"}
+)
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class EntityWriteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=0)
+    data: dict[str, Any]
+
+
+@dataclass
+class SidecarState:
+    workspace: ProjectWorkspace
+    services: AppServiceConfig
+    current_project: ProjectRepository | None = None
+    lock: threading.RLock = field(default_factory=threading.RLock)
+
+    def close_current(self) -> None:
+        with self.lock:
+            if self.current_project is not None:
+                self.current_project.close()
+                self.current_project = None
+
+    def require_project(self) -> ProjectRepository:
+        with self.lock:
+            if self.current_project is None:
+                raise HTTPException(status_code=409, detail=("NO_PROJECT_OPEN", "当前没有打开项目"))
+            return self.current_project
+
+
+def _is_loopback(host: str | None) -> bool:
+    if not host:
+        return False
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _error_response(
+    status_code: int,
+    code: str,
+    message: str,
+    correlation_id: str,
+    details: dict[str, Any] | None = None,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "code": code,
+                "message": message,
+                "details": details or {},
+                "correlationId": correlation_id,
+            }
+        },
+        headers={"X-Correlation-ID": correlation_id},
+    )
+
+
+def create_app(
+    *,
+    workspace: ProjectWorkspace,
+    services: AppServiceConfig,
+    session_token: str,
+    allowed_origins: frozenset[str] = DEFAULT_ALLOWED_ORIGINS,
+    enforce_loopback: bool = True,
+) -> FastAPI:
+    if len(session_token.encode("utf-8")) < 32:
+        raise ValueError("sidecar 会话令牌至少需要 256 位熵")
+    state = SidecarState(workspace=workspace, services=services)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        yield
+        state.close_current()
+
+    app = FastAPI(
+        title="时奕教务排课本地服务",
+        version=PROTOCOL_VERSION,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
+    )
+    app.state.sidecar = state
+
+    @app.middleware("http")
+    async def secure_local_request(request: Request, call_next):
+        correlation_id = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+        if enforce_loopback and not _is_loopback(request.client.host if request.client else None):
+            return _error_response(403, "NON_LOOPBACK_CLIENT", "只允许本机回环请求", correlation_id)
+        origin = request.headers.get("Origin")
+        if origin is not None and origin not in allowed_origins:
+            return _error_response(403, "ORIGIN_REJECTED", "请求 Origin 不在白名单", correlation_id)
+        authorization = request.headers.get("Authorization", "")
+        supplied = authorization[7:] if authorization.startswith("Bearer ") else ""
+        if not supplied or not hmac.compare_digest(supplied, session_token):
+            return _error_response(401, "SESSION_TOKEN_INVALID", "本机会话令牌无效", correlation_id)
+        request.state.correlation_id = correlation_id
+        response = await call_next(request)
+        response.headers["X-Correlation-ID"] = correlation_id
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.exception_handler(RevisionConflictError)
+    async def revision_conflict(request: Request, error: RevisionConflictError):
+        return _error_response(
+            409,
+            "REVISION_CONFLICT",
+            str(error),
+            request.state.correlation_id,
+            {"expected": error.expected, "actual": error.actual},
+        )
+
+    @app.exception_handler(ProjectLockedError)
+    async def project_locked(request: Request, error: ProjectLockedError):
+        return _error_response(
+            423, "PROJECT_LOCKED", str(error), request.state.correlation_id
+        )
+
+    @app.exception_handler(ProjectSchemaTooNewError)
+    async def schema_too_new(request: Request, error: ProjectSchemaTooNewError):
+        return _error_response(
+            409, "PROJECT_SCHEMA_TOO_NEW", str(error), request.state.correlation_id
+        )
+
+    @app.exception_handler(ProjectError)
+    async def project_error(request: Request, error: ProjectError):
+        return _error_response(400, "PROJECT_ERROR", str(error), request.state.correlation_id)
+
+    @app.exception_handler(sqlite3.IntegrityError)
+    async def data_integrity_error(request: Request, _: sqlite3.IntegrityError):
+        return _error_response(
+            400,
+            "DATA_INTEGRITY_ERROR",
+            "数据违反唯一性、引用或范围约束",
+            request.state.correlation_id,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, error: RequestValidationError):
+        safe_details = [
+            {"location": list(item["loc"]), "type": item["type"], "message": item["msg"]}
+            for item in error.errors()
+        ]
+        return _error_response(
+            422,
+            "REQUEST_INVALID",
+            "请求参数无效",
+            request.state.correlation_id,
+            {"issues": safe_details},
+        )
+
+    @app.exception_handler(HTTPException)
+    async def http_error(request: Request, error: HTTPException):
+        if isinstance(error.detail, tuple) and len(error.detail) == 2:
+            code, message = error.detail
+        else:
+            code, message = "HTTP_ERROR", str(error.detail)
+        return _error_response(error.status_code, code, message, request.state.correlation_id)
+
+    @app.exception_handler(Exception)
+    async def unexpected_error(request: Request, _: Exception):
+        return _error_response(
+            500,
+            "INTERNAL_ERROR",
+            "本地服务发生未预期错误",
+            request.state.correlation_id,
+        )
+
+    @app.get("/v1/health")
+    async def health() -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "protocolVersion": PROTOCOL_VERSION,
+            "schemaVersion": SCHEMA_VERSION,
+            "serviceModes": {
+                name: service.mode for name, service in services.services.items()
+            },
+            "projectOpen": state.current_project is not None,
+        }
+
+    @app.get("/v1/projects")
+    async def list_projects() -> dict[str, Any]:
+        return {"projects": workspace.list_projects()}
+
+    @app.post("/v1/projects", status_code=201)
+    async def create_project(request: ProjectCreateRequest) -> dict[str, Any]:
+        with state.lock:
+            state.close_current()
+            state.current_project = workspace.create_project(request.name)
+            return {
+                "project": state.current_project.project_info(),
+                "revision": state.current_project.revision,
+            }
+
+    @app.post("/v1/projects/{project_id}/open")
+    async def open_project(project_id: str) -> dict[str, Any]:
+        with state.lock:
+            current = state.current_project
+            if current and current.project_info()["id"] == project_id:
+                return {"project": current.project_info(), "revision": current.revision}
+            state.close_current()
+            state.current_project = workspace.open_project(project_id)
+            return {
+                "project": state.current_project.project_info(),
+                "revision": state.current_project.revision,
+            }
+
+    @app.post("/v1/projects/current/close", status_code=204, response_class=Response)
+    async def close_project() -> Response:
+        state.close_current()
+        return Response(status_code=204)
+
+    @app.get("/v1/projects/current")
+    async def current_project() -> dict[str, Any]:
+        project = state.require_project()
+        return {"project": project.project_info(), "revision": project.revision}
+
+    @app.get("/v1/data/{entity_type}")
+    async def list_entities(entity_type: str) -> dict[str, Any]:
+        project = state.require_project()
+        return {
+            "items": project.list_entities(entity_type),
+            "revision": project.revision,
+        }
+
+    @app.get("/v1/data/{entity_type}/{entity_id}")
+    async def get_entity(entity_type: str, entity_id: str) -> dict[str, Any]:
+        project = state.require_project()
+        entity = project.get_entity(entity_type, entity_id)
+        if entity is None:
+            raise HTTPException(status_code=404, detail=("ENTITY_NOT_FOUND", "实体不存在"))
+        return {"item": entity, "revision": project.revision}
+
+    @app.put("/v1/data/{entity_type}")
+    async def save_entity(entity_type: str, request: EntityWriteRequest) -> dict[str, Any]:
+        project = state.require_project()
+        item, revision = project.save_entity(
+            entity_type, request.data, request.expected_revision
+        )
+        return {"item": item, "revision": revision}
+
+    @app.delete("/v1/data/{entity_type}/{entity_id}")
+    async def delete_entity(
+        entity_type: str,
+        entity_id: str,
+        expected_revision: int = Query(ge=0),
+    ) -> dict[str, Any]:
+        project = state.require_project()
+        revision = project.delete_entity(entity_type, entity_id, expected_revision)
+        return {"deletedId": entity_id, "revision": revision}
+
+    return app
