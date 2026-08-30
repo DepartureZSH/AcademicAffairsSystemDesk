@@ -1,0 +1,47 @@
+from __future__ import annotations
+
+import json
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "generate_release_manifest.py"
+SPEC = importlib.util.spec_from_file_location("generate_release_manifest", SCRIPT_PATH)
+assert SPEC and SPEC.loader
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+artifact_record = MODULE.artifact_record
+digest = MODULE.digest
+
+
+def test_release_artifact_record_requires_installer_and_updater_signature(
+    tmp_path: Path,
+) -> None:
+    installer = tmp_path / "时奕教务排课.exe"
+    installer.write_bytes(b"signed-installer-bytes")
+
+    with pytest.raises(ValueError, match="updater 签名"):
+        artifact_record(installer, require_signature=True)
+
+    signature = Path(f"{installer}.sig")
+    signature.write_text("untrusted comment: test\n", encoding="utf-8")
+    record = artifact_record(installer, require_signature=True)
+
+    assert record["fileName"] == installer.name
+    assert record["sha256"] == digest(installer)[0]
+    assert record["updaterSignature"]["fileName"] == signature.name
+    assert len(record["updaterSignature"]["sha256"]) == 64
+
+
+def test_cyclonedx_sbom_has_one_component_per_inventory_package() -> None:
+    root = Path(__file__).resolve().parents[1]
+    inventory_path = root / "build" / "compliance" / "dependency-inventory.json"
+    sbom_path = root / "build" / "compliance" / "dependency-sbom.cdx.json"
+    if not inventory_path.is_file() or not sbom_path.is_file():
+        pytest.skip("先运行依赖清单生成器")
+    inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+    sbom = json.loads(sbom_path.read_text(encoding="utf-8"))
+    assert sbom["bomFormat"] == "CycloneDX"
+    assert sbom["specVersion"] == "1.6"
+    assert len(sbom["components"]) == inventory["packageCount"]

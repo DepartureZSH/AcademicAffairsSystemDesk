@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "build" / "compliance" / "dependency-inventory.json"
+CYCLONEDX_OUTPUT = ROOT / "build" / "compliance" / "dependency-sbom.cdx.json"
 
 
 def python_packages() -> list[dict[str, str]]:
@@ -90,7 +91,45 @@ def main() -> int:
     }
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    components = []
+    purl_types = {"python": "pypi", "npm": "npm", "cargo": "cargo"}
+    for item in packages:
+        component = {
+            "type": "library",
+            "bom-ref": f'{item["ecosystem"]}:{item["name"]}@{item["version"]}',
+            "name": item["name"],
+            "version": item["version"],
+            "purl": f'pkg:{purl_types[item["ecosystem"]]}/{item["name"]}@{item["version"]}',
+            "licenses": [{"license": {"name": item["license"]}}],
+            "properties": [
+                {"name": "tech.karios.ecosystem", "value": item["ecosystem"]}
+            ],
+        }
+        if item["source"]:
+            component["externalReferences"] = [
+                {"type": "distribution", "url": item["source"]}
+            ]
+        components.append(component)
+    cyclonedx = {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.6",
+        "version": 1,
+        "metadata": {
+            "component": {
+                "type": "application",
+                "bom-ref": "pkg:generic/tech.karios.stt.desktop@0.1.0",
+                "name": "时奕教务排课",
+                "version": "0.1.0",
+            }
+        },
+        "components": components,
+    }
+    CYCLONEDX_OUTPUT.write_text(
+        json.dumps(cyclonedx, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     print(f"dependency inventory: {OUTPUT} ({len(packages)} packages)")
+    print(f"CycloneDX SBOM: {CYCLONEDX_OUTPUT}")
     if missing:
         print("missing license metadata:")
         for item in missing:
