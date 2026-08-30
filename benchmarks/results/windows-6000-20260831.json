@@ -31,6 +31,22 @@
     "algorithmPath": "complete_zero_penalty_greedy",
     "solverStatus": "OPTIMAL_ZERO_LOWER_BOUND"
   },
+  "latestRevalidation": {
+    "recordedAt": "2026-08-31T06:09:29+08:00",
+    "sourceCommit": "44bca391c0e463504cf0cc436fb3335724dd867f",
+    "status": "succeeded",
+    "entryCount": 6000,
+    "hardViolations": 0,
+    "totalScore": 0,
+    "seedSeconds": 0.281,
+    "prepareSeconds": 1.717,
+    "solverSeconds": 23.871,
+    "persistSeconds": 0.174,
+    "candidateReadySeconds": 25.762,
+    "candidateActionCount": 240000,
+    "algorithmPath": "complete_zero_penalty_greedy",
+    "solverStatus": "OPTIMAL_ZERO_LOWER_BOUND"
+  },
   "baselineBeforeOptimization": {
     "candidateReadySeconds": 67.888,
     "modelBuildMs": 28948.8,

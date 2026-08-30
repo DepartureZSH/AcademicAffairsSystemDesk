@@ -2,16 +2,18 @@
 
 时奕教务排课是面向中小学的跨平台本地排课桌面应用。Windows 10/11 x64 为首发平台，桌面壳采用 Tauri 2，排课数据与算法完全保存在本机并在本机运行。
 
-当前仓库已进入桌面主体实施阶段。产品范围、架构、授权、测试、签名发布和人工准备要求见 [`docs/desktop`](./docs/desktop/)。
+当前仓库已完成本地桌面主体功能闭环，正在刷新 Windows 发布制品并等待外部许可证、支付、SMTP 和正式更新服务。产品范围、架构、授权、测试、签名发布和人工准备要求见 [`docs/desktop`](./docs/desktop/)。
 
 ## 当前状态
 
-- 已完成第一阶段需求和架构文档。
-- G0 本地开发环境与独立公开仓库已准备完成。
-- 已进入 `codex/desktop-local` 实施分支；外部依赖由 `config/services.yaml` 分项切换 real/mock。
-- 已建立 Tauri 2 + Vue 3 桌面壳、安全 Sidecar 生命周期和本地项目工作台。
-- 已开放学期作息与基础资料的本地增删改查，写入采用项目 revision 冲突保护。
-- 已开放课程计划、教学任务/课次自动展开和本地约束配置。
+- Tauri 2 + Vue 3 桌面壳、安全 Sidecar、版本化 SQLite、项目工作区和 Windows Credential Manager 门禁已接通。
+- 本地项目支持新建、打开、关闭、另存、归档、隔离回收、完整备份和恢复。
+- 学期作息、基础资料、课程计划、教学任务、可视化约束和批量导入已形成完整本地流程。
+- 自动排课、运行前预检、取消、Warm start、候选比较、手工调整和冲突诊断均在本机执行。
+- 班级/教师/教室/年级课表可导出 CSV、Excel、PDF、Problem XML 和 Solution XML。
+- 6000 课次基准在当前验收机 25.762 秒生成硬约束 0 的完整候选。
+- `config/services.yaml` 中身份和旧数据迁移源为本机真实 Supabase；许可证、支付、SMTP 和远程更新仍明确为 Mock，不能用于生产发行。
+- 最新需求追踪与未完成发布门槛见 [`docs/desktop/46-需求追踪与发布就绪审计.md`](./docs/desktop/46-需求追踪与发布就绪审计.md)。
 
 ## 开发基线
 
@@ -68,7 +70,7 @@ Supabase 登录、Windows Credential Manager、设备 Ed25519 密钥和 YAML Moc
 
 学年、学期、作息表、课节和学校基础资料的桌面流程见 [`docs/desktop/13-学期作息与基础资料实现.md`](./docs/desktop/13-学期作息与基础资料实现.md)。
 
-课程计划、教学任务、原子课次生成和约束配置见 [`docs/desktop/14-课程计划任务与约束实现.md`](./docs/desktop/14-课程计划任务与约束实现.md)。
+课程计划、教学任务、原子课次生成和可视化约束配置见 [`docs/desktop/14-课程计划任务与约束实现.md`](./docs/desktop/14-课程计划任务与约束实现.md) 与 [`docs/desktop/44-可视化约束参数与任务范围.md`](./docs/desktop/44-可视化约束参数与任务范围.md)。
 
 ## 开源许可证
 
