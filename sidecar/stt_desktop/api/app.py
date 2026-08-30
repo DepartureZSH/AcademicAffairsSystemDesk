@@ -14,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from stt_desktop.scheduling import SchedulingService
 from stt_desktop.service_config import AppServiceConfig
 from stt_desktop.storage import (
     ProjectError,
@@ -39,6 +40,15 @@ class EntityWriteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(ge=0)
     data: dict[str, Any]
+
+
+class SchedulingRoundRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    time_budget_seconds: int = Field(default=60, ge=10, le=1800)
+    random_seed: int = Field(default=0, ge=0, le=2_147_483_647)
+    session_id: str | None = None
+    parent_candidate_id: str | None = None
+    name: str | None = Field(default=None, max_length=200)
 
 
 @dataclass
@@ -294,5 +304,40 @@ def create_app(
         project = state.require_project()
         revision = project.delete_entity(entity_type, entity_id, expected_revision)
         return {"deletedId": entity_id, "revision": revision}
+
+    @app.post("/v1/scheduling/rounds", status_code=201)
+    async def run_scheduling_round(request: SchedulingRoundRequest) -> dict[str, Any]:
+        project = state.require_project()
+        result = SchedulingService(project).run_round(
+            time_budget_seconds=request.time_budget_seconds,
+            random_seed=request.random_seed,
+            session_id=request.session_id,
+            parent_candidate_id=request.parent_candidate_id,
+            name=request.name,
+        )
+        return {"round": result, "revision": project.revision}
+
+    @app.get("/v1/scheduling/sessions")
+    async def list_scheduling_sessions() -> dict[str, Any]:
+        project = state.require_project()
+        return {"items": SchedulingService(project).list_sessions(), "revision": project.revision}
+
+    @app.get("/v1/scheduling/rounds")
+    async def list_scheduling_rounds(session_id: str | None = None) -> dict[str, Any]:
+        project = state.require_project()
+        return {
+            "items": SchedulingService(project).list_rounds(session_id),
+            "revision": project.revision,
+        }
+
+    @app.get("/v1/scheduling/rounds/{round_id}")
+    async def get_scheduling_round(round_id: str) -> dict[str, Any]:
+        project = state.require_project()
+        return {"round": SchedulingService(project).get_round(round_id), "revision": project.revision}
+
+    @app.get("/v1/scheduling/candidates")
+    async def list_scheduling_candidates() -> dict[str, Any]:
+        project = state.require_project()
+        return {"items": SchedulingService(project).list_candidates(), "revision": project.revision}
 
     return app

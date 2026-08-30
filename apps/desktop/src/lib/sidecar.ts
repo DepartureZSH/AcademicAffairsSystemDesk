@@ -30,6 +30,26 @@ export interface EntityRecord {
   [key: string]: unknown;
 }
 
+export interface SchedulingRound extends Record<string, unknown> {
+  id: string;
+  session_id: string;
+  status: string;
+  candidate_id: string | null;
+  total_score: number | null;
+  error_message: string | null;
+  events?: Array<Record<string, unknown>>;
+}
+
+export interface SchedulingCandidate extends Record<string, unknown> {
+  id: string;
+  round_id: string;
+  session_id: string;
+  parent_candidate_id: string | null;
+  total_score: number;
+  entry_count: number;
+  created_at: string;
+}
+
 interface SidecarRequest {
   method: "GET" | "POST" | "PUT" | "DELETE";
   path: string;
@@ -111,5 +131,33 @@ export const localApi = {
       method: "PUT",
       path: "/v1/planning/tasks",
       body: { data, expected_revision: expectedRevision },
+    }),
+  runSchedulingRound: (options: {
+    timeBudgetSeconds: number;
+    randomSeed: number;
+    sessionId?: string;
+    parentCandidateId?: string;
+    name?: string;
+  }) =>
+    sidecarRequest<{ round: SchedulingRound; revision: number }>({
+      method: "POST",
+      path: "/v1/scheduling/rounds",
+      body: {
+        time_budget_seconds: options.timeBudgetSeconds,
+        random_seed: options.randomSeed,
+        session_id: options.sessionId,
+        parent_candidate_id: options.parentCandidateId,
+        name: options.name,
+      },
+    }),
+  listSchedulingRounds: (sessionId?: string) =>
+    sidecarRequest<{ items: SchedulingRound[]; revision: number }>({
+      method: "GET",
+      path: `/v1/scheduling/rounds${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""}`,
+    }),
+  listSchedulingCandidates: () =>
+    sidecarRequest<{ items: SchedulingCandidate[]; revision: number }>({
+      method: "GET",
+      path: "/v1/scheduling/candidates",
     }),
 };

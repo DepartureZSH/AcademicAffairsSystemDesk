@@ -142,3 +142,27 @@ def test_planning_task_endpoint_generates_lessons_atomically(tmp_path: Path) -> 
         assert response.status_code == 200
         assert response.json()["revision"] == revision + 1
         assert [item["duration_slots"] for item in response.json()["lessons"]] == [2, 2, 1]
+
+
+def test_scheduling_endpoint_returns_infeasible_diagnostics_without_candidate(
+    tmp_path: Path,
+) -> None:
+    with client(tmp_path) as api:
+        api.post("/v1/projects", headers=headers(), json={"name": "空排课 API"})
+
+        response = api.post(
+            "/v1/scheduling/rounds",
+            headers=headers(),
+            json={"time_budget_seconds": 10, "random_seed": 3},
+        )
+
+        assert response.status_code == 201
+        round_data = response.json()["round"]
+        assert round_data["status"] == "infeasible"
+        assert round_data["candidate_id"] is None
+        assert any(
+            item["event_type"] == "infeasible_diagnostics"
+            for item in round_data["events"]
+        )
+        candidates = api.get("/v1/scheduling/candidates", headers=headers())
+        assert candidates.json()["items"] == []

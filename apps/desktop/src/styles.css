@@ -126,6 +126,13 @@ nav { display: grid; gap: 7px; }
 .check-label input { width: auto; margin: 0; }
 .invariant-banner { display: flex; gap: 14px; align-items: center; padding: 12px 15px; margin: -3px 0 16px; border: 1px solid #cfe0d8; border-radius: 11px; background: #e9f3ee; color: #456258; font-size: 12px; }
 .invariant-banner strong { color: #1d5c47; white-space: nowrap; }
+.candidate-row { width: 100%; border: 0; border-bottom: 1px solid #edf1ef; background: transparent; color: inherit; text-align: left; }
+.candidate-row:hover, .candidate-row.selected { background: #f1f7f4; color: #1f624d; }
+.candidate-row b { font-size: 11px; color: #2a705c; }
+.form-copy { color: #71837c; font-size: 11px; line-height: 1.6; }
+.run-result-panel, .history-panel { margin-top: 18px; }
+.run-result-panel.error-panel { border-color: #edcaca; background: #fffafa; }
+.diagnostic-list { color: #7f3939; font-size: 12px; line-height: 1.7; }
 
 @media (max-width: 1120px) {
   .hero-card { grid-template-columns: 1fr; }
