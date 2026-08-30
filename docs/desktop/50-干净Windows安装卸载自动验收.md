@@ -2,7 +2,7 @@
 
 ## 1. 结论
 
-GitHub Actions run [33340113534](https://github.com/DepartureZSH/AcademicAffairsSystemDesk/actions/runs/33340113534) 在三个全新 Windows Runner 上验证 `v0.1.0-test.1`：
+GitHub Actions run [33340232106](https://github.com/DepartureZSH/AcademicAffairsSystemDesk/actions/runs/33340232106) 在三个全新 Windows Runner 上验证 `v0.1.0-test.1`：
 
 | 系统 | Runner 架构 | x64 安装包 | 结果 |
 | --- | --- | --- | --- |

@@ -51,6 +51,7 @@
       "../../../TRADEMARKS.md": "legal/TRADEMARKS.md",
       "../../../CODE_SIGNING_POLICY.md": "legal/CODE_SIGNING_POLICY.md",
       "../../../THIRD_PARTY_NOTICES.md": "legal/THIRD_PARTY_NOTICES.md",
+      "../../../sidecar/stt_desktop/assets/fonts/OFL-1.1.txt": "legal/Noto-Sans-SC-OFL-1.1.txt",
       "../../../fixtures/mock/purchase.html": "mock/purchase.html"
     },
     "publisher": "杭州格若时科技有限公司",

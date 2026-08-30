@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import hashlib
 import json
 import os
 import subprocess
@@ -10,6 +11,29 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "build" / "compliance" / "dependency-inventory.json"
 CYCLONEDX_OUTPUT = ROOT / "build" / "compliance" / "dependency-sbom.cdx.json"
+FONT_PATH = ROOT / "sidecar" / "stt_desktop" / "assets" / "fonts" / "NotoSansSC-VF.ttf"
+FONT_SHA256 = "D68BAFCB48A2707749396AA12BBBD833CB70401F3A9A689FD2902C7E0D295964"
+FONT_SIZE = 17_773_132
+
+
+def bundled_assets() -> list[dict[str, object]]:
+    if not FONT_PATH.is_file():
+        raise FileNotFoundError("缺少受审计的 Noto Sans SC 字体")
+    digest = hashlib.sha256(FONT_PATH.read_bytes()).hexdigest().upper()
+    size = FONT_PATH.stat().st_size
+    if digest != FONT_SHA256 or size != FONT_SIZE:
+        raise ValueError("Noto Sans SC 字体大小或 SHA-256 与受审计来源不符")
+    return [
+        {
+            "ecosystem": "asset",
+            "name": "Noto Sans SC Variable",
+            "version": "2.004",
+            "license": "OFL-1.1",
+            "source": "https://github.com/notofonts/noto-cjk/tree/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/Variable/TTF/Subset",
+            "sha256": FONT_SHA256,
+            "sizeBytes": FONT_SIZE,
+        }
+    ]
 
 
 def python_packages() -> list[dict[str, str]]:
@@ -81,7 +105,7 @@ def cargo_packages() -> list[dict[str, str]]:
 
 
 def main() -> int:
-    packages = python_packages() + npm_packages() + cargo_packages()
+    packages = python_packages() + npm_packages() + cargo_packages() + bundled_assets()
     missing = [f'{item["ecosystem"]}:{item["name"]}@{item["version"]}' for item in packages if not item["license"]]
     payload = {
         "format": "tech.karios.dependency-inventory/v1",
@@ -95,16 +119,24 @@ def main() -> int:
     purl_types = {"python": "pypi", "npm": "npm", "cargo": "cargo"}
     for item in packages:
         component = {
-            "type": "library",
+            "type": "file" if item["ecosystem"] == "asset" else "library",
             "bom-ref": f'{item["ecosystem"]}:{item["name"]}@{item["version"]}',
             "name": item["name"],
             "version": item["version"],
-            "purl": f'pkg:{purl_types[item["ecosystem"]]}/{item["name"]}@{item["version"]}',
             "licenses": [{"license": {"name": item["license"]}}],
             "properties": [
                 {"name": "tech.karios.ecosystem", "value": item["ecosystem"]}
             ],
         }
+        if item["ecosystem"] == "asset":
+            component["hashes"] = [{"alg": "SHA-256", "content": item["sha256"]}]
+            component["properties"].append(
+                {"name": "tech.karios.sizeBytes", "value": str(item["sizeBytes"])}
+            )
+        else:
+            component["purl"] = (
+                f'pkg:{purl_types[item["ecosystem"]]}/{item["name"]}@{item["version"]}'
+            )
         if item["source"]:
             component["externalReferences"] = [
                 {"type": "distribution", "url": item["source"]}

@@ -16,6 +16,16 @@ checksum_records = MODULE.checksum_records
 digest = MODULE.digest
 evidence_record = MODULE.evidence_record
 
+INVENTORY_SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "generate_dependency_inventory.py"
+)
+INVENTORY_SPEC = importlib.util.spec_from_file_location(
+    "generate_dependency_inventory", INVENTORY_SCRIPT_PATH
+)
+assert INVENTORY_SPEC and INVENTORY_SPEC.loader
+INVENTORY_MODULE = importlib.util.module_from_spec(INVENTORY_SPEC)
+INVENTORY_SPEC.loader.exec_module(INVENTORY_MODULE)
+
 
 def test_release_artifact_record_requires_installer_and_updater_signature(
     tmp_path: Path,
@@ -88,3 +98,19 @@ def test_cyclonedx_sbom_has_one_component_per_inventory_package() -> None:
     assert sbom["bomFormat"] == "CycloneDX"
     assert sbom["specVersion"] == "1.6"
     assert len(sbom["components"]) == inventory["packageCount"]
+
+
+def test_bundled_font_matches_audited_asset_metadata() -> None:
+    records = INVENTORY_MODULE.bundled_assets()
+
+    assert records == [
+        {
+            "ecosystem": "asset",
+            "name": "Noto Sans SC Variable",
+            "version": "2.004",
+            "license": "OFL-1.1",
+            "source": "https://github.com/notofonts/noto-cjk/tree/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/Variable/TTF/Subset",
+            "sha256": "D68BAFCB48A2707749396AA12BBBD833CB70401F3A9A689FD2902C7E0D295964",
+            "sizeBytes": 17_773_132,
+        }
+    ]

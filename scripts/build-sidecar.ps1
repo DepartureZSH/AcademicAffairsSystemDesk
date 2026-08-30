@@ -10,6 +10,9 @@ $binaryDirectory = Join-Path $tauriDirectory 'binaries'
 $workDirectory = Join-Path $repositoryRoot 'build\sidecar\work'
 $specDirectory = Join-Path $repositoryRoot 'build\sidecar\spec'
 $distDirectory = Join-Path $repositoryRoot 'build\sidecar\dist'
+$fontDirectory = Join-Path $repositoryRoot 'sidecar\stt_desktop\assets\fonts'
+$fontPath = Join-Path $fontDirectory 'NotoSansSC-VF.ttf'
+$fontLicensePath = Join-Path $fontDirectory 'OFL-1.1.txt'
 
 $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
 $rustc = Join-Path $cargoBin 'rustc.exe'
@@ -22,6 +25,10 @@ if (-not $targetTriple) {
 }
 
 New-Item -ItemType Directory -Force -Path $binaryDirectory, $workDirectory, $specDirectory, $distDirectory | Out-Null
+if (-not (Test-Path -LiteralPath $fontPath -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $fontLicensePath -PathType Leaf)) {
+    throw '冻结 Sidecar 前必须存在受审计的 Noto Sans SC 字体及 OFL-1.1 许可证。'
+}
 if (-not $SkipSync) {
     Push-Location $repositoryRoot
     try {
@@ -32,6 +39,7 @@ if (-not $SkipSync) {
 }
 
 $binaryName = "stt-sidecar-$targetTriple"
+$fontData = "$fontDirectory$([IO.Path]::PathSeparator)stt_desktop/assets/fonts"
 Push-Location $repositoryRoot
 try {
     & uv run --extra build --extra dev pyinstaller `
@@ -41,6 +49,7 @@ try {
         --console `
         --name $binaryName `
         --paths (Join-Path $repositoryRoot 'sidecar') `
+        --add-data $fontData `
         --collect-all ortools `
         --workpath $workDirectory `
         --specpath $specDirectory `

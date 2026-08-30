@@ -413,7 +413,11 @@ class ExportService:
         existing = set(pdfmetrics.getRegisteredFontNames())
         if "KariosCJK" in existing:
             return "KariosCJK"
+        package_font = (
+            Path(__file__).resolve().parents[1] / "assets" / "fonts" / "NotoSansSC-VF.ttf"
+        )
         candidates = (
+            package_font,
             Path("C:/Windows/Fonts/msyh.ttc"),
             Path("C:/Windows/Fonts/simhei.ttf"),
             Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
@@ -427,7 +431,7 @@ class ExportService:
                 return "KariosCJK"
             except Exception:
                 continue
-        raise ProjectError("未找到可用于中文 PDF 的系统字体（微软雅黑、黑体、Noto Sans CJK 或苹方）")
+        raise ProjectError("内置 Noto Sans SC 字体不可用，且未找到兼容的系统 CJK 字体")
 
     @staticmethod
     def _file_digest(path: Path) -> tuple[str, int]:
