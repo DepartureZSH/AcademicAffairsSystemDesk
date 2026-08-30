@@ -111,6 +111,9 @@ nav { display: grid; gap: 7px; }
 .compact-form input:focus, .compact-form select:focus, .compact-form textarea:focus { border-color: #2d7862; box-shadow: 0 0 0 3px rgba(45,120,98,.1); }
 .compact-form label { color: #536c63; font-size: 11px; }
 .compact-form label input { margin-top: 5px; }
+.compact-form label select { margin-top: 5px; }
+.compact-form .multi-select { min-height: 82px; padding: 5px; }
+.compact-form .task-select { min-height: 118px; }
 .compact-form .primary-button { margin-top: 2px; }
 .inline-fields { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
 .data-list { margin-top: 15px; border-top: 1px solid #edf1ef; max-height: 210px; overflow: auto; }
@@ -123,6 +126,7 @@ nav { display: grid; gap: 7px; }
 .row-actions { display: flex; gap: 7px; }
 .row-actions button { border: 0; background: transparent; color: #2b6c58; font-size: 11px; padding: 3px; }
 .row-actions button.danger-action { color: #a14b4b; }
+.row-actions button:disabled { color: #9aa8a3; cursor: not-allowed; }
 .data-tabs { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 18px; }
 .data-tabs button { border: 1px solid #d5e0db; background: white; color: #526b62; border-radius: 99px; padding: 8px 13px; }
 .data-tabs button.active { background: #215f4d; color: white; border-color: #215f4d; }

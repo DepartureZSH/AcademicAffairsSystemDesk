@@ -654,6 +654,154 @@ def test_hard_preferred_period_removes_nonpreferred_options(tmp_path: Path) -> N
         project.close()
 
 
+def test_hard_preferred_period_only_applies_to_selected_teaching_task(
+    tmp_path: Path,
+) -> None:
+    project, _, first_lessons = seed_project(tmp_path, slot_count=2)
+    try:
+        _, revision = project.save_entity(
+            "teacher",
+            {"id": "teacher-2", "name": "教师二"},
+            project.revision,
+        )
+        _, revision = project.save_entity(
+            "subject",
+            {"id": "subject-2", "name": "语文"},
+            revision,
+        )
+        _, revision = project.save_entity(
+            "homeroom",
+            {"id": "homeroom-2", "term_id": "term-1", "name": "二班"},
+            revision,
+        )
+        _, second_lessons, revision = project.save_teaching_task_bundle(
+            {
+                "id": "task-2",
+                "term_id": "term-1",
+                "homeroom_id": "homeroom-2",
+                "subject_id": "subject-2",
+                "primary_teacher_id": "teacher-2",
+                "weekly_slots": 1,
+                "duration_slots": 1,
+                "status": "active",
+                "week_bits": "1" * 20,
+                "day_bits": "11111",
+            },
+            expected_revision=revision,
+        )
+        project.save_entity(
+            "time_slot",
+            {
+                "id": "day-2-preferred-slot",
+                "bell_schedule_id": "schedule-1",
+                "weekday": 2,
+                "period_index": 1,
+                "label": "周二第二节",
+                "start_slot": 1,
+                "length_slots": 1,
+                "start_time_minutes": 530,
+                "end_time_minutes": 570,
+            },
+            revision,
+        )
+        project.save_entity(
+            "availability_rule",
+            {
+                "entity_type": "lesson",
+                "entity_id": second_lessons[0]["id"],
+                "bell_schedule_id": "schedule-1",
+                "time_slot_id": "slot-0",
+                "required": 1,
+                "penalty": 0,
+                "reason": "第二个任务固定第一节",
+            },
+            project.revision,
+        )
+        project.save_entity(
+            "constraint",
+            {
+                "type": "preferred_periods",
+                "name": "数学只能第二节",
+                "severity": "hard",
+                "weight": 100,
+                "parameters": {
+                    "periods": [1],
+                    "teachingTaskIds": ["task-1"],
+                },
+            },
+            project.revision,
+        )
+
+        result = SchedulingService(project).run_round(time_budget_seconds=10)
+
+        assert result["status"] == "succeeded"
+        entries = project.connection.execute(
+            "SELECT task_lesson_id, start_slot FROM timetable_entries WHERE candidate_id = ?",
+            (result["candidate_id"],),
+        ).fetchall()
+        first_ids = {lesson["id"] for lesson in first_lessons}
+        assert {
+            item["start_slot"] for item in entries if item["task_lesson_id"] in first_ids
+        } == {1}
+        assert next(
+            item["start_slot"]
+            for item in entries
+            if item["task_lesson_id"] == second_lessons[0]["id"]
+        ) == 0
+    finally:
+        project.close()
+
+
+def test_scoped_daily_limit_validation_ignores_other_tasks(tmp_path: Path) -> None:
+    project, _, _ = seed_project(tmp_path, slot_count=3)
+    try:
+        _, revision = project.save_entity(
+            "subject",
+            {"id": "subject-2", "name": "语文"},
+            project.revision,
+        )
+        project.save_teaching_task_bundle(
+            {
+                "id": "task-2",
+                "term_id": "term-1",
+                "homeroom_id": "homeroom-1",
+                "subject_id": "subject-2",
+                "primary_teacher_id": "teacher-1",
+                "weekly_slots": 1,
+                "duration_slots": 1,
+                "status": "active",
+                "week_bits": "1" * 20,
+                "day_bits": "11111",
+            },
+            expected_revision=revision,
+        )
+        project.save_entity(
+            "constraint",
+            {
+                "type": "max_daily_lessons",
+                "name": "仅数学任务每日最多两节",
+                "severity": "hard",
+                "weight": 100,
+                "parameters": {
+                    "max": 2,
+                    "teachingTaskIds": ["task-1"],
+                },
+            },
+            project.revision,
+        )
+
+        result = SchedulingService(project).run_round(time_budget_seconds=10)
+
+        assert result["status"] == "succeeded"
+        assert result["hard_violations"] == 0
+        assert project.connection.execute(
+            "SELECT COUNT(*) FROM timetable_entries WHERE candidate_id = ?",
+            (result["candidate_id"],),
+        ).fetchone()[0] == 3
+    finally:
+        project.close()
+
+
 def test_manual_move_previews_conflict_and_creates_immutable_child(tmp_path: Path) -> None:
     project, _, _ = seed_project(tmp_path, slot_count=3)
     try:

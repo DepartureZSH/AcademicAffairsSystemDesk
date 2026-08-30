@@ -757,6 +757,16 @@ class SchedulingService:
             applicable = self._applicable_rules(
                 rules, task, lesson, str(schedule["id"]) if schedule else None
             )
+            applicable_preferences = [
+                preference
+                for preference in preferred_period_constraints
+                if (
+                    not preference["teaching_task_ids"]
+                    and not preference["lesson_ids"]
+                )
+                or task["id"] in preference["teaching_task_ids"]
+                or lesson["id"] in preference["lesson_ids"]
+            ]
             required_slot_ids = {rule["time_slot_id"] for rule in applicable if rule["required"] and rule.get("time_slot_id")}
             emitted_times: list[tuple[dict[str, str], set[str]]] = []
             for slot, window in _slot_windows(slots, duration):
@@ -767,7 +777,7 @@ class SchedulingService:
                 if any(
                     preference["required"]
                     and period_index not in preference["periods"]
-                    for preference in preferred_period_constraints
+                    for preference in applicable_preferences
                 ):
                     continue
                 if required_slot_ids and slot["id"] not in required_slot_ids:
@@ -780,7 +790,7 @@ class SchedulingService:
                 penalty = sum(int(rule["penalty"]) for rule in slot_rules if not rule["required"])
                 penalty += sum(
                     int(preference["weight"])
-                    for preference in preferred_period_constraints
+                    for preference in applicable_preferences
                     if not preference["required"]
                     and period_index not in preference["periods"]
                 )
@@ -896,6 +906,13 @@ class SchedulingService:
                     "required": constraint["severity"] == "hard",
                     "weight": max(0, int(constraint["weight"])),
                     "periods": periods,
+                    "teaching_task_ids": {
+                        str(value)
+                        for value in parameters.get("teachingTaskIds", [])
+                    },
+                    "lesson_ids": {
+                        str(value) for value in parameters.get("lessonIds", [])
+                    },
                 }
             )
         return result
@@ -914,12 +931,21 @@ class SchedulingService:
             parameters = json.loads(constraint["parameters"] or "{}")
             required = constraint["severity"] == "hard"
             penalty = int(constraint["weight"])
-            lesson_ids = [str(value) for value in parameters.get("lessonIds", []) if str(value) in all_lessons]
+            explicit_lesson_ids = [str(value) for value in parameters.get("lessonIds", []) if str(value) in all_lessons]
+            lesson_ids = list(explicit_lesson_ids)
             task_ids = [str(value) for value in parameters.get("teachingTaskIds", [])]
             for task_id in task_ids:
                 lesson_ids.extend(lessons_by_task.get(task_id, []))
             if constraint["type"] == "same_day_spacing":
-                targets = [lesson_ids] if lesson_ids else list(lessons_by_task.values())
+                targets = [
+                    lessons_by_task[task_id]
+                    for task_id in task_ids
+                    if task_id in lessons_by_task
+                ]
+                if explicit_lesson_ids:
+                    targets.append(explicit_lesson_ids)
+                if not targets:
+                    targets = list(lessons_by_task.values())
                 for index, target in enumerate(targets):
                     self._distribution(node, f"user-{constraint['id']}-{index}", "DifferentDays", target, required, penalty, constraint["name"], "custom")
             elif constraint["type"] in {"preferred_periods"}:
@@ -980,6 +1006,7 @@ class SchedulingService:
                 assignments.append(
                     {
                         "lessonId": node.attrib.get("id"),
+                        "taskId": task.get("id"),
                         "teacherId": task.get("primary_teacher_id"),
                         "homeroomId": task.get("homeroom_id"),
                         "weekday": weekday,
@@ -996,13 +1023,39 @@ class SchedulingService:
             parameters = json.loads(constraint["parameters"] or "{}")
             limit_key = "max" if constraint["type"] == "max_daily_lessons" else "maxConsecutive"
             limit = max(1, int(parameters.get(limit_key, 6 if limit_key == "max" else 3)))
+            selected_task_ids = {
+                str(value) for value in parameters.get("teachingTaskIds", [])
+            }
+            selected_lesson_ids = {
+                str(value) for value in parameters.get("lessonIds", [])
+            }
+            scoped_assignments = [
+                item
+                for item in assignments
+                if (
+                    not selected_task_ids
+                    and not selected_lesson_ids
+                )
+                or item["taskId"] in selected_task_ids
+                or item["lessonId"] in selected_lesson_ids
+            ]
+            resource_keys = {
+                "teacher": "teacherId",
+                "homeroom": "homeroomId",
+            }
+            selected_resource_type = str(parameters.get("resourceType") or "")
+            selected_resource_keys = (
+                [resource_keys[selected_resource_type]]
+                if selected_resource_type in resource_keys
+                else list(resource_keys.values())
+            )
             issues: list[dict[str, Any]] = []
-            for resource_key in ("teacherId", "homeroomId"):
-                resource_ids = {item[resource_key] for item in assignments if item.get(resource_key)}
+            for resource_key in selected_resource_keys:
+                resource_ids = {item[resource_key] for item in scoped_assignments if item.get(resource_key)}
                 for resource_id in resource_ids:
                     for weekday in range(1, 8):
                         values = sorted(
-                            (item for item in assignments if item.get(resource_key) == resource_id and item["weekday"] == weekday),
+                            (item for item in scoped_assignments if item.get(resource_key) == resource_id and item["weekday"] == weekday),
                             key=lambda item: item["start"],
                         )
                         if constraint["type"] == "max_daily_lessons":
