@@ -16,7 +16,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from stt_desktop.backups import BackupService
 from stt_desktop.project_archives import ProjectArchiveService
-from stt_desktop.scheduling import ManualConflictError, SchedulingService, TimetableService
+from stt_desktop.scheduling import (
+    ManualConflictError,
+    SchedulingJobManager,
+    SchedulingService,
+    TimetableService,
+)
 from stt_desktop.service_config import AppServiceConfig
 from stt_desktop.storage import (
     ProjectError,
@@ -196,10 +201,12 @@ def create_app(
     if len(session_token.encode("utf-8")) < 32:
         raise ValueError("sidecar 会话令牌至少需要 256 位熵")
     state = SidecarState(workspace=workspace, services=services)
+    scheduling_jobs = SchedulingJobManager()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         yield
+        await scheduling_jobs.shutdown()
         state.close_current()
 
     app = FastAPI(
@@ -316,6 +323,7 @@ def create_app(
                 name: service.mode for name, service in services.services.items()
             },
             "projectOpen": state.current_project is not None,
+            "activeSchedulingRounds": list(scheduling_jobs.active_round_ids),
         }
 
     @app.get("/v1/projects")
@@ -324,6 +332,8 @@ def create_app(
 
     @app.post("/v1/projects", status_code=201)
     async def create_project(request: ProjectCreateRequest) -> dict[str, Any]:
+        if scheduling_jobs.has_active_job():
+            raise ProjectError("排课轮次运行期间不能切换项目，请先取消或等待完成")
         with state.lock:
             state.close_current()
             state.current_project = workspace.create_project(request.name)
@@ -334,12 +344,15 @@ def create_app(
 
     @app.post("/v1/projects/{project_id}/open")
     async def open_project(project_id: str) -> dict[str, Any]:
+        if scheduling_jobs.has_active_job():
+            raise ProjectError("排课轮次运行期间不能切换项目，请先取消或等待完成")
         with state.lock:
             current = state.current_project
             if current and current.project_info()["id"] == project_id:
                 return {"project": current.project_info(), "revision": current.revision}
             state.close_current()
             state.current_project = workspace.open_project(project_id)
+            SchedulingService(state.current_project).recover_interrupted_rounds()
             return {
                 "project": state.current_project.project_info(),
                 "revision": state.current_project.revision,
@@ -347,6 +360,8 @@ def create_app(
 
     @app.post("/v1/projects/current/close", status_code=204, response_class=Response)
     async def close_project() -> Response:
+        if scheduling_jobs.has_active_job():
+            raise ProjectError("排课轮次运行期间不能关闭项目，请先取消或等待完成")
         state.close_current()
         return Response(status_code=204)
 
@@ -410,13 +425,20 @@ def create_app(
     @app.post("/v1/scheduling/rounds", status_code=201)
     async def run_scheduling_round(request: SchedulingRoundRequest) -> dict[str, Any]:
         project = state.require_project()
-        result = SchedulingService(project).run_round(
+        result = await scheduling_jobs.start_round(
+            project,
             time_budget_seconds=request.time_budget_seconds,
             random_seed=request.random_seed,
             session_id=request.session_id,
             parent_candidate_id=request.parent_candidate_id,
             name=request.name,
         )
+        return {"round": result, "revision": project.revision}
+
+    @app.post("/v1/scheduling/rounds/{round_id}/cancel")
+    async def cancel_scheduling_round(round_id: str) -> dict[str, Any]:
+        project = state.require_project()
+        result = await scheduling_jobs.cancel_round(round_id)
         return {"round": result, "revision": project.revision}
 
     @app.get("/v1/scheduling/sessions")
@@ -532,6 +554,8 @@ def create_app(
 
     @app.post("/v1/backups/restore", status_code=201)
     async def restore_backup(request: BackupRestoreRequest) -> dict[str, Any]:
+        if scheduling_jobs.has_active_job():
+            raise ProjectError("排课轮次运行期间不能恢复项目，请先取消或等待完成")
         if not request.confirmed:
             raise HTTPException(
                 status_code=409,
@@ -556,6 +580,7 @@ def create_app(
         with state.lock:
             state.close_current()
             state.current_project = workspace.open_project(restored["projectId"])
+            SchedulingService(state.current_project).recover_interrupted_rounds()
             return {
                 "restored": restored,
                 "project": state.current_project.project_info(),
@@ -576,6 +601,8 @@ def create_app(
     async def import_project_archive(
         request: ProjectArchiveImportRequest,
     ) -> dict[str, Any]:
+        if scheduling_jobs.has_active_job():
+            raise ProjectError("排课轮次运行期间不能导入项目，请先取消或等待完成")
         if not request.confirmed:
             raise HTTPException(
                 status_code=409,
@@ -589,6 +616,7 @@ def create_app(
         with state.lock:
             state.close_current()
             state.current_project = workspace.open_project(imported["projectId"])
+            SchedulingService(state.current_project).recover_interrupted_rounds()
             return {
                 "imported": imported,
                 "project": state.current_project.project_info(),

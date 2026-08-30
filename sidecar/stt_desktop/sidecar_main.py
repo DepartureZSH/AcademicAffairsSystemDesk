@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import multiprocessing
 import os
 import socket
 from pathlib import Path
@@ -22,6 +23,8 @@ def _take_required_environment(name: str) -> str:
 
 
 def main() -> int:
+    # Required when the packaged Windows sidecar spawns the isolated solver.
+    multiprocessing.freeze_support()
     token = _take_required_environment("STT_SIDECAR_TOKEN")
     nonce = _take_required_environment("STT_SIDECAR_NONCE")
     workspace_path = Path(_take_required_environment("STT_WORKSPACE_PATH"))

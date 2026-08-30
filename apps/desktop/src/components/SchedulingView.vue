@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   formatLocalError,
   localApi,
@@ -20,17 +20,33 @@ const sessionName = ref("本地优化会话");
 const busy = ref(false);
 const errorMessage = ref("");
 const latestRound = ref<SchedulingRound | null>(null);
+let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 watch(() => props.revision, (value) => { revision.value = value; });
 
 const selectedCandidate = computed(() =>
   candidates.value.find((item) => item.id === selectedCandidateId.value) ?? null,
 );
+const activeRound = computed(() => {
+  const active = new Set(["queued", "preparing", "solving", "validating"]);
+  return rounds.value.find((item) => active.has(item.status)) ??
+    (latestRound.value && active.has(latestRound.value.status) ? latestRound.value : null);
+});
+const progressPercent = computed(() => {
+  const item = activeRound.value;
+  if (!item) return 0;
+  if (item.status === "preparing" || item.status === "queued") return 3;
+  if (item.status === "validating") return 97;
+  const started = item.started_at ? new Date(String(item.started_at)).getTime() : Date.now();
+  const budget = Number(item.time_budget_seconds || 60) * 1000;
+  return Math.max(5, Math.min(95, Math.round(((Date.now() - started) / budget) * 90 + 5)));
+});
 
 const statusLabel = (status: string) => ({
   succeeded: "已生成候选",
   infeasible: "硬约束无解",
   failed_recoverable: "运行失败，可重试",
+  cancelled: "已取消",
   solving: "正在求解",
   preparing: "正在准备",
 }[status] ?? status);
@@ -51,11 +67,30 @@ async function loadRuns() {
     ]);
     rounds.value = roundResult.items;
     candidates.value = candidateResult.items;
+    const running = rounds.value.find((item) => ["queued", "preparing", "solving", "validating"].includes(item.status));
+    if (running) latestRound.value = running;
     revision.value = Math.max(roundResult.revision, candidateResult.revision);
     emit("revision", revision.value);
   } catch (error) {
     errorMessage.value = formatLocalError(error);
   }
+}
+
+function ensurePolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    const watchedId = latestRound.value?.id;
+    await loadRuns();
+    if (watchedId) {
+      latestRound.value = rounds.value.find((item) => item.id === watchedId) ?? latestRound.value;
+    }
+    if (!activeRound.value && pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+      const candidateId = latestRound.value?.candidate_id;
+      if (candidateId) selectedCandidateId.value = candidateId;
+    }
+  }, 1000);
 }
 
 async function runRound() {
@@ -75,7 +110,8 @@ async function runRound() {
     revision.value = result.revision;
     emit("revision", revision.value);
     await loadRuns();
-    if (result.round.candidate_id) selectedCandidateId.value = result.round.candidate_id;
+    if (["queued", "preparing", "solving", "validating"].includes(result.round.status)) ensurePolling();
+    else if (result.round.candidate_id) selectedCandidateId.value = result.round.candidate_id;
   } catch (error) {
     errorMessage.value = formatLocalError(error);
   } finally {
@@ -83,7 +119,29 @@ async function runRound() {
   }
 }
 
-onMounted(loadRuns);
+async function cancelRound() {
+  const item = activeRound.value;
+  if (!item) return;
+  busy.value = true;
+  errorMessage.value = "";
+  try {
+    const result = await localApi.cancelSchedulingRound(item.id);
+    latestRound.value = result.round;
+    await loadRuns();
+  } catch (error) {
+    errorMessage.value = formatLocalError(error);
+  } finally {
+    busy.value = false;
+  }
+}
+
+onMounted(async () => {
+  await loadRuns();
+  if (activeRound.value) ensurePolling();
+});
+onBeforeUnmount(() => {
+  if (pollTimer) clearInterval(pollTimer);
+});
 </script>
 
 <template>
@@ -106,12 +164,14 @@ onMounted(loadRuns);
             <label>本轮时长（秒）<input v-model.number="timeBudgetSeconds" type="number" min="10" max="1800" /></label>
             <label>随机种子<input v-model.number="randomSeed" type="number" min="0" max="2147483647" /></label>
           </div>
-          <button class="primary-button" :disabled="busy">
-            {{ busy ? "本机求解中…" : selectedCandidate ? "以上一候选继续优化" : "生成第一轮候选" }}
+          <button class="primary-button" :disabled="busy || Boolean(activeRound)">
+            {{ busy ? "正在启动…" : activeRound ? "本机算法进程运行中" : selectedCandidate ? "以上一候选继续优化" : "生成第一轮候选" }}
           </button>
-          <button v-if="selectedCandidate" type="button" class="text-button" :disabled="busy" @click="selectedCandidateId = ''">改为新建会话</button>
+          <button v-if="activeRound" type="button" class="secondary-button" :disabled="busy" @click="cancelRound">取消当前轮次</button>
+          <button v-else-if="selectedCandidate" type="button" class="text-button" :disabled="busy" @click="selectedCandidateId = ''">改为新建会话</button>
         </form>
-        <p class="form-copy">默认 60 秒。运行期间窗口可以继续显示状态，但请不要关闭项目；算法不访问网络。</p>
+        <div v-if="activeRound" class="solver-progress" role="progressbar" :aria-valuenow="progressPercent" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${progressPercent}%` }"></span></div>
+        <p class="form-copy">默认 60 秒。算法在独立本机进程运行；界面保持可用，取消不会保存半成品候选。</p>
       </article>
 
       <article class="panel data-panel records-panel">

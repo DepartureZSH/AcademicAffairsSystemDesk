@@ -1,12 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from pathlib import Path
 
 import pytest
 
-from stt_desktop.scheduling import ManualConflictError, SchedulingService, TimetableService
-from stt_desktop.storage import ProjectWorkspace
+from stt_desktop.scheduling import (
+    ManualConflictError,
+    SchedulingJobManager,
+    SchedulingService,
+    TimetableService,
+)
+from stt_desktop.storage import ProjectError, ProjectWorkspace
+
+
+def slow_solver_worker(_: str, __: str, ___: str, ____: str) -> None:
+    time.sleep(30)
 
 
 def seed_project(tmp_path: Path, *, slot_count: int = 2):
@@ -282,5 +293,97 @@ def test_timetable_marks_candidate_as_based_on_old_data(tmp_path: Path) -> None:
         assert not service.list_entries(result["candidate_id"])["basedOnOldData"]
         project.save_entity("teacher", {"name": "新增教师"}, project.revision)
         assert service.list_entries(result["candidate_id"])["basedOnOldData"]
+    finally:
+        project.close()
+
+
+def test_isolated_solver_process_completes_without_blocking_status_reads(
+    tmp_path: Path,
+) -> None:
+    project, _, lessons = seed_project(tmp_path, slot_count=2)
+
+    async def scenario() -> None:
+        manager = SchedulingJobManager()
+        started = await manager.start_round(
+            project,
+            time_budget_seconds=10,
+            random_seed=11,
+            session_id=None,
+            parent_candidate_id=None,
+            name="异步进程",
+        )
+        assert started["status"] == "solving"
+        assert manager.has_active_job()
+        # A status read succeeds while OR-Tools is owned by the child process.
+        assert SchedulingService(project).get_round(started["id"])["status"] == "solving"
+        for _ in range(200):
+            current = SchedulingService(project).get_round(started["id"])
+            if current["status"] not in {"queued", "preparing", "solving", "validating"}:
+                break
+            await asyncio.sleep(0.05)
+        else:
+            raise AssertionError("isolated solver did not finish")
+        assert current["status"] == "succeeded"
+        assert current["candidate_id"]
+        assert (
+            project.connection.execute(
+                "SELECT COUNT(*) FROM timetable_entries WHERE candidate_id = ?",
+                (current["candidate_id"],),
+            ).fetchone()[0]
+            == len(lessons)
+        )
+        await manager.shutdown()
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        project.close()
+
+
+def test_cancelling_isolated_solver_keeps_half_result_invisible(tmp_path: Path) -> None:
+    project, _, _ = seed_project(tmp_path, slot_count=2)
+
+    async def scenario() -> None:
+        manager = SchedulingJobManager(worker_target=slow_solver_worker)
+        started = await manager.start_round(
+            project,
+            time_budget_seconds=10,
+            random_seed=12,
+            session_id=None,
+            parent_candidate_id=None,
+            name="取消进程",
+        )
+        cancelled = await manager.cancel_round(started["id"])
+        assert cancelled["status"] == "cancelled"
+        assert cancelled["stop_reason"] == "user_cancelled"
+        assert project.connection.execute("SELECT COUNT(*) FROM candidates").fetchone()[0] == 0
+        await manager.shutdown()
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        project.close()
+
+
+def test_restart_marks_interrupted_round_recoverable_and_rejects_late_result(
+    tmp_path: Path,
+) -> None:
+    project, _, _ = seed_project(tmp_path, slot_count=2)
+    try:
+        service = SchedulingService(project)
+        prepared = service.prepare_round(time_budget_seconds=10, name="中断轮次")
+        assert prepared["round"]["status"] == "solving"
+        assert service.recover_interrupted_rounds() == 1
+        recovered = service.get_round(prepared["roundId"])
+        assert recovered["status"] == "failed_recoverable"
+        assert recovered["error_code"] == "INTERRUPTED_ON_RESTART"
+        with pytest.raises(ProjectError, match="已结束"):
+            service.complete_round(
+                prepared["roundId"],
+                {"complete_schedule_feasible": False},
+                snapshot=prepared["snapshot"],
+                compile_diagnostics=prepared["compileDiagnostics"],
+            )
+        assert project.connection.execute("SELECT COUNT(*) FROM candidates").fetchone()[0] == 0
     finally:
         project.close()

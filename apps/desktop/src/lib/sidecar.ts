@@ -14,6 +14,7 @@ export interface HealthStatus {
   schemaVersion: number;
   serviceModes: Record<string, "real" | "mock" | "disabled">;
   projectOpen: boolean;
+  activeSchedulingRounds: string[];
 }
 
 export interface ProjectInfo {
@@ -195,6 +196,11 @@ export const localApi = {
         parent_candidate_id: options.parentCandidateId,
         name: options.name,
       },
+    }),
+  cancelSchedulingRound: (roundId: string) =>
+    sidecarRequest<{ round: SchedulingRound; revision: number }>({
+      method: "POST",
+      path: `/v1/scheduling/rounds/${encodeURIComponent(roundId)}/cancel`,
     }),
   listSchedulingRounds: (sessionId?: string) =>
     sidecarRequest<{ items: SchedulingRound[]; revision: number }>({

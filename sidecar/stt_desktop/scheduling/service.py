@@ -104,6 +104,39 @@ class SchedulingService:
         parent_candidate_id: str | None = None,
         name: str | None = None,
     ) -> dict[str, Any]:
+        prepared = self.prepare_round(
+            time_budget_seconds=time_budget_seconds,
+            random_seed=random_seed,
+            session_id=session_id,
+            parent_candidate_id=parent_candidate_id,
+            name=name,
+        )
+        if not prepared["solverReady"]:
+            return prepared["round"]
+        round_id = prepared["roundId"]
+        try:
+            result = run_cp_sat_v1(
+                prepared["problemXml"], round_id, prepared["solverConfig"]
+            )
+            return self.complete_round(
+                round_id,
+                result,
+                snapshot=prepared["snapshot"],
+                compile_diagnostics=prepared["compileDiagnostics"],
+            )
+        except Exception as exc:
+            self.mark_failed(round_id, "LOCAL_SOLVER_ERROR", str(exc))
+            raise
+
+    def prepare_round(
+        self,
+        *,
+        time_budget_seconds: int = 60,
+        random_seed: int = 0,
+        session_id: str | None = None,
+        parent_candidate_id: str | None = None,
+        name: str | None = None,
+    ) -> dict[str, Any]:
         if not 10 <= time_budget_seconds <= 1800:
             raise ProjectError("排课时长必须在 10 到 1800 秒之间")
         now = utc_now()
@@ -155,11 +188,12 @@ class SchedulingService:
                 },
             )
             if compile_diagnostics["errors"]:
-                return self._finish_infeasible(
+                result = self._finish_infeasible(
                     round_id,
                     compile_diagnostics,
                     "输入数据无法构造完整排课问题",
                 )
+                return {"roundId": round_id, "solverReady": False, "round": result}
 
             config: dict[str, Any] = {
                 "algorithm": "cp_sat_v1",
@@ -168,36 +202,83 @@ class SchedulingService:
             }
             if parent:
                 config["warm_start_solution_xml"] = self._read_solution(parent)
-            result = run_cp_sat_v1(problem_xml, round_id, config)
-            if not result.get("complete_schedule_feasible"):
-                diagnostics = {
+            self._event(
+                round_id,
+                "solver_input_ready",
+                {"isolatedProcessEligible": True},
+            )
+            return {
+                "roundId": round_id,
+                "solverReady": True,
+                "round": self.get_round(round_id),
+                "problemXml": problem_xml,
+                "solverConfig": config,
+                "snapshot": snapshot,
+                "compileDiagnostics": compile_diagnostics,
+            }
+        except Exception as exc:
+            self.mark_failed(round_id, "LOCAL_PREPARATION_ERROR", str(exc))
+            raise
+
+    def complete_round(
+        self,
+        round_id: str,
+        result: dict[str, Any],
+        *,
+        snapshot: dict[str, Any],
+        compile_diagnostics: dict[str, Any],
+    ) -> dict[str, Any]:
+        row = self.project.connection.execute(
+            "SELECT * FROM scheduling_rounds WHERE id = ?", (round_id,)
+        ).fetchone()
+        if not row:
+            raise ProjectError("排课轮次不存在")
+        if row["status"] != "solving":
+            raise ProjectError("排课轮次已结束，拒绝写入迟到的求解结果")
+        self.project.connection.execute(
+            "UPDATE scheduling_rounds SET status = 'validating', updated_at = ? WHERE id = ?",
+            (utc_now(), round_id),
+        )
+        self._event(round_id, "solution_validating", {})
+        if not result.get("complete_schedule_feasible"):
+            diagnostics = {
+                **compile_diagnostics,
+                "solver": self._safe_solver_diagnostics(result),
+                "conflicts": result.get("unassigned_explanations") or [],
+            }
+            return self._finish_infeasible(
+                round_id,
+                diagnostics,
+                str(result.get("log") or "硬约束无解"),
+            )
+
+        validation = self._validate_solution(snapshot, str(result["solution_xml"]))
+        compile_diagnostics["validation"] = validation
+        if validation["hardIssues"]:
+            return self._finish_infeasible(
+                round_id,
+                {
                     **compile_diagnostics,
                     "solver": self._safe_solver_diagnostics(result),
-                    "conflicts": result.get("unassigned_explanations") or [],
-                }
-                return self._finish_infeasible(round_id, diagnostics, str(result.get("log") or "硬约束无解"))
+                    "conflicts": validation["hardIssues"],
+                },
+                "求解结果违反启用的硬约束",
+            )
+        if validation["softPenalty"]:
+            result["distribution_penalty"] = int(
+                result.get("distribution_penalty") or 0
+            ) + validation["softPenalty"]
+            result["total_score"] = int(result.get("total_score") or 0) + validation[
+                "softPenalty"
+            ]
 
-            validation = self._validate_solution(snapshot, str(result["solution_xml"]))
-            compile_diagnostics["validation"] = validation
-            if validation["hardIssues"]:
-                return self._finish_infeasible(
-                    round_id,
-                    {
-                        **compile_diagnostics,
-                        "solver": self._safe_solver_diagnostics(result),
-                        "conflicts": validation["hardIssues"],
-                    },
-                    "求解结果违反启用的硬约束",
-                )
-            if validation["softPenalty"]:
-                result["distribution_penalty"] = int(result.get("distribution_penalty") or 0) + validation["softPenalty"]
-                result["total_score"] = int(result.get("total_score") or 0) + validation["softPenalty"]
-
+        self.project.connection.execute("BEGIN IMMEDIATE")
+        try:
             candidate = self._persist_candidate(
                 round_id=round_id,
-                snapshot_id=snapshot_id,
-                input_hash=input_hash,
-                parent_candidate_id=parent_candidate_id,
+                snapshot_id=str(row["snapshot_id"]),
+                input_hash=str(row["input_hash"]),
+                parent_candidate_id=row["parent_candidate_id"],
                 result=result,
                 snapshot=snapshot,
                 compile_diagnostics=compile_diagnostics,
@@ -209,22 +290,69 @@ class SchedulingService:
             )
             self.project.connection.execute(
                 "UPDATE optimization_sessions SET status = 'active', updated_at = ? WHERE id = ?",
-                (finished, session_id),
+                (finished, row["session_id"]),
             )
-            self._event(round_id, "candidate_persisted", {"candidateId": candidate["id"]})
-            return self.get_round(round_id)
-        except Exception as exc:
-            finished = utc_now()
-            self.project.connection.execute(
-                """
-                UPDATE scheduling_rounds
-                SET status = 'failed_recoverable', error_code = 'LOCAL_SOLVER_ERROR',
-                    error_message = ?, finished_at = ?, updated_at = ? WHERE id = ?
-                """,
-                (str(exc)[:1000], finished, finished, round_id),
+            self._event(
+                round_id, "candidate_persisted", {"candidateId": candidate["id"]}
             )
-            self._event(round_id, "round_failed", {"code": "LOCAL_SOLVER_ERROR"})
+            self.project.connection.execute("COMMIT")
+        except Exception:
+            self.project.connection.execute("ROLLBACK")
             raise
+        return self.get_round(round_id)
+
+    def mark_cancelled(self, round_id: str, reason: str = "user_cancelled") -> dict[str, Any]:
+        row = self.project.connection.execute(
+            "SELECT status FROM scheduling_rounds WHERE id = ?", (round_id,)
+        ).fetchone()
+        if not row:
+            raise ProjectError("排课轮次不存在")
+        if row["status"] in {"succeeded", "infeasible", "cancelled", "failed", "failed_recoverable"}:
+            return self.get_round(round_id)
+        finished = utc_now()
+        self.project.connection.execute(
+            "UPDATE scheduling_rounds SET status = 'cancelled', stop_reason = ?, finished_at = ?, updated_at = ? WHERE id = ?",
+            (reason[:200], finished, finished, round_id),
+        )
+        self._event(round_id, "round_cancelled", {"reason": reason[:200]})
+        return self.get_round(round_id)
+
+    def mark_failed(self, round_id: str, code: str, message: str) -> dict[str, Any]:
+        row = self.project.connection.execute(
+            "SELECT status FROM scheduling_rounds WHERE id = ?", (round_id,)
+        ).fetchone()
+        if not row:
+            raise ProjectError("排课轮次不存在")
+        if row["status"] in {"succeeded", "infeasible", "cancelled"}:
+            return self.get_round(round_id)
+        finished = utc_now()
+        self.project.connection.execute(
+            """
+            UPDATE scheduling_rounds
+            SET status = 'failed_recoverable', error_code = ?, error_message = ?,
+                finished_at = ?, updated_at = ? WHERE id = ?
+            """,
+            (code[:100], message[:1000], finished, finished, round_id),
+        )
+        self._event(round_id, "round_failed", {"code": code[:100]})
+        return self.get_round(round_id)
+
+    def recover_interrupted_rounds(self) -> int:
+        rows = self.project.connection.execute(
+            "SELECT id FROM scheduling_rounds WHERE status IN ('queued', 'preparing', 'solving', 'validating')"
+        ).fetchall()
+        for row in rows:
+            self.mark_failed(
+                row["id"],
+                "INTERRUPTED_ON_RESTART",
+                "上次本地算法进程或应用在轮次完成前退出，可安全重试",
+            )
+        return len(rows)
+
+    def record_event(
+        self, round_id: str, event_type: str, payload: dict[str, Any]
+    ) -> None:
+        self._event(round_id, event_type, payload)
 
     def list_sessions(self) -> list[dict[str, Any]]:
         rows = self.project.connection.execute(

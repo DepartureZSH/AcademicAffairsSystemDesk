@@ -176,6 +176,8 @@ nav { display: grid; gap: 7px; }
 .mapping-sheet { display: grid; gap: 5px; color: #526a61; font-size: 11px; }.preview-table-wrap { overflow: auto; max-height: 360px; margin-top: 14px; }.preview-table-wrap table { width: 100%; border-collapse: collapse; font-size: 10px; white-space: nowrap; }.preview-table-wrap th { position: sticky; top: 0; background: #1f604d; color: white; }.preview-table-wrap th, .preview-table-wrap td { border: 1px solid #dce5e1; padding: 7px 8px; text-align: left; }.preview-table-wrap tr:nth-child(even) { background: #f3f7f5; }
 .issue-list { max-height: 150px; overflow: auto; border-radius: 8px; padding: 9px 9px 9px 28px; color: #6f6543; background: #fff8df; font-size: 11px; line-height: 1.6; }.issue-list.error-copy { color: #8d3939; background: #fceaea; }
 .preview-actions { display: flex; justify-content: flex-end; gap: 12px; align-items: center; }.preview-actions .primary-button { margin-top: 0; }
+.solver-progress { height: 8px; margin-top: 16px; overflow: hidden; border-radius: 999px; background: rgba(31, 96, 77, .12); }
+.solver-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #1f604d, #5ca47f); transition: width .5s ease; }
 
 @media (max-width: 1120px) {
   .hero-card { grid-template-columns: 1fr; }
