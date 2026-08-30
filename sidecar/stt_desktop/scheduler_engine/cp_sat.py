@@ -57,6 +57,71 @@ def run_cp_sat_v1(
     config["algorithm"] = "cp_sat_v1"
     problem = parse_problem(problem_xml)
     started_at = time.perf_counter()
+    time_limit = _bounded_float(
+        config.get("time_limit_seconds"), DEFAULT_TIME_LIMIT_SECONDS, 0.1, 1800.0
+    )
+    num_workers = _bounded_int(
+        config.get("num_search_workers"), DEFAULT_NUM_WORKERS, 1, 32
+    )
+
+    greedy_started_at = time.perf_counter()
+    greedy_assignments = _greedy_assignments(
+        problem_xml,
+        problem,
+        str(config.get("warm_start_solution_xml") or ""),
+    )
+    greedy_search_ms = round((time.perf_counter() - greedy_started_at) * 1000, 1)
+    greedy_metrics = _score(greedy_assignments, problem.distributions)
+    if (
+        len(greedy_assignments) == len(problem.agents)
+        and greedy_metrics["total_score"] == 0
+    ):
+        elapsed_ms = round((time.perf_counter() - started_at) * 1000, 1)
+        return {
+            "run_id": run_id,
+            "algorithm": "cp_sat_v1",
+            "fast_path": "complete_zero_penalty_greedy",
+            "solution_xml": _build_solution_xml(run_id, greedy_assignments, config),
+            "hard_violations": 0,
+            "assigned_count": len(greedy_assignments),
+            "class_count": len(problem.agents),
+            "unassigned_count": 0,
+            "unassigned_class_ids": [],
+            "unassigned_classes": [],
+            "unassigned_explanations": [],
+            "time_penalty": 0,
+            "room_penalty": 0,
+            "distribution_penalty": 0,
+            "total_score": 0,
+            "solver_status": "OPTIMAL_ZERO_LOWER_BOUND",
+            "objective_value": 0,
+            "best_objective_bound": 0,
+            "score_objective_weight": 1,
+            "feasibility_status": "FEASIBLE_GREEDY",
+            "feasibility_objective_value": len(greedy_assignments),
+            "feasibility_best_bound": len(problem.agents),
+            "hard_feasibility_proven": True,
+            "complete_schedule_feasible": True,
+            "max_assignable_count": len(problem.agents),
+            "quality_status": "OPTIMAL_ZERO_LOWER_BOUND",
+            "candidate_count": sum(
+                len(_actions(agent)) for agent in problem.agents
+            ),
+            "hard_conflict_count": None,
+            "hard_group_count": None,
+            "hard_pair_count": None,
+            "soft_conflict_count": 0,
+            "num_search_workers": num_workers,
+            "model_build_ms": 0.0,
+            "greedy_search_ms": greedy_search_ms,
+            "feasibility_search_ms": 0.0,
+            "quality_search_ms": 0.0,
+            "elapsed_ms": elapsed_ms,
+            "log": (
+                "贪心初解已完整满足全部硬约束且软罚分为 0；"
+                "非负目标下已达到理论下界，无需构建 CP-SAT 模型。"
+            ),
+        }
 
     model = cp_model.CpModel()
     candidates_by_class, assigned_by_class = _create_candidates(model, problem)
@@ -108,23 +173,15 @@ def run_cp_sat_v1(
         soft_violations,
     )
 
-    greedy_assignments = _greedy_assignments(
-        problem_xml,
-        problem,
-        str(config.get("warm_start_solution_xml") or ""),
-    )
     _add_greedy_hint(model, candidates_by_class, assigned_by_class, greedy_assignments)
     model_build_ms = round((time.perf_counter() - started_at) * 1000, 1)
 
-    time_limit = _bounded_float(
-        config.get("time_limit_seconds"), DEFAULT_TIME_LIMIT_SECONDS, 0.1, 1800.0
-    )
-    num_workers = _bounded_int(
-        config.get("num_search_workers"), DEFAULT_NUM_WORKERS, 1, 32
-    )
     assigned_count_expression = sum(assigned_by_class.values())
     model.maximize(assigned_count_expression)
-    feasibility_solver = _new_solver(config, time_limit, num_workers)
+    feasibility_budget = max(
+        0.1, time_limit - (time.perf_counter() - started_at)
+    )
+    feasibility_solver = _new_solver(config, feasibility_budget, num_workers)
     feasibility_started_at = time.perf_counter()
     feasibility_status = feasibility_solver.solve(model)
     feasibility_search_seconds = time.perf_counter() - feasibility_started_at
@@ -144,7 +201,7 @@ def run_cp_sat_v1(
     quality_search_ms = 0.0
     objective_value = None
     best_objective_bound = None
-    remaining_time = max(0.0, time_limit - feasibility_search_seconds)
+    remaining_time = max(0.0, time_limit - (time.perf_counter() - started_at))
     can_optimize_quality = (
         feasibility_status in {cp_model.OPTIMAL, cp_model.FEASIBLE}
         and remaining_time >= 0.1
@@ -259,6 +316,7 @@ def run_cp_sat_v1(
         "soft_conflict_count": len(soft_violations),
         "num_search_workers": num_workers,
         "model_build_ms": model_build_ms,
+        "greedy_search_ms": greedy_search_ms,
         "feasibility_search_ms": round(feasibility_search_seconds * 1000, 1),
         "quality_search_ms": quality_search_ms,
         "elapsed_ms": elapsed_ms,

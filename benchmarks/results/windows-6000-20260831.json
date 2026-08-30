@@ -1,0 +1,40 @@
+{
+  "benchmark": "deterministic-feasible-6000-v1",
+  "recordedAt": "2026-08-31T03:45:35+08:00",
+  "platform": {
+    "os": "Windows 11 64-bit 10.0.26200",
+    "cpu": "13th Gen Intel(R) Core(TM) i7-13650HX",
+    "physicalCores": 14,
+    "logicalProcessors": 20,
+    "memoryGiB": 15.7
+  },
+  "input": {
+    "teachers": 250,
+    "homerooms": 150,
+    "lessons": 6000,
+    "days": 5,
+    "periodsPerDay": 8,
+    "timeBudgetSeconds": 60,
+    "randomSeed": 20260831
+  },
+  "result": {
+    "status": "succeeded",
+    "entryCount": 6000,
+    "hardViolations": 0,
+    "totalScore": 0,
+    "seedSeconds": 0.282,
+    "prepareSeconds": 1.808,
+    "solverSeconds": 25.048,
+    "persistSeconds": 0.178,
+    "candidateReadySeconds": 27.035,
+    "candidateActionCount": 240000,
+    "algorithmPath": "complete_zero_penalty_greedy",
+    "solverStatus": "OPTIMAL_ZERO_LOWER_BOUND"
+  },
+  "baselineBeforeOptimization": {
+    "candidateReadySeconds": 67.888,
+    "modelBuildMs": 28948.8,
+    "feasibilitySearchMs": 16528.7,
+    "qualitySearchMs": 15827.5
+  }
+}

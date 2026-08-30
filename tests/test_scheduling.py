@@ -91,6 +91,10 @@ def test_local_round_persists_snapshot_candidate_and_warm_start(tmp_path: Path) 
         assert first["status"] == "succeeded"
         assert first["candidate_id"]
         assert first["hard_violations"] == 0
+        assert (
+            first["candidate_diagnostics"]["solver"]["fast_path"]
+            == "complete_zero_penalty_greedy"
+        )
         assert project.connection.execute("SELECT COUNT(*) FROM data_snapshots").fetchone()[0] == 1
         assert project.connection.execute("SELECT COUNT(*) FROM timetable_entries").fetchone()[0] == len(lessons)
         candidate = service.list_candidates()[0]
@@ -226,6 +230,31 @@ def test_room_availability_removes_only_blocked_room_time_pair(tmp_path: Path) -
         ).fetchall()
         assert {entry["room_id"] for entry in entries} == {"room-1"}
         assert all(entry["start_slot"] != 0 for entry in entries)
+    finally:
+        project.close()
+
+
+def test_positive_penalty_does_not_use_zero_lower_bound_fast_path(tmp_path: Path) -> None:
+    project, _, _ = seed_project(tmp_path, slot_count=2)
+    try:
+        project.save_entity(
+            "availability_rule",
+            {
+                "entity_type": "teacher",
+                "entity_id": "teacher-1",
+                "bell_schedule_id": "schedule-1",
+                "required": 0,
+                "penalty": 5,
+                "reason": "所有时段均有软罚分",
+            },
+            project.revision,
+        )
+        result = SchedulingService(project).run_round(time_budget_seconds=10)
+        assert result["status"] == "succeeded"
+        solver = result["candidate_diagnostics"]["solver"]
+        assert solver["fast_path"] is None
+        assert result["total_score"] == 10
+        assert solver["model_build_ms"] > 0
     finally:
         project.close()
 

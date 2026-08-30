@@ -787,6 +787,7 @@ class SchedulingService:
             "complete_schedule_feasible", "max_assignable_count", "total_score",
             "candidate_count", "hard_conflict_count", "soft_conflict_count",
             "model_build_ms", "feasibility_search_ms", "quality_search_ms", "elapsed_ms", "log",
+            "fast_path", "greedy_search_ms",
         )
         return {key: result.get(key) for key in keys}
 
