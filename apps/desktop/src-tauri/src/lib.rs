@@ -13,7 +13,8 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use sysinfo::{Pid, ProcessesToUpdate, System};
 use tauri::{AppHandle, Manager, RunEvent, State};
 
 const PROTOCOL_VERSION: &str = "1";
@@ -29,6 +30,8 @@ struct SidecarRuntime {
     base_url: String,
     port: u16,
     pid: u32,
+    worker_pid: u32,
+    executable_path: PathBuf,
     workspace_path: PathBuf,
 }
 
@@ -38,6 +41,7 @@ struct ReadyMessage {
     event: String,
     port: u16,
     pid: u32,
+    worker_pid: u32,
     protocol_version: String,
     nonce_proof: String,
 }
@@ -48,6 +52,7 @@ struct RuntimeStatus {
     running: bool,
     port: Option<u16>,
     pid: Option<u32>,
+    worker_pid: Option<u32>,
     protocol_version: Option<String>,
     workspace_path: Option<String>,
 }
@@ -179,6 +184,7 @@ fn status_from_runtime(runtime: Option<&SidecarRuntime>) -> RuntimeStatus {
         running: runtime.is_some(),
         port: runtime.map(|item| item.port),
         pid: runtime.map(|item| item.pid),
+        worker_pid: runtime.map(|item| item.worker_pid),
         protocol_version: runtime.map(|_| PROTOCOL_VERSION.to_owned()),
         workspace_path: runtime.map(|item| item.workspace_path.to_string_lossy().into_owned()),
     }
@@ -230,7 +236,11 @@ fn start_sidecar(
         .map_err(|error| format!("无法解析工作目录: {error}"))?;
     let token = random_hex(32);
     let nonce = random_hex(16);
-    let mut command = Command::new(launch.executable);
+    let executable_path = launch
+        .executable
+        .canonicalize()
+        .map_err(|error| format!("无法解析 sidecar 可执行文件路径: {error}"))?;
+    let mut command = Command::new(&executable_path);
     command
         .args(launch.arguments)
         .envs(launch.environment)
@@ -275,6 +285,7 @@ fn start_sidecar(
     if ready.event != "ready"
         || ready.protocol_version != PROTOCOL_VERSION
         || ready.pid != child.id()
+        || ready.worker_pid == 0
     {
         let _ = child.kill();
         return Err("sidecar 身份或协议版本校验失败".into());
@@ -293,6 +304,8 @@ fn start_sidecar(
         base_url: format!("http://127.0.0.1:{}", ready.port),
         port: ready.port,
         pid: ready.pid,
+        worker_pid: ready.worker_pid,
+        executable_path,
         workspace_path: workspace,
     });
     Ok(status_from_runtime(manager.runtime.as_ref()))
@@ -346,6 +359,64 @@ fn open_purchase_page(app: AppHandle) -> Result<purchase::PurchaseLaunchResult, 
 
 impl Drop for SidecarRuntime {
     fn drop(&mut self) {
+        self.shutdown_and_wait();
+    }
+}
+
+impl SidecarRuntime {
+    fn request_shutdown_blocking(&self) {
+        let Ok(client) = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+        else {
+            return;
+        };
+        let _ = client
+            .post(format!("{}/v1/runtime/shutdown", self.base_url))
+            .bearer_auth(&self.token)
+            .send();
+    }
+
+    fn wait_for_exit(&mut self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if matches!(self.child.try_wait(), Ok(Some(_))) {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    fn kill_worker_if_matching(&self) {
+        if self.worker_pid == self.pid {
+            return;
+        }
+        let pid = Pid::from_u32(self.worker_pid);
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+        let Some(process) = system.process(pid) else {
+            return;
+        };
+        let Some(path) = process.exe().and_then(|path| path.canonicalize().ok()) else {
+            return;
+        };
+        if path == self.executable_path {
+            let _ = process.kill();
+        }
+    }
+
+    fn shutdown_and_wait(&mut self) {
+        if matches!(self.child.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        self.request_shutdown_blocking();
+        if self.wait_for_exit(Duration::from_secs(5)) {
+            return;
+        }
+        self.kill_worker_if_matching();
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -354,10 +425,7 @@ impl Drop for SidecarRuntime {
 fn terminate_managed_sidecar(app: &AppHandle) {
     let state = app.state::<Mutex<SidecarManager>>();
     let runtime = state.lock().runtime.take();
-    if let Some(mut runtime) = runtime {
-        let _ = runtime.child.kill();
-        let _ = runtime.child.wait();
-    }
+    drop(runtime);
 }
 
 fn validate_proxy_request(request: &ProxyRequest) -> Result<Method, String> {
@@ -428,7 +496,7 @@ async fn stop_sidecar(state: State<'_, Mutex<SidecarManager>>) -> Result<(), Str
     if let Some((base_url, token)) = connection {
         let response = reqwest::Client::new()
             .post(format!("{base_url}/v1/projects/current/close"))
-            .bearer_auth(token)
+            .bearer_auth(&token)
             .timeout(Duration::from_secs(3))
             .send()
             .await
@@ -436,14 +504,18 @@ async fn stop_sidecar(state: State<'_, Mutex<SidecarManager>>) -> Result<(), Str
         if !response.status().is_success() {
             return Err("当前项目拒绝关闭；请先取消正在运行的排课轮次".into());
         }
-        let runtime = state.lock().runtime.take();
-        if let Some(mut runtime) = runtime {
-            runtime
-                .child
-                .kill()
-                .map_err(|error| format!("无法停止 sidecar: {error}"))?;
-            let _ = runtime.child.wait();
+        let response = reqwest::Client::new()
+            .post(format!("{base_url}/v1/runtime/shutdown"))
+            .bearer_auth(&token)
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+            .map_err(|error| format!("无法请求 sidecar 优雅退出: {error}"))?;
+        if !response.status().is_success() {
+            return Err("sidecar 拒绝优雅退出请求".into());
         }
+        let runtime = state.lock().runtime.take();
+        drop(runtime);
     }
     Ok(())
 }
@@ -525,5 +597,15 @@ mod tests {
         assert!(validate_proxy_request(&request("GET", "http://example.invalid/v1/x")).is_err());
         assert!(validate_proxy_request(&request("GET", "/v1/../secrets")).is_err());
         assert!(validate_proxy_request(&request("PATCH", "/v1/projects")).is_err());
+    }
+
+    #[test]
+    fn ready_message_requires_distinct_worker_pid_field() {
+        let ready: ReadyMessage = serde_json::from_str(
+            r#"{"event":"ready","port":4321,"pid":100,"workerPid":101,"protocolVersion":"1","nonceProof":"00"}"#,
+        )
+        .expect("ready message should parse");
+        assert_eq!(ready.pid, 100);
+        assert_eq!(ready.worker_pid, 101);
     }
 }

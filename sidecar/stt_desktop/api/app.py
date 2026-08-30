@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -207,6 +207,7 @@ def create_app(
     session_token: str,
     allowed_origins: frozenset[str] = DEFAULT_ALLOWED_ORIGINS,
     enforce_loopback: bool = True,
+    shutdown_requested: threading.Event | None = None,
 ) -> FastAPI:
     if len(session_token.encode("utf-8")) < 32:
         raise ValueError("sidecar 会话令牌至少需要 256 位熵")
@@ -335,6 +336,16 @@ def create_app(
             "projectOpen": state.current_project is not None,
             "activeSchedulingRounds": list(scheduling_jobs.active_round_ids),
         }
+
+    @app.post("/v1/runtime/shutdown", status_code=202)
+    async def shutdown_runtime(background_tasks: BackgroundTasks) -> dict[str, str]:
+        if shutdown_requested is None:
+            raise HTTPException(
+                status_code=503,
+                detail=("SHUTDOWN_UNAVAILABLE", "当前运行模式不支持远程关闭"),
+            )
+        background_tasks.add_task(shutdown_requested.set)
+        return {"status": "shutting_down"}
 
     @app.get("/v1/projects")
     async def list_projects() -> dict[str, Any]:

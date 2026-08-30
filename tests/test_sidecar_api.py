@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -52,6 +53,27 @@ def test_token_and_origin_are_required(tmp_path: Path) -> None:
         assert accepted.status_code == 200
         assert accepted.json()["protocolVersion"] == "1"
         assert accepted.headers["cache-control"] == "no-store"
+
+
+def test_runtime_shutdown_requires_authentication_and_signals_server(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    shutdown_requested = threading.Event()
+    app = create_app(
+        workspace=ProjectWorkspace(tmp_path / "workspace"),
+        services=load_service_config(root / "config" / "services.yaml"),
+        session_token=TOKEN,
+        enforce_loopback=False,
+        shutdown_requested=shutdown_requested,
+    )
+    with TestClient(app) as api:
+        rejected = api.post("/v1/runtime/shutdown")
+        assert rejected.status_code == 401
+        assert not shutdown_requested.is_set()
+
+        accepted = api.post("/v1/runtime/shutdown", headers=headers())
+        assert accepted.status_code == 202
+        assert accepted.json() == {"status": "shutting_down"}
+        assert shutdown_requested.wait(timeout=1)
 
 
 def test_project_and_entity_flow_with_revision_conflict(tmp_path: Path) -> None:

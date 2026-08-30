@@ -4,6 +4,7 @@ export interface RuntimeStatus {
   running: boolean;
   port: number | null;
   pid: number | null;
+  workerPid: number | null;
   protocolVersion: string | null;
   workspacePath: string | null;
 }

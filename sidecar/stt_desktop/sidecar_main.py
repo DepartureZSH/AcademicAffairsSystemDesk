@@ -6,6 +6,8 @@ import json
 import multiprocessing
 import os
 import socket
+import sys
+import threading
 from pathlib import Path
 
 import uvicorn
@@ -22,6 +24,21 @@ def _take_required_environment(name: str) -> str:
     return value
 
 
+def _ready_process_ids() -> tuple[int, int]:
+    """Return the launcher PID expected by Tauri and this server worker PID."""
+    worker_pid = os.getpid()
+    frozen_onefile_worker = bool(getattr(sys, "frozen", False)) and bool(
+        os.environ.get("_PYI_APPLICATION_HOME_DIR")
+    )
+    launcher_pid = os.getppid() if frozen_onefile_worker else worker_pid
+    return launcher_pid, worker_pid
+
+
+def _watch_shutdown(requested: threading.Event, server: uvicorn.Server) -> None:
+    requested.wait()
+    server.should_exit = True
+
+
 def main() -> int:
     # Required when the packaged Windows sidecar spawns the isolated solver.
     multiprocessing.freeze_support()
@@ -31,7 +48,13 @@ def main() -> int:
     config_path = Path(os.environ.pop("STT_SERVICES_CONFIG", "config/services.yaml"))
     services = load_service_config(config_path)
     workspace = ProjectWorkspace(workspace_path)
-    app = create_app(workspace=workspace, services=services, session_token=token)
+    shutdown_requested = threading.Event()
+    app = create_app(
+        workspace=workspace,
+        services=services,
+        session_token=token,
+        shutdown_requested=shutdown_requested,
+    )
 
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -39,12 +62,14 @@ def main() -> int:
     listener.listen(128)
     port = listener.getsockname()[1]
     proof = hmac.new(token.encode(), nonce.encode(), hashlib.sha256).hexdigest()
+    launcher_pid, worker_pid = _ready_process_ids()
     print(
         json.dumps(
             {
                 "event": "ready",
                 "port": port,
-                "pid": os.getpid(),
+                "pid": launcher_pid,
+                "workerPid": worker_pid,
                 "protocolVersion": PROTOCOL_VERSION,
                 "nonceProof": proof,
             },
@@ -55,6 +80,12 @@ def main() -> int:
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", access_log=False)
     )
+    threading.Thread(
+        target=_watch_shutdown,
+        args=(shutdown_requested, server),
+        daemon=True,
+        name="sidecar-shutdown-watcher",
+    ).start()
     server.run(sockets=[listener])
     return 0
 
