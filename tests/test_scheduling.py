@@ -182,6 +182,67 @@ def test_preflight_reports_missing_teacher_and_course_plan_slot_mismatch(
         project.close()
 
 
+def test_warm_start_rejects_candidate_from_old_project_revision(tmp_path: Path) -> None:
+    project, _, _ = seed_project(tmp_path, slot_count=2)
+    try:
+        service = SchedulingService(project)
+        first = service.run_round(time_budget_seconds=10, random_seed=11, name="旧数据门禁")
+        candidate_id = first["candidate_id"]
+        assert service.list_candidates()[0]["based_on_old_data"] is False
+        project.save_entity(
+            "teacher",
+            {"id": "teacher-1", "name": "教师一（已修改）"},
+            project.revision,
+        )
+        assert service.list_candidates()[0]["based_on_old_data"] is True
+        round_count = project.connection.execute(
+            "SELECT count(*) FROM scheduling_rounds"
+        ).fetchone()[0]
+        session_count = project.connection.execute(
+            "SELECT count(*) FROM optimization_sessions"
+        ).fetchone()[0]
+
+        with pytest.raises(ProjectError, match="基于旧数据"):
+            service.prepare_round(
+                time_budget_seconds=10,
+                session_id=first["session_id"],
+                parent_candidate_id=candidate_id,
+            )
+
+        assert project.connection.execute(
+            "SELECT count(*) FROM scheduling_rounds"
+        ).fetchone()[0] == round_count
+        assert project.connection.execute(
+            "SELECT count(*) FROM optimization_sessions"
+        ).fetchone()[0] == session_count
+    finally:
+        project.close()
+
+
+def test_warm_start_rejects_candidate_from_another_session(tmp_path: Path) -> None:
+    project, _, _ = seed_project(tmp_path, slot_count=2)
+    try:
+        service = SchedulingService(project)
+        first = service.run_round(time_budget_seconds=10, random_seed=12, name="会话 A")
+        second = service.run_round(time_budget_seconds=10, random_seed=13, name="会话 B")
+        round_count = project.connection.execute(
+            "SELECT count(*) FROM scheduling_rounds"
+        ).fetchone()[0]
+
+        with pytest.raises(ProjectError, match="不属于指定"):
+            service.prepare_round(
+                time_budget_seconds=10,
+                session_id=second["session_id"],
+                parent_candidate_id=first["candidate_id"],
+            )
+
+        assert project.connection.execute(
+            "SELECT count(*) FROM scheduling_rounds"
+        ).fetchone()[0] == round_count
+    finally:
+        project.close()
+
+
 def test_hard_infeasible_round_has_diagnostics_but_no_candidate(tmp_path: Path) -> None:
     project, _, _ = seed_project(tmp_path, slot_count=1)
     try:

@@ -292,8 +292,13 @@ class SchedulingService:
         if not 10 <= time_budget_seconds <= 1800:
             raise ProjectError("排课时长必须在 10 到 1800 秒之间")
         now = utc_now()
-        session_id = self._ensure_session(session_id, name, now)
         parent = self._load_parent(parent_candidate_id)
+        if parent:
+            parent_session_id = str(parent["parent_session_id"])
+            if session_id and session_id != parent_session_id:
+                raise ProjectError("Warm start 候选不属于指定的优化会话")
+            session_id = parent_session_id
+        session_id = self._ensure_session(session_id, name, now)
         round_id = uuid7()
         self.project.connection.execute(
             """
@@ -565,9 +570,11 @@ class SchedulingService:
         rows = self.project.connection.execute(
             """
             SELECT c.*, r.session_id, r.time_budget_seconds, r.random_seed,
+                   s.revision AS snapshot_revision,
                    COUNT(e.id) AS entry_count
             FROM candidates c
             JOIN scheduling_rounds r ON r.id = c.round_id
+            JOIN data_snapshots s ON s.id = c.snapshot_id
             LEFT JOIN timetable_entries e ON e.candidate_id = c.id
             GROUP BY c.id ORDER BY c.created_at DESC
             """
@@ -587,6 +594,8 @@ class SchedulingService:
         return [
             {
                 **dict(row),
+                "based_on_old_data": int(row["snapshot_revision"])
+                != self.project.revision,
                 "diagnostics": json.loads(row["diagnostics"]),
                 "metrics": metrics.get(str(row["id"]), {}),
             }
@@ -612,10 +621,20 @@ class SchedulingService:
         if not candidate_id:
             return None
         row = self.project.connection.execute(
-            "SELECT * FROM candidates WHERE id = ? AND status = 'valid'", (candidate_id,)
+            """
+            SELECT c.*, r.session_id AS parent_session_id,
+                   s.revision AS snapshot_revision
+            FROM candidates c
+            JOIN scheduling_rounds r ON r.id = c.round_id
+            JOIN data_snapshots s ON s.id = c.snapshot_id
+            WHERE c.id = ? AND c.status = 'valid'
+            """,
+            (candidate_id,),
         ).fetchone()
         if not row:
             raise ProjectError("用于继续优化的候选不存在或已失效")
+        if int(row["snapshot_revision"]) != self.project.revision:
+            raise ProjectError("用于继续优化的候选基于旧数据，请在当前数据上创建新会话")
         return dict(row)
 
     def _snapshot(self, round_id: str) -> tuple[str, str, dict[str, Any]]:
