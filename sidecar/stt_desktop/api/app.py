@@ -412,10 +412,28 @@ def create_app(
         return {"project": project.project_info(), "revision": project.revision}
 
     @app.get("/v1/data/{entity_type}")
-    async def list_entities(entity_type: str) -> dict[str, Any]:
+    async def list_entities(
+        entity_type: str,
+        limit: int | None = Query(default=None, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
         project = state.require_project()
+        if limit is not None:
+            items, total = project.list_entities_page(
+                entity_type, limit=limit, offset=offset
+            )
+            return {
+                "items": items,
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "revision": project.revision,
+            }
         return {
             "items": project.list_entities(entity_type),
+            "total": None,
+            "limit": None,
+            "offset": 0,
             "revision": project.revision,
         }
 

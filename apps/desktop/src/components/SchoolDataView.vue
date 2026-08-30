@@ -21,6 +21,11 @@ const records = reactive<Record<string, EntityRecord[]>>({});
 const terms = ref<EntityRecord[]>([]);
 const busy = ref(false);
 const errorMessage = ref("");
+const page = ref(1);
+const pageRecords = ref<EntityRecord[]>([]);
+const totals = reactive<Record<string, number>>({});
+const PAGE_SIZE = 50;
+const LOOKUP_LIMIT = 500;
 
 const forms = reactive({
   grade: { name: "", code: "", sort_order: 0 },
@@ -32,10 +37,15 @@ const forms = reactive({
 });
 
 watch(() => props.revision, (value) => { revision.value = value; });
-watch(activeType, () => { editingId.value = null; });
+watch(activeType, () => {
+  editingId.value = null;
+  page.value = 1;
+  void loadPage();
+});
 
-const activeRecords = computed(() => records[activeType.value] ?? []);
+const activeRecords = computed(() => pageRecords.value);
 const activeLabel = computed(() => kinds.find((kind) => kind.key === activeType.value)?.label ?? "资料");
+const totalPages = computed(() => Math.max(1, Math.ceil((totals[activeType.value] ?? 0) / PAGE_SIZE)));
 
 function nameOf(type: string, id: unknown) {
   if (!id) return "未关联";
@@ -58,18 +68,50 @@ async function loadAll() {
   errorMessage.value = "";
   try {
     const results = await Promise.all([
-      ...kinds.map((kind) => localApi.listEntities(kind.key)),
-      localApi.listEntities("term"),
+      ...kinds.map((kind) => localApi.listEntities(kind.key, { limit: LOOKUP_LIMIT })),
+      localApi.listEntities("term", { limit: LOOKUP_LIMIT }),
     ]);
-    kinds.forEach((kind, index) => { records[kind.key] = results[index].items; });
+    kinds.forEach((kind, index) => {
+      records[kind.key] = results[index].items;
+      totals[kind.key] = results[index].total ?? results[index].items.length;
+    });
     terms.value = results[kinds.length].items;
     revision.value = Math.max(...results.map((result) => result.revision));
     emit("revision", revision.value);
+    if (page.value > totalPages.value) page.value = totalPages.value;
+    await loadPage(false);
   } catch (error) {
     errorMessage.value = formatLocalError(error);
   } finally {
     busy.value = false;
   }
+}
+
+async function loadPage(manageBusy = true) {
+  if (manageBusy) busy.value = true;
+  errorMessage.value = "";
+  const requestedType = activeType.value;
+  try {
+    const result = await localApi.listEntities(requestedType, {
+      limit: PAGE_SIZE,
+      offset: (page.value - 1) * PAGE_SIZE,
+    });
+    if (requestedType !== activeType.value) return;
+    pageRecords.value = result.items;
+    totals[requestedType] = result.total ?? result.items.length;
+    revision.value = Math.max(revision.value, result.revision);
+    emit("revision", revision.value);
+  } catch (error) {
+    errorMessage.value = formatLocalError(error);
+  } finally {
+    if (manageBusy) busy.value = false;
+  }
+}
+
+async function changePage(nextPage: number) {
+  page.value = Math.min(Math.max(1, nextPage), totalPages.value);
+  editingId.value = null;
+  await loadPage();
 }
 
 function cleanData(data: Record<string, unknown>) {
@@ -147,7 +189,7 @@ onMounted(loadAll);
       <span>Revision {{ revision }}</span>
     </div>
     <div class="data-tabs" role="tablist">
-      <button v-for="kind in kinds" :key="kind.key" :class="{ active: activeType === kind.key }" @click="activeType = kind.key">{{ kind.label }} <small>{{ records[kind.key]?.length ?? 0 }}</small></button>
+      <button v-for="kind in kinds" :key="kind.key" :class="{ active: activeType === kind.key }" @click="activeType = kind.key">{{ kind.label }} <small>{{ totals[kind.key] ?? 0 }}</small></button>
     </div>
     <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>
 
@@ -179,9 +221,14 @@ onMounted(loadAll);
       </article>
 
       <article class="panel data-panel records-panel">
-        <div class="panel-heading"><div><p class="eyebrow">LOCAL RECORDS</p><h3>{{ activeLabel }}列表</h3></div><span>{{ activeRecords.length }} 条</span></div>
+        <div class="panel-heading"><div><p class="eyebrow">LOCAL RECORDS</p><h3>{{ activeLabel }}列表</h3></div><span>共 {{ totals[activeType] ?? 0 }} 条</span></div>
         <p v-if="activeRecords.length === 0" class="empty-copy">还没有{{ activeLabel }}记录。</p>
         <div v-else class="data-list tall-list"><div v-for="item in activeRecords" :key="item.id" class="data-row"><span><strong>{{ item.name }}</strong><small>{{ subtitle(item) || "本地记录" }}</small></span><div class="row-actions"><button @click="edit(item)">编辑</button><button class="danger-action" @click="remove(item)">删除</button></div></div></div>
+        <nav v-if="totalPages > 1" class="pagination-controls" aria-label="基础资料分页">
+          <button :disabled="busy || page <= 1" @click="changePage(page - 1)">上一页</button>
+          <span>第 {{ page }} / {{ totalPages }} 页</span>
+          <button :disabled="busy || page >= totalPages" @click="changePage(page + 1)">下一页</button>
+        </nav>
       </article>
     </div>
   </section>

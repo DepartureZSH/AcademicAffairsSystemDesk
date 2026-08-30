@@ -185,11 +185,18 @@ export const localApi = {
       method: "POST",
       path: "/v1/projects/current/close",
     }),
-  listEntities: <T extends EntityRecord = EntityRecord>(entityType: string) =>
-    sidecarRequest<{ items: T[]; revision: number }>({
+  listEntities: <T extends EntityRecord = EntityRecord>(
+    entityType: string,
+    page?: { limit: number; offset?: number },
+  ) => {
+    const query = page
+      ? `?limit=${encodeURIComponent(page.limit)}&offset=${encodeURIComponent(page.offset ?? 0)}`
+      : "";
+    return sidecarRequest<{ items: T[]; revision: number; total: number | null; limit: number | null; offset: number }>({
       method: "GET",
-      path: `/v1/data/${encodeURIComponent(entityType)}`,
-    }),
+      path: `/v1/data/${encodeURIComponent(entityType)}${query}`,
+    });
+  },
   saveEntity: <T extends EntityRecord = EntityRecord>(
     entityType: string,
     data: Record<string, unknown>,

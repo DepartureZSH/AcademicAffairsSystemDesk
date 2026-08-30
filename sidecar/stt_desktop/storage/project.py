@@ -376,6 +376,25 @@ class ProjectRepository:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_entities_page(
+        self, entity_type: str, *, limit: int, offset: int = 0
+    ) -> tuple[list[dict[str, Any]], int]:
+        if not 1 <= limit <= 500:
+            raise ProjectError("分页大小必须在 1–500 之间")
+        if offset < 0:
+            raise ProjectError("分页偏移不能为负数")
+        spec = self._entity_spec(entity_type)
+        total = int(
+            self.connection.execute(
+                f"SELECT COUNT(*) FROM {spec.table}"  # noqa: S608 - allowlisted
+            ).fetchone()[0]
+        )
+        rows = self.connection.execute(
+            f"SELECT * FROM {spec.table} ORDER BY {spec.order_by} LIMIT ? OFFSET ?",  # noqa: S608 - allowlisted
+            (limit, offset),
+        ).fetchall()
+        return [dict(row) for row in rows], total
+
     def get_entity(self, entity_type: str, entity_id: str) -> dict[str, Any] | None:
         spec = self._entity_spec(entity_type)
         row = self.connection.execute(

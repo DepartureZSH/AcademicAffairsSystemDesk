@@ -108,6 +108,16 @@ def test_project_and_entity_flow_with_revision_conflict(tmp_path: Path) -> None:
         assert listed.json()["items"][0]["name"] == "教师一"
         assert listed.json()["revision"] == 1
 
+        paged = api.get("/v1/data/teacher?limit=1&offset=0", headers=headers())
+        assert paged.status_code == 200
+        assert paged.json()["total"] == 1
+        assert paged.json()["limit"] == 1
+        assert paged.json()["offset"] == 0
+        assert paged.json()["items"][0]["id"] == teacher_id
+
+        invalid_page = api.get("/v1/data/teacher?limit=501", headers=headers())
+        assert invalid_page.status_code == 422
+
         closed = api.post("/v1/projects/current/close", headers=headers())
         assert closed.status_code == 204
         reopened = api.post(f"/v1/projects/{project_id}/open", headers=headers())

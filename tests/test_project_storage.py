@@ -215,6 +215,30 @@ def test_bulk_import_is_one_revision_and_rolls_back_as_a_unit(tmp_path: Path) ->
         assert project.revision == 1
 
 
+def test_entity_pagination_returns_stable_page_and_total(tmp_path: Path) -> None:
+    workspace = ProjectWorkspace(tmp_path / "workspace")
+    with workspace.create_project("分页测试") as project:
+        project.bulk_insert_entities(
+            {
+                "teacher": [
+                    {"id": f"teacher-{index:03d}", "name": f"教师 {index:03d}"}
+                    for index in range(120)
+                ]
+            },
+            expected_revision=0,
+        )
+
+        items, total = project.list_entities_page("teacher", limit=20, offset=40)
+
+        assert total == 120
+        assert len(items) == 20
+        assert items[0]["name"] == "教师 040"
+        assert items[-1]["name"] == "教师 059"
+        with pytest.raises(ProjectError, match="1–500"):
+            project.list_entities_page("teacher", limit=501)
+        with pytest.raises(ProjectError, match="不能为负数"):
+            project.list_entities_page("teacher", limit=20, offset=-1)
+
 def test_bulk_import_finalize_hook_is_in_same_transaction(tmp_path: Path) -> None:
     workspace = ProjectWorkspace(tmp_path / "workspace")
     with workspace.create_project("事务内收尾") as project:
