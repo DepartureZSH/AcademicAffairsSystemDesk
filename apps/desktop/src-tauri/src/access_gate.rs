@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use subtle::ConstantTimeEq;
 
 const CREDENTIAL_SERVICE: &str = "tech.karios.stt.desktop";
@@ -19,6 +19,8 @@ const ENTITLEMENT_CREDENTIAL: &str = "mock-entitlement";
 const CLOCK_CREDENTIAL: &str = "license-clock-checkpoint";
 const REFRESH_MARGIN_SECONDS: i64 = 60;
 const CLOCK_ROLLBACK_TOLERANCE_SECONDS: i64 = 300;
+const IDENTITY_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+const IDENTITY_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug, Deserialize)]
 struct RawConfig {
@@ -310,6 +312,14 @@ fn supabase_headers(
         .header("Content-Type", "application/json")
 }
 
+fn identity_client() -> Result<Client, String> {
+    Client::builder()
+        .connect_timeout(IDENTITY_CONNECT_TIMEOUT)
+        .timeout(IDENTITY_REQUEST_TIMEOUT)
+        .build()
+        .map_err(|_| "无法初始化身份服务客户端".into())
+}
+
 fn safe_auth_error(status: StatusCode) -> String {
     match status {
         StatusCode::BAD_REQUEST => "邮箱、密码或请求格式无效".into(),
@@ -409,7 +419,7 @@ async fn current_auth_status(root: &Path) -> Result<AuthStatus, String> {
     if session.expires_at > now_seconds()? + REFRESH_MARGIN_SECONDS {
         return Ok(auth_status_for(Some(&session), false, None));
     }
-    match refresh_session(&Client::new(), &config, &session).await {
+    match refresh_session(&identity_client()?, &config, &session).await {
         Ok(refreshed) => Ok(auth_status_for(Some(&refreshed), false, None)),
         Err(_) => Ok(auth_status_for(
             Some(&session),
@@ -566,7 +576,7 @@ pub async fn status(root: &Path) -> Result<GateStatus, String> {
 pub async fn sign_in(root: &Path, email: String, password: String) -> Result<GateStatus, String> {
     let config = identity_config(root)?;
     let response = supabase_headers(
-        Client::new().post(format!(
+        identity_client()?.post(format!(
             "{}/auth/v1/token?grant_type=password",
             config.endpoint
         )),
@@ -590,7 +600,7 @@ pub async fn sign_in(root: &Path, email: String, password: String) -> Result<Gat
 pub async fn sign_up(root: &Path, email: String, password: String) -> Result<AuthStatus, String> {
     let config = identity_config(root)?;
     let response = supabase_headers(
-        Client::new().post(format!("{}/auth/v1/signup", config.endpoint)),
+        identity_client()?.post(format!("{}/auth/v1/signup", config.endpoint)),
         &config,
     )
     .json(&json!({"email": email.trim(), "password": password}))
@@ -622,7 +632,7 @@ pub async fn sign_up(root: &Path, email: String, password: String) -> Result<Aut
 pub async fn request_password_reset(root: &Path, email: String) -> Result<String, String> {
     let config = identity_config(root)?;
     let response = supabase_headers(
-        Client::new().post(format!("{}/auth/v1/recover", config.endpoint)),
+        identity_client()?.post(format!("{}/auth/v1/recover", config.endpoint)),
         &config,
     )
     .json(&json!({"email": email.trim()}))
@@ -645,7 +655,7 @@ pub async fn complete_password_reset(
     }
     let config = identity_config(root)?;
     let token_hash = recovery_token(&config, &recovery_link)?;
-    let client = Client::new();
+    let client = identity_client()?;
     let verify_response = supabase_headers(
         client.post(format!("{}/auth/v1/verify", config.endpoint)),
         &config,
@@ -698,7 +708,7 @@ pub async fn complete_password_reset(
 pub async fn sign_out(root: &Path) -> Result<GateStatus, String> {
     if let (Ok(config), Some(session)) = (identity_config(root), load_session()?) {
         let _ = supabase_headers(
-            Client::new()
+            identity_client()?
                 .post(format!("{}/auth/v1/logout", config.endpoint))
                 .bearer_auth(session.access_token),
             &config,
@@ -850,5 +860,12 @@ mod tests {
             "https://auth.example.test/auth/v1/verify?token=short&type=recovery"
         )
         .is_err());
+    }
+
+    #[test]
+    fn identity_network_timeouts_are_bounded_for_startup() {
+        assert_eq!(IDENTITY_CONNECT_TIMEOUT, Duration::from_secs(3));
+        assert_eq!(IDENTITY_REQUEST_TIMEOUT, Duration::from_secs(5));
+        assert!(identity_client().is_ok());
     }
 }

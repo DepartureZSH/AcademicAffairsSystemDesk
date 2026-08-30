@@ -18,6 +18,7 @@ use sysinfo::{Pid, ProcessesToUpdate, System};
 use tauri::{AppHandle, Manager, RunEvent, State};
 
 const PROTOCOL_VERSION: &str = "1";
+const SIDECAR_READY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Default)]
 struct SidecarManager {
@@ -269,7 +270,7 @@ fn start_sidecar(
             .map_err(|error| error.to_string());
         let _ = sender.send(result);
     });
-    let line = match receiver.recv_timeout(Duration::from_secs(10)) {
+    let line = match receiver.recv_timeout(SIDECAR_READY_TIMEOUT) {
         Ok(Ok(line)) => line,
         Ok(Err(error)) => {
             let _ = child.kill();
@@ -277,7 +278,7 @@ fn start_sidecar(
         }
         Err(_) => {
             let _ = child.kill();
-            return Err("sidecar 10 秒内未就绪".into());
+            return Err("sidecar 5 秒内未就绪".into());
         }
     };
     let ready: ReadyMessage =
@@ -617,5 +618,10 @@ mod tests {
         .expect("ready message should parse");
         assert_eq!(ready.pid, 100);
         assert_eq!(ready.worker_pid, 101);
+    }
+
+    #[test]
+    fn sidecar_ready_timeout_meets_product_requirement() {
+        assert_eq!(SIDECAR_READY_TIMEOUT, Duration::from_secs(5));
     }
 }

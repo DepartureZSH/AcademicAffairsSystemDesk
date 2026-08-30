@@ -32,6 +32,6 @@ onMounted(async () => {
       <article class="panel"><p class="eyebrow">TRADEMARKS</p><h3>第三方构建须明确区分</h3><p>修改版需更换名称、图标、标识符、更新端点和签名身份，不得暗示由官方维护者或 SignPath Foundation 审核发布。</p><code>TRADEMARKS.md</code></article>
     </div>
 
-    <article class="panel about-notices"><p class="eyebrow">THIRD-PARTY SOFTWARE</p><h3>依赖与许可证</h3><p>每次发布从 Cargo、npm 和 Python 锁定环境生成完整依赖许可证清单；缺失许可证元数据会阻止合规检查。应用不随包分发专有字体。</p><code>THIRD_PARTY_NOTICES.md · LICENSE · NOTICE</code></article>
+    <article class="panel about-notices"><p class="eyebrow">THIRD-PARTY SOFTWARE</p><h3>依赖与许可证</h3><p>每次发布从 Cargo、npm 和 Python 锁定环境生成完整依赖许可证清单；缺失许可证元数据会阻止合规检查。随包字体为 OFL-1.1 许可的 Noto Sans SC，不分发专有字体。</p><code>THIRD_PARTY_NOTICES.md · LICENSE · NOTICE</code></article>
   </section>
 </template>

@@ -38,6 +38,7 @@ $savedEnvironment = @{
 }
 $process = $null
 $ready = $null
+$startupTimer = [System.Diagnostics.Stopwatch]::new()
 
 try {
     try {
@@ -45,6 +46,7 @@ try {
         $env:STT_SIDECAR_NONCE = $nonce
         $env:STT_WORKSPACE_PATH = $workspace
         $env:STT_SERVICES_CONFIG = (Resolve-Path -LiteralPath (Join-Path $repositoryRoot 'config/services.yaml')).Path
+        $startupTimer.Start()
         $process = Start-Process `
             -FilePath $resolvedSidecar `
             -WindowStyle Hidden `
@@ -58,11 +60,12 @@ try {
         }
     }
 
-    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
     while ([DateTime]::UtcNow -lt $deadline) {
         if (Test-Path -LiteralPath $stdout -PathType Leaf) {
             $line = Get-Content -LiteralPath $stdout -TotalCount 1 -ErrorAction SilentlyContinue
             if ($line) {
+                $startupTimer.Stop()
                 $ready = $line | ConvertFrom-Json
                 break
             }
@@ -71,7 +74,7 @@ try {
     }
     if (-not $ready) {
         $errorText = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue
-        throw "冻结 sidecar 未在 20 秒内就绪: $errorText"
+        throw "冻结 sidecar 未在 5 秒内就绪: $errorText"
     }
     if ([int]$ready.pid -ne $process.Id) {
         throw "启动器 PID 不匹配: expected=$($process.Id), actual=$($ready.pid)"
@@ -105,6 +108,7 @@ try {
         LauncherPid = $process.Id
         WorkerPid = [int]$ready.workerPid
         Port = [int]$ready.port
+        StartupMilliseconds = $startupTimer.ElapsedMilliseconds
         Health = $health.status
         Shutdown = $shutdown.status
         LauncherExited = -not $launcherAlive
