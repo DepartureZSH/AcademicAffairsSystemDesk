@@ -115,6 +115,57 @@ def test_project_and_entity_flow_with_revision_conflict(tmp_path: Path) -> None:
         assert reopened.json()["revision"] == 1
 
 
+def test_project_delete_requires_closed_project_confirmation_and_matching_name(
+    tmp_path: Path,
+) -> None:
+    with client(tmp_path) as api:
+        created = api.post(
+            "/v1/projects", headers=headers(), json={"name": "回收 API"}
+        )
+        project_id = created.json()["project"]["id"]
+        listed = api.get("/v1/projects", headers=headers()).json()["projects"]
+        original_path = listed[0]["path"]
+
+        current = api.request(
+            "DELETE",
+            f"/v1/projects/{project_id}",
+            headers=headers(),
+            json={"expected_name": "回收 API", "confirmed": True},
+        )
+        assert current.status_code == 400
+        assert "请先关闭" in current.json()["error"]["message"]
+
+        assert api.post("/v1/projects/current/close", headers=headers()).status_code == 204
+        unconfirmed = api.request(
+            "DELETE",
+            f"/v1/projects/{project_id}",
+            headers=headers(),
+            json={"expected_name": "回收 API", "confirmed": False},
+        )
+        assert unconfirmed.status_code == 400
+        mismatched = api.request(
+            "DELETE",
+            f"/v1/projects/{project_id}",
+            headers=headers(),
+            json={"expected_name": "不是该项目", "confirmed": True},
+        )
+        assert mismatched.status_code == 400
+        assert Path(original_path).is_dir()
+
+        deleted = api.request(
+            "DELETE",
+            f"/v1/projects/{project_id}",
+            headers=headers(),
+            json={"expected_name": "回收 API", "confirmed": True},
+        )
+        assert deleted.status_code == 200
+        payload = deleted.json()["deleted"]
+        assert payload["originalPath"] == original_path
+        assert payload["recoverable"] is True
+        assert Path(payload["trashPath"]).is_dir()
+        assert api.get("/v1/projects", headers=headers()).json()["projects"] == []
+
+
 def test_errors_have_correlation_id_and_no_request_body_echo(tmp_path: Path) -> None:
     with client(tmp_path) as api:
         response = api.post(

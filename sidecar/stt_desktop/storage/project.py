@@ -691,7 +691,13 @@ class ProjectWorkspace:
         self.projects_directory = self.root / "projects"
         self.backups_directory = self.root / "backups"
         self.temp_directory = self.root / "temp"
-        for directory in (self.projects_directory, self.backups_directory, self.temp_directory):
+        self.trash_projects_directory = self.root / "trash" / "projects"
+        for directory in (
+            self.projects_directory,
+            self.backups_directory,
+            self.temp_directory,
+            self.trash_projects_directory,
+        ):
             directory.mkdir(parents=True, exist_ok=True)
 
     def create_project(self, name: str) -> ProjectRepository:
@@ -757,7 +763,9 @@ class ProjectWorkspace:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                 _safe_project_id(str(manifest["project_id"]))
                 if manifest.get("kind") == "project":
-                    projects.append(manifest)
+                    projects.append(
+                        {**manifest, "path": str(manifest_path.parent.resolve())}
+                    )
             except (OSError, json.JSONDecodeError, KeyError, ProjectError):
                 continue
         return sorted(projects, key=lambda item: item.get("updated_at", ""), reverse=True)
@@ -768,6 +776,8 @@ class ProjectWorkspace:
         if project_directory.parent != self.projects_directory:
             raise ProjectError("项目路径越界")
         manifest_path = project_directory / "manifest.json"
+        if (project_directory / ".stt.deleting.json").exists():
+            raise ProjectError("项目正在移入回收区，不能打开")
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except FileNotFoundError as exc:
@@ -784,3 +794,58 @@ class ProjectWorkspace:
                 f"项目 schema {manifest_schema} 高于应用支持版本 {SCHEMA_VERSION}"
             )
         return ProjectRepository(project_directory, manifest, self)
+
+    def delete_project(self, project_id: str, expected_name: str) -> dict[str, Any]:
+        normalized = _safe_project_id(project_id)
+        project_directory = (self.projects_directory / normalized).resolve()
+        if project_directory.parent != self.projects_directory:
+            raise ProjectError("项目路径越界")
+        manifest_path = project_directory / "manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise ProjectError(f"项目不存在: {normalized}") from exc
+        except json.JSONDecodeError as exc:
+            raise ProjectError("项目 manifest 无法解析") from exc
+        if manifest.get("project_id") != normalized or manifest.get("kind") != "project":
+            raise ProjectError("项目 manifest 与目录不匹配")
+        if str(manifest.get("name") or "") != expected_name:
+            raise ProjectError("项目名称已变化，请刷新列表后重新确认")
+
+        deletion_marker = project_directory / ".stt.deleting.json"
+        project_lock = _ProjectLock(project_directory)
+        try:
+            deleted_at = utc_now()
+            target_name = (
+                f"{normalized}-{deleted_at.replace(':', '').replace('-', '')}"
+                f"-{secrets.token_hex(4)}"
+            )
+            target_directory = (self.trash_projects_directory / target_name).resolve()
+            if target_directory.parent != self.trash_projects_directory:
+                raise ProjectError("项目回收路径越界")
+            _atomic_write_json(
+                deletion_marker,
+                {
+                    "project_id": normalized,
+                    "name": expected_name,
+                    "deleted_at": deleted_at,
+                    "original_path": str(project_directory),
+                    "recoverable": True,
+                },
+            )
+        finally:
+            project_lock.release()
+
+        try:
+            project_directory.rename(target_directory)
+        except Exception:
+            deletion_marker.unlink(missing_ok=True)
+            raise
+        return {
+            "projectId": normalized,
+            "name": expected_name,
+            "originalPath": str(project_directory),
+            "trashPath": str(target_directory),
+            "deletedAt": deleted_at,
+            "recoverable": True,
+        }

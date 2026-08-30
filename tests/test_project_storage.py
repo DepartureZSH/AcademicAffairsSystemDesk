@@ -50,6 +50,42 @@ def test_project_allows_only_one_writer(tmp_path: Path) -> None:
     reopened.close()
 
 
+def test_project_delete_moves_closed_project_to_recoverable_trash(
+    tmp_path: Path,
+) -> None:
+    workspace = ProjectWorkspace(tmp_path / "workspace")
+    project = workspace.create_project("待删除项目")
+    project_id = project.project_info()["id"]
+    project_path = project.project_directory
+
+    with pytest.raises(ProjectLockedError):
+        workspace.delete_project(project_id, "待删除项目")
+    project.close()
+
+    listed = workspace.list_projects()
+    assert listed[0]["path"] == str(project_path.resolve())
+    with pytest.raises(ProjectError, match="名称已变化"):
+        workspace.delete_project(project_id, "错误名称")
+    assert project_path.is_dir()
+
+    deleted = workspace.delete_project(project_id, "待删除项目")
+
+    trash_path = Path(deleted["trashPath"])
+    assert deleted["recoverable"] is True
+    assert deleted["originalPath"] == str(project_path.resolve())
+    assert not project_path.exists()
+    assert trash_path.parent == workspace.trash_projects_directory
+    assert trash_path.is_dir()
+    marker = json.loads(
+        (trash_path / ".stt.deleting.json").read_text(encoding="utf-8")
+    )
+    assert marker["project_id"] == project_id
+    assert marker["original_path"] == str(project_path.resolve())
+    assert workspace.list_projects() == []
+    with pytest.raises(ProjectError, match="项目不存在"):
+        workspace.open_project(project_id)
+
+
 def test_stale_lock_file_does_not_block_reopen(tmp_path: Path) -> None:
     workspace = ProjectWorkspace(tmp_path / "workspace")
     project = workspace.create_project("崩溃恢复锁测试")

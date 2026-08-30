@@ -174,6 +174,12 @@ export const localApi = {
       method: "POST",
       path: `/v1/projects/${encodeURIComponent(projectId)}/open`,
     }),
+  deleteProject: (projectId: string, expectedName: string) =>
+    sidecarRequest<{ deleted: { projectId: string; name: string; originalPath: string; trashPath: string; deletedAt: string; recoverable: boolean } }>({
+      method: "DELETE",
+      path: `/v1/projects/${encodeURIComponent(projectId)}`,
+      body: { expected_name: expectedName, confirmed: true },
+    }),
   closeProject: () =>
     sidecarRequest<void>({
       method: "POST",

@@ -232,6 +232,38 @@ async function openProject(projectId: string) {
   }
 }
 
+async function deleteProject(project: Record<string, unknown>) {
+  const projectId = String(project.project_id);
+  const projectName = String(project.name);
+  const projectPath = String(project.path || `${runtime.value?.workspacePath ?? "当前工作目录"}\\projects\\${projectId}`);
+  if (currentProject.value?.id === projectId) {
+    workspaceError.value = `项目“${projectName}”当前正在打开，请先关闭项目后再删除。`;
+    return;
+  }
+  const firstAccepted = await confirm(
+    `删除项目“${projectName}”？\n\n准确路径：${projectPath}\n\n项目会移入当前工作区的隔离回收区，不会立即擦除。`,
+    { title: "删除本地项目", kind: "warning" },
+  );
+  if (!firstAccepted) return;
+  const secondAccepted = await confirm(
+    `再次确认删除“${projectName}”。\n\n该项目将从项目列表移除；需要恢复时必须从隔离回收路径人工处理。`,
+    { title: "再次确认删除", kind: "warning" },
+  );
+  if (!secondAccepted) return;
+  workspaceBusy.value = true;
+  workspaceError.value = "";
+  workspaceNotice.value = "";
+  try {
+    const result = await localApi.deleteProject(projectId, projectName);
+    await refreshProjects();
+    workspaceNotice.value = `项目已移入隔离回收区，可恢复路径：${result.deleted.trashPath}`;
+  } catch (error) {
+    workspaceError.value = formatLocalError(error);
+  } finally {
+    workspaceBusy.value = false;
+  }
+}
+
 async function closeCurrentProject() {
   if (!currentProject.value) return;
   const accepted = await confirm(
@@ -593,9 +625,12 @@ onMounted(bootstrapGate);
             <article class="panel projects-panel">
               <div class="panel-heading"><div><p class="eyebrow">最近项目</p><h2>本机项目</h2></div><span>{{ projects.length }} 个</span></div>
               <p v-if="projects.length === 0" class="empty-copy">还没有项目。创建后即可配置学期、资料和排课计划。</p>
-              <button v-for="project in projects" v-else :key="String(project.project_id)" class="project-row" @click="openProject(String(project.project_id))">
-                <span><strong>{{ project.name }}</strong><small>Revision {{ project.revision }} · {{ project.updated_at }}</small></span><b>打开</b>
-              </button>
+              <div v-for="project in projects" v-else :key="String(project.project_id)" class="project-list-row">
+                <button class="project-row" @click="openProject(String(project.project_id))">
+                  <span><strong>{{ project.name }}</strong><small>Revision {{ project.revision }} · {{ project.updated_at }}</small><small class="project-path">{{ project.path }}</small></span><b>打开</b>
+                </button>
+                <button class="project-delete" :disabled="workspaceBusy || currentProject?.id === String(project.project_id)" :title="currentProject?.id === String(project.project_id) ? '请先关闭当前项目' : '删除项目'" @click="deleteProject(project)">删除</button>
+              </div>
             </article>
           </section>
         </template>

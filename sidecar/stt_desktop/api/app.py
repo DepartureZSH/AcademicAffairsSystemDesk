@@ -44,6 +44,12 @@ class ProjectCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class ProjectDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_name: str = Field(min_length=1, max_length=200)
+    confirmed: bool
+
+
 class EntityWriteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(ge=0)
@@ -378,6 +384,20 @@ def create_app(
                 "project": state.current_project.project_info(),
                 "revision": state.current_project.revision,
             }
+
+    @app.delete("/v1/projects/{project_id}")
+    async def delete_project(
+        project_id: str, request: ProjectDeleteRequest
+    ) -> dict[str, Any]:
+        if not request.confirmed:
+            raise ProjectError("删除项目必须由用户明确确认")
+        if scheduling_jobs.has_active_job():
+            raise ProjectError("排课轮次运行期间不能删除项目，请先取消或等待完成")
+        with state.lock:
+            current = state.current_project
+            if current and current.project_info()["id"] == project_id:
+                raise ProjectError("当前项目正在打开，请先关闭后再删除")
+            return {"deleted": workspace.delete_project(project_id, request.expected_name)}
 
     @app.post("/v1/projects/current/close", status_code=204, response_class=Response)
     async def close_project() -> Response:
