@@ -516,7 +516,7 @@ class SchedulingService:
         teacher_by_id = {item["id"]: item for item in tables["teachers"]}
         rules = tables["availability_rules"]
         constraints = [item for item in tables["constraints"] if item["enabled"]]
-        preferred_periods = self._preferred_periods(constraints)
+        preferred_period_constraints = self._preferred_period_constraints(constraints)
 
         root = Element("problem", {"name": str(snapshot["project"]["name"]), "nrDays": "7", "nrWeeks": "60", "slotsPerDay": "256"})
         room_node = SubElement(root, "rooms")
@@ -543,7 +543,14 @@ class SchedulingService:
             emitted_times: list[tuple[dict[str, str], set[str]]] = []
             for slot, window in _slot_windows(slots, duration):
                 weekday = int(slot["weekday"])
+                period_index = int(slot["period_index"])
                 if not _day_enabled(str(lesson.get("day_bits") or task.get("day_bits") or ""), weekday):
+                    continue
+                if any(
+                    preference["required"]
+                    and period_index not in preference["periods"]
+                    for preference in preferred_period_constraints
+                ):
                     continue
                 if required_slot_ids and slot["id"] not in required_slot_ids:
                     continue
@@ -553,8 +560,12 @@ class SchedulingService:
                 if hard_blocked:
                     continue
                 penalty = sum(int(rule["penalty"]) for rule in slot_rules if not rule["required"])
-                if preferred_periods and int(slot["period_index"]) not in preferred_periods:
-                    penalty += 100
+                penalty += sum(
+                    int(preference["weight"])
+                    for preference in preferred_period_constraints
+                    if not preference["required"]
+                    and period_index not in preference["periods"]
+                )
                 time_attrs = {
                     "days": _day_bits(weekday),
                     "weeks": str(lesson.get("week_bits") or task.get("week_bits") or "1"),
@@ -632,13 +643,25 @@ class SchedulingService:
         return [default_room] if default_room in room_by_id else []
 
     @staticmethod
-    def _preferred_periods(constraints: list[dict]) -> set[int]:
-        result: set[int] = set()
+    def _preferred_period_constraints(constraints: list[dict]) -> list[dict]:
+        result = []
         for constraint in constraints:
             if constraint["type"] != "preferred_periods":
                 continue
             parameters = json.loads(constraint["parameters"] or "{}")
-            result.update(int(value) for value in parameters.get("periods", []) if isinstance(value, int))
+            periods = {
+                int(value)
+                for value in parameters.get("periods", [])
+                if isinstance(value, int) and value >= 0
+            }
+            result.append(
+                {
+                    "constraintId": constraint["id"],
+                    "required": constraint["severity"] == "hard",
+                    "weight": max(0, int(constraint["weight"])),
+                    "periods": periods,
+                }
+            )
         return result
 
     def _compile_user_constraints(

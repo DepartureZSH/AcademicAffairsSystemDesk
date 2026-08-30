@@ -414,6 +414,76 @@ def test_positive_penalty_does_not_use_zero_lower_bound_fast_path(tmp_path: Path
         project.close()
 
 
+def test_soft_preferred_period_uses_configured_weight(tmp_path: Path) -> None:
+    project, _, _ = seed_project(tmp_path, slot_count=2)
+    try:
+        project.save_entity(
+            "constraint",
+            {
+                "type": "preferred_periods",
+                "name": "优先第二节",
+                "severity": "soft",
+                "weight": 7,
+                "parameters": {"periods": [1]},
+            },
+            project.revision,
+        )
+
+        result = SchedulingService(project).run_round(time_budget_seconds=10)
+
+        assert result["status"] == "succeeded"
+        assert result["total_score"] == 7
+        assert result["candidate_diagnostics"]["solver"]["fast_path"] is None
+        candidate = SchedulingService(project).list_candidates()[0]
+        assert candidate["metrics"]["time_penalty"] == 7
+    finally:
+        project.close()
+
+
+def test_hard_preferred_period_removes_nonpreferred_options(tmp_path: Path) -> None:
+    project, _, _ = seed_project(tmp_path, slot_count=2)
+    try:
+        project.save_entity(
+            "time_slot",
+            {
+                "id": "day-2-preferred-slot",
+                "bell_schedule_id": "schedule-1",
+                "weekday": 2,
+                "period_index": 1,
+                "label": "周二第二节",
+                "start_slot": 1,
+                "length_slots": 1,
+                "start_time_minutes": 530,
+                "end_time_minutes": 570,
+            },
+            project.revision,
+        )
+        project.save_entity(
+            "constraint",
+            {
+                "type": "preferred_periods",
+                "name": "只能第二节",
+                "severity": "hard",
+                "weight": 100,
+                "parameters": {"periods": [1]},
+            },
+            project.revision,
+        )
+
+        result = SchedulingService(project).run_round(time_budget_seconds=10)
+
+        assert result["status"] == "succeeded"
+        entries = project.connection.execute(
+            "SELECT weekday, start_slot FROM timetable_entries WHERE candidate_id = ?",
+            (result["candidate_id"],),
+        ).fetchall()
+        assert {item["weekday"] for item in entries} == {1, 2}
+        assert {item["start_slot"] for item in entries} == {1}
+        assert result["total_score"] == 0
+    finally:
+        project.close()
+
+
 def test_manual_move_previews_conflict_and_creates_immutable_child(tmp_path: Path) -> None:
     project, _, _ = seed_project(tmp_path, slot_count=3)
     try:
