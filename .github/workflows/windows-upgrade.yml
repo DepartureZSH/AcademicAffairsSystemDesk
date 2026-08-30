@@ -11,6 +11,11 @@ on:
         description: Immutable current prerelease tag
         required: true
         default: v0.1.1-test.2
+  push:
+    branches: [codex/desktop-local]
+    paths:
+      - .github/workflows/windows-upgrade.yml
+      - scripts/Test-WindowsUpgrade.ps1
 
 permissions:
   contents: read
@@ -25,8 +30,8 @@ jobs:
         installer: [nsis, msi]
     env:
       GH_TOKEN: ${{ github.token }}
-      PREVIOUS_RELEASE_TAG: ${{ inputs.previous_release_tag }}
-      CURRENT_RELEASE_TAG: ${{ inputs.current_release_tag }}
+      PREVIOUS_RELEASE_TAG: ${{ inputs.previous_release_tag || 'v0.1.0-test.1' }}
+      CURRENT_RELEASE_TAG: ${{ inputs.current_release_tag || 'v0.1.1-test.2' }}
       EXPECTED_TEST_THUMBPRINT: BAC371BF3F9AA7F75F28B0E9BB77DC6AF921FFD5
     steps:
       - uses: actions/checkout@v6
