@@ -53,19 +53,34 @@ if ([IO.Path]::GetExtension($resolvedInstaller) -in @('.exe', '.msi')) {
     New-Item -ItemType Directory -Force -Path $verificationRoot | Out-Null
     $extractDirectory = Join-Path $verificationRoot ("verify-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $extractDirectory | Out-Null
-    & 7z.exe x $resolvedInstaller "-o$extractDirectory" -y | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw '无法解包 NSIS 安装包。' }
-    $innerNames = @('karios-stt-desktop.exe', 'stt-sidecar.exe')
-    if ([IO.Path]::GetExtension($resolvedInstaller) -eq '.msi') {
-        # 7-Zip 会透明展开 MSI 内嵌的 app.cab。
-        $innerNames = @('Path', 'Bin_stt_sidecar.exe')
-    }
-    foreach ($name in $innerNames) {
-        $path = Join-Path $extractDirectory $name
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-            throw "NSIS 安装包缺少 $name"
+    try {
+        & 7z.exe x $resolvedInstaller "-o$extractDirectory" -y | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw '无法解包 Windows 安装包。' }
+        $innerNames = @('karios-stt-desktop.exe', 'stt-sidecar.exe')
+        if ([IO.Path]::GetExtension($resolvedInstaller) -eq '.msi') {
+            # 7-Zip 会透明展开 MSI 内嵌的 app.cab。
+            $innerNames = @('Path', 'Bin_stt_sidecar.exe')
         }
-        $results += Assert-AuthenticodeSignature -Path $path
+        foreach ($name in $innerNames) {
+            $path = Join-Path $extractDirectory $name
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                throw "Windows 安装包缺少 $name"
+            }
+            $results += Assert-AuthenticodeSignature -Path $path
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $extractDirectory -PathType Container) {
+            $resolvedExtract = (Resolve-Path -LiteralPath $extractDirectory).Path
+            $resolvedVerificationRoot = (Resolve-Path -LiteralPath $verificationRoot).Path
+            if (
+                (Split-Path -Parent $resolvedExtract) -ne $resolvedVerificationRoot -or
+                -not (Split-Path -Leaf $resolvedExtract).StartsWith('verify-')
+            ) {
+                throw "拒绝清理未验证的验签临时目录: $resolvedExtract"
+            }
+            Remove-Item -LiteralPath $resolvedExtract -Recurse -Force
+        }
     }
 }
 
