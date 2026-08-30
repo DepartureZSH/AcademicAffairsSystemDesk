@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -127,3 +128,33 @@ def test_windows_installers_block_downgrades_and_keep_stable_upgrade_identity() 
 
     assert windows["allowDowngrades"] is False
     assert windows["wix"]["upgradeCode"] == "450405c0-85b9-5bc5-a05c-de2bbb1e5805"
+
+
+def test_application_version_is_consistent_across_build_systems() -> None:
+    root = Path(__file__).resolve().parents[1]
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    cargo = tomllib.loads(
+        (root / "apps" / "desktop" / "src-tauri" / "Cargo.toml").read_text(
+            encoding="utf-8"
+        )
+    )
+    package = json.loads(
+        (root / "apps" / "desktop" / "package.json").read_text(encoding="utf-8")
+    )
+    tauri = json.loads(
+        (root / "apps" / "desktop" / "src-tauri" / "tauri.conf.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    project_source = (
+        root / "sidecar" / "stt_desktop" / "storage" / "project.py"
+    ).read_text(encoding="utf-8")
+    versions = {
+        pyproject["project"]["version"],
+        cargo["package"]["version"],
+        package["version"],
+        tauri["version"],
+    }
+
+    assert versions == {"0.1.1"}
+    assert 'APP_VERSION = "0.1.1"' in project_source

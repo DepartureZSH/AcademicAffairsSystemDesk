@@ -142,6 +142,12 @@ def main() -> int:
                 {"type": "distribution", "url": item["source"]}
             ]
         components.append(component)
+    tauri_config = json.loads(
+        (ROOT / "apps" / "desktop" / "src-tauri" / "tauri.conf.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    application_version = tauri_config["version"]
     cyclonedx = {
         "bomFormat": "CycloneDX",
         "specVersion": "1.6",
@@ -149,9 +155,9 @@ def main() -> int:
         "metadata": {
             "component": {
                 "type": "application",
-                "bom-ref": "pkg:generic/tech.karios.stt.desktop@0.1.0",
+                "bom-ref": f"pkg:generic/tech.karios.stt.desktop@{application_version}",
                 "name": "时奕教务排课",
-                "version": "0.1.0",
+                "version": application_version,
             }
         },
         "components": components,
