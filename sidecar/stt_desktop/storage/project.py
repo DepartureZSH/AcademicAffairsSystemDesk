@@ -1,0 +1,467 @@
+from __future__ import annotations
+
+import json
+import os
+import secrets
+import sqlite3
+import time
+import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Mapping
+
+from .schema import SCHEMA_V1, SCHEMA_VERSION
+
+FORMAT_VERSION = 1
+APP_VERSION = "0.1.0"
+ALGORITHM_PROTOCOL_VERSION = "1"
+
+
+class ProjectError(RuntimeError):
+    pass
+
+
+class ProjectLockedError(ProjectError):
+    pass
+
+
+class ProjectSchemaTooNewError(ProjectError):
+    pass
+
+
+class RevisionConflictError(ProjectError):
+    def __init__(self, expected: int, actual: int) -> None:
+        super().__init__(f"项目版本冲突：期望 {expected}，当前 {actual}")
+        self.expected = expected
+        self.actual = actual
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def uuid7() -> str:
+    timestamp_ms = int(time.time() * 1000) & ((1 << 48) - 1)
+    random_a = secrets.randbits(12)
+    random_b = secrets.randbits(62)
+    value = (
+        (timestamp_ms << 80)
+        | (0x7 << 76)
+        | (random_a << 64)
+        | (0b10 << 62)
+        | random_b
+    )
+    return str(uuid.UUID(int=value))
+
+
+def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+    encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    try:
+        with temporary.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _safe_project_id(project_id: str) -> str:
+    try:
+        parsed = uuid.UUID(project_id)
+    except (ValueError, AttributeError) as exc:
+        raise ProjectError("项目 ID 不是有效 UUID") from exc
+    normalized = str(parsed)
+    if normalized != project_id.lower():
+        raise ProjectError("项目 ID 必须使用规范 UUID 格式")
+    return normalized
+
+
+@dataclass(frozen=True)
+class EntitySpec:
+    table: str
+    fields: frozenset[str]
+    required: frozenset[str]
+    order_by: str
+
+
+ENTITY_SPECS: dict[str, EntitySpec] = {
+    "academic_year": EntitySpec(
+        "academic_years", frozenset({"name", "start_date", "end_date"}), frozenset({"name"}), "name"
+    ),
+    "term": EntitySpec(
+        "terms",
+        frozenset({"academic_year_id", "name", "start_date", "end_date", "week_count", "day_count", "active"}),
+        frozenset({"name"}),
+        "name",
+    ),
+    "bell_schedule": EntitySpec(
+        "bell_schedules",
+        frozenset({"term_id", "name", "day_count", "slot_duration_minutes", "is_default", "display_config"}),
+        frozenset({"name"}),
+        "name",
+    ),
+    "time_slot": EntitySpec(
+        "time_slots",
+        frozenset({"bell_schedule_id", "weekday", "period_index", "label", "start_slot", "length_slots", "start_time_minutes", "end_time_minutes", "active", "display_config"}),
+        frozenset({"bell_schedule_id", "weekday", "period_index", "label", "start_time_minutes", "end_time_minutes"}),
+        "weekday, period_index",
+    ),
+    "grade": EntitySpec(
+        "grades", frozenset({"name", "code", "sort_order"}), frozenset({"name"}), "sort_order, name"
+    ),
+    "teacher": EntitySpec(
+        "teachers", frozenset({"employee_no", "name", "department", "status"}), frozenset({"name"}), "name"
+    ),
+    "room_type": EntitySpec(
+        "room_types", frozenset({"name", "code", "description"}), frozenset({"name"}), "name"
+    ),
+    "room": EntitySpec(
+        "rooms", frozenset({"room_type_id", "name", "room_no", "capacity", "status"}), frozenset({"name"}), "name"
+    ),
+    "homeroom": EntitySpec(
+        "homerooms",
+        frozenset({"grade_id", "term_id", "head_teacher_id", "default_room_id", "name", "group_name", "student_count", "status"}),
+        frozenset({"name"}),
+        "name",
+    ),
+    "subject": EntitySpec(
+        "subjects",
+        frozenset({"name", "code", "category", "default_duration_slots", "requires_special_room"}),
+        frozenset({"name"}),
+        "name",
+    ),
+    "course_plan": EntitySpec(
+        "course_plans",
+        frozenset({"term_id", "homeroom_id", "subject_id", "weekly_slots", "duration_slots", "allow_double_period", "priority", "week_bits", "day_bits"}),
+        frozenset({"homeroom_id", "subject_id", "weekly_slots"}),
+        "homeroom_id, subject_id",
+    ),
+    "teaching_task": EntitySpec(
+        "teaching_tasks",
+        frozenset({"term_id", "course_plan_id", "homeroom_id", "subject_id", "primary_teacher_id", "weekly_slots", "duration_slots", "required_room_type", "fixed_room_id", "status", "week_bits", "day_bits"}),
+        frozenset({"homeroom_id", "subject_id", "weekly_slots"}),
+        "homeroom_id, subject_id",
+    ),
+    "task_lesson": EntitySpec(
+        "task_lessons",
+        frozenset({"teaching_task_id", "lesson_index", "duration_slots", "source_id", "week_bits", "day_bits", "label", "enabled"}),
+        frozenset({"teaching_task_id", "lesson_index"}),
+        "teaching_task_id, lesson_index",
+    ),
+    "availability_rule": EntitySpec(
+        "availability_rules",
+        frozenset({"entity_type", "entity_id", "bell_schedule_id", "time_slot_id", "week_bits", "day_bits", "required", "penalty", "reason"}),
+        frozenset({"entity_type", "entity_id"}),
+        "entity_type, entity_id",
+    ),
+    "constraint": EntitySpec(
+        "constraints",
+        frozenset({"type", "name", "severity", "enabled", "weight", "parameters"}),
+        frozenset({"type", "name"}),
+        "name",
+    ),
+}
+
+
+class _ProjectLock:
+    def __init__(self, project_directory: Path) -> None:
+        self.path = project_directory / ".stt.lock"
+        self.token = secrets.token_hex(16)
+        payload = json.dumps({"pid": os.getpid(), "token": self.token, "created_at": utc_now()})
+        try:
+            descriptor = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError as exc:
+            raise ProjectLockedError(f"项目已被另一个进程打开: {project_directory.name}") from exc
+        try:
+            os.write(descriptor, payload.encode("utf-8"))
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def release(self) -> None:
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return
+        if payload.get("token") == self.token:
+            self.path.unlink(missing_ok=True)
+
+
+class ProjectRepository:
+    def __init__(self, project_directory: Path, manifest: dict[str, Any]) -> None:
+        self.project_directory = project_directory
+        self.manifest_path = project_directory / "manifest.json"
+        self.database_path = project_directory / "project.sqlite3"
+        self.manifest = manifest
+        self._lock = _ProjectLock(project_directory)
+        try:
+            self.connection = sqlite3.connect(self.database_path, isolation_level=None)
+            self.connection.row_factory = sqlite3.Row
+            self.connection.execute("PRAGMA foreign_keys = ON")
+            self.connection.execute("PRAGMA journal_mode = WAL")
+            self.connection.execute("PRAGMA busy_timeout = 5000")
+            self._verify_database()
+            actual_revision = self.revision
+            if self.manifest.get("revision") != actual_revision:
+                self.manifest["revision"] = actual_revision
+                self.manifest["updated_at"] = utc_now()
+                _atomic_write_json(self.manifest_path, self.manifest)
+        except Exception:
+            connection = getattr(self, "connection", None)
+            if connection is not None:
+                connection.close()
+            self._lock.release()
+            raise
+
+    def _verify_database(self) -> None:
+        integrity = self.connection.execute("PRAGMA integrity_check").fetchone()[0]
+        if integrity != "ok":
+            raise ProjectError(f"项目数据库完整性检查失败: {integrity}")
+        foreign_key_enabled = self.connection.execute("PRAGMA foreign_keys").fetchone()[0]
+        if foreign_key_enabled != 1:
+            raise ProjectError("SQLite 外键未启用")
+        schema_version = int(
+            self.connection.execute(
+                "SELECT value FROM app_metadata WHERE key = 'schema_version'"
+            ).fetchone()[0]
+        )
+        if schema_version > SCHEMA_VERSION:
+            raise ProjectSchemaTooNewError(
+                f"项目 schema {schema_version} 高于应用支持版本 {SCHEMA_VERSION}"
+            )
+
+    @property
+    def revision(self) -> int:
+        row = self.connection.execute(
+            "SELECT value FROM app_metadata WHERE key = 'revision'"
+        ).fetchone()
+        return int(row[0])
+
+    def project_info(self) -> dict[str, Any]:
+        row = self.connection.execute("SELECT * FROM project LIMIT 1").fetchone()
+        return dict(row)
+
+    def integrity_check(self) -> dict[str, Any]:
+        integrity = self.connection.execute("PRAGMA integrity_check").fetchone()[0]
+        foreign_keys = [dict(row) for row in self.connection.execute("PRAGMA foreign_key_check")]
+        return {"integrity": integrity, "foreign_key_issues": foreign_keys}
+
+    def list_entities(self, entity_type: str) -> list[dict[str, Any]]:
+        spec = self._entity_spec(entity_type)
+        rows = self.connection.execute(
+            f"SELECT * FROM {spec.table} ORDER BY {spec.order_by}"  # noqa: S608 - allowlisted
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_entity(self, entity_type: str, entity_id: str) -> dict[str, Any] | None:
+        spec = self._entity_spec(entity_type)
+        row = self.connection.execute(
+            f"SELECT * FROM {spec.table} WHERE id = ?",  # noqa: S608 - allowlisted
+            (entity_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def save_entity(
+        self,
+        entity_type: str,
+        payload: Mapping[str, Any],
+        expected_revision: int,
+    ) -> tuple[dict[str, Any], int]:
+        spec = self._entity_spec(entity_type)
+        unknown = sorted(set(payload) - spec.fields - {"id"})
+        if unknown:
+            raise ProjectError(f"{entity_type} 包含未知字段: {', '.join(unknown)}")
+        entity_id = str(payload.get("id") or uuid7())
+        existing = self.get_entity(entity_type, entity_id)
+        missing = sorted(field for field in spec.required if field not in payload and existing is None)
+        if missing:
+            raise ProjectError(f"{entity_type} 缺少必要字段: {', '.join(missing)}")
+        if not payload.keys() - {"id"}:
+            raise ProjectError(f"{entity_type} 没有可保存字段")
+
+        values = {key: payload[key] for key in payload if key in spec.fields}
+        now = utc_now()
+        self._begin_write(expected_revision)
+        try:
+            if existing:
+                assignments = ", ".join(f"{key} = ?" for key in values)
+                parameters = [*values.values(), now, entity_id]
+                self.connection.execute(
+                    f"UPDATE {spec.table} SET {assignments}, updated_at = ? WHERE id = ?",  # noqa: S608
+                    parameters,
+                )
+            else:
+                columns = ["id", *values.keys(), "created_at", "updated_at"]
+                placeholders = ", ".join("?" for _ in columns)
+                parameters = [entity_id, *values.values(), now, now]
+                self.connection.execute(
+                    f"INSERT INTO {spec.table} ({', '.join(columns)}) VALUES ({placeholders})",  # noqa: S608
+                    parameters,
+                )
+            revision = self._commit_write(now)
+        except Exception:
+            self.connection.execute("ROLLBACK")
+            raise
+        self._write_manifest_revision(revision, now)
+        saved = self.get_entity(entity_type, entity_id)
+        if saved is None:
+            raise ProjectError("保存后无法读取实体")
+        return saved, revision
+
+    def delete_entity(self, entity_type: str, entity_id: str, expected_revision: int) -> int:
+        spec = self._entity_spec(entity_type)
+        now = utc_now()
+        self._begin_write(expected_revision)
+        try:
+            cursor = self.connection.execute(
+                f"DELETE FROM {spec.table} WHERE id = ?",  # noqa: S608 - allowlisted
+                (entity_id,),
+            )
+            if cursor.rowcount != 1:
+                raise ProjectError(f"未找到要删除的 {entity_type}: {entity_id}")
+            revision = self._commit_write(now)
+        except Exception:
+            self.connection.execute("ROLLBACK")
+            raise
+        self._write_manifest_revision(revision, now)
+        return revision
+
+    def _entity_spec(self, entity_type: str) -> EntitySpec:
+        try:
+            return ENTITY_SPECS[entity_type]
+        except KeyError as exc:
+            raise ProjectError(f"不支持的实体类型: {entity_type}") from exc
+
+    def _begin_write(self, expected_revision: int) -> None:
+        self.connection.execute("BEGIN IMMEDIATE")
+        actual = self.revision
+        if actual != expected_revision:
+            self.connection.execute("ROLLBACK")
+            raise RevisionConflictError(expected_revision, actual)
+
+    def _commit_write(self, now: str) -> int:
+        next_revision = self.revision + 1
+        self.connection.execute(
+            "UPDATE app_metadata SET value = ? WHERE key = 'revision'", (str(next_revision),)
+        )
+        self.connection.execute("UPDATE project SET updated_at = ?", (now,))
+        self.connection.execute("COMMIT")
+        return next_revision
+
+    def _write_manifest_revision(self, revision: int, now: str) -> None:
+        self.manifest["revision"] = revision
+        self.manifest["updated_at"] = now
+        _atomic_write_json(self.manifest_path, self.manifest)
+
+    def close(self) -> None:
+        connection = getattr(self, "connection", None)
+        if connection is not None:
+            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            connection.close()
+            self.connection = None  # type: ignore[assignment]
+        self._lock.release()
+
+    def __enter__(self) -> ProjectRepository:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+
+class ProjectWorkspace:
+    def __init__(self, root: str | Path) -> None:
+        self.root = Path(root).expanduser().resolve()
+        self.projects_directory = self.root / "projects"
+        self.backups_directory = self.root / "backups"
+        self.temp_directory = self.root / "temp"
+        for directory in (self.projects_directory, self.backups_directory, self.temp_directory):
+            directory.mkdir(parents=True, exist_ok=True)
+
+    def create_project(self, name: str) -> ProjectRepository:
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise ProjectError("项目名称不能为空")
+        project_id = uuid7()
+        project_directory = self.projects_directory / project_id
+        project_directory.mkdir()
+        for relative in (
+            "attachments",
+            "artifacts/problem",
+            "artifacts/solution",
+            "artifacts/exports",
+            "logs",
+        ):
+            (project_directory / relative).mkdir(parents=True)
+        database_path = project_directory / "project.sqlite3"
+        now = utc_now()
+        try:
+            connection = sqlite3.connect(database_path)
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.executescript(SCHEMA_V1)
+            connection.execute(
+                "INSERT INTO app_metadata(key, value) VALUES ('schema_version', ?), ('revision', '0')",
+                (str(SCHEMA_VERSION),),
+            )
+            connection.execute(
+                "INSERT INTO project(id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                (project_id, normalized_name, now, now),
+            )
+            connection.commit()
+            connection.close()
+            manifest = {
+                "kind": "project",
+                "format_version": FORMAT_VERSION,
+                "project_id": project_id,
+                "name": normalized_name,
+                "created_at": now,
+                "updated_at": now,
+                "app_version": APP_VERSION,
+                "schema_version": SCHEMA_VERSION,
+                "revision": 0,
+                "algorithm_protocol_version": ALGORITHM_PROTOCOL_VERSION,
+                "database": "project.sqlite3",
+            }
+            _atomic_write_json(project_directory / "manifest.json", manifest)
+        except Exception:
+            # The incomplete directory remains visible for diagnosis and is never treated as a project
+            # because it lacks a valid manifest.
+            raise
+        return self.open_project(project_id)
+
+    def list_projects(self) -> list[dict[str, Any]]:
+        projects: list[dict[str, Any]] = []
+        for manifest_path in self.projects_directory.glob("*/manifest.json"):
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                _safe_project_id(str(manifest["project_id"]))
+                if manifest.get("kind") == "project":
+                    projects.append(manifest)
+            except (OSError, json.JSONDecodeError, KeyError, ProjectError):
+                continue
+        return sorted(projects, key=lambda item: item.get("updated_at", ""), reverse=True)
+
+    def open_project(self, project_id: str) -> ProjectRepository:
+        normalized = _safe_project_id(project_id)
+        project_directory = (self.projects_directory / normalized).resolve()
+        if project_directory.parent != self.projects_directory:
+            raise ProjectError("项目路径越界")
+        manifest_path = project_directory / "manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise ProjectError(f"项目不存在: {normalized}") from exc
+        except json.JSONDecodeError as exc:
+            raise ProjectError("项目 manifest 无法解析") from exc
+        if manifest.get("project_id") != normalized or manifest.get("kind") != "project":
+            raise ProjectError("项目 manifest 与目录不匹配")
+        manifest_schema = manifest.get("schema_version")
+        if not isinstance(manifest_schema, int):
+            raise ProjectError("项目 manifest 缺少有效 schema_version")
+        if manifest_schema > SCHEMA_VERSION:
+            raise ProjectSchemaTooNewError(
+                f"项目 schema {manifest_schema} 高于应用支持版本 {SCHEMA_VERSION}"
+            )
+        return ProjectRepository(project_directory, manifest)
