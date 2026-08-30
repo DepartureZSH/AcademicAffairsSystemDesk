@@ -1,0 +1,66 @@
+name: Windows upgrade and downgrade verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      previous_release_tag:
+        description: Immutable previous prerelease tag
+        required: true
+        default: v0.1.0-test.1
+      current_release_tag:
+        description: Immutable current prerelease tag
+        required: true
+        default: v0.1.1-test.2
+
+permissions:
+  contents: read
+
+jobs:
+  upgrade-downgrade:
+    name: windows-2025 / ${{ matrix.installer }}
+    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        installer: [nsis, msi]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PREVIOUS_RELEASE_TAG: ${{ inputs.previous_release_tag }}
+      CURRENT_RELEASE_TAG: ${{ inputs.current_release_tag }}
+      EXPECTED_TEST_THUMBPRINT: BAC371BF3F9AA7F75F28B0E9BB77DC6AF921FFD5
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download immutable previous and current releases
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path previous-assets,current-assets -Force | Out-Null
+          $pattern = if ('${{ matrix.installer }}' -eq 'nsis') { 'Karios-STT-Desktop_*_x64-setup.exe' } else { 'Karios-STT-Desktop_*_x64_zh-CN.msi' }
+          foreach ($release in @(
+            @{ Tag = $env:PREVIOUS_RELEASE_TAG; Directory = 'previous-assets' },
+            @{ Tag = $env:CURRENT_RELEASE_TAG; Directory = 'current-assets' }
+          )) {
+            gh release download $release.Tag `
+              --repo $env:GITHUB_REPOSITORY `
+              --dir $release.Directory `
+              --pattern $pattern `
+              --pattern 'Karios-Desktop-TEST-ONLY.cer' `
+              --pattern 'windows-release-manifest.json'
+          }
+
+      - name: Verify upgrade, downgrade block, uninstall and data preservation
+        shell: pwsh
+        run: |
+          .\scripts\Test-WindowsUpgrade.ps1 `
+            -PreviousAssetDirectory .\previous-assets `
+            -CurrentAssetDirectory .\current-assets `
+            -InstallerKind '${{ matrix.installer }}' `
+            -ExpectedThumbprint $env:EXPECTED_TEST_THUMBPRINT `
+            -EvidencePath ".\test-results\windows-upgrade-${{ matrix.installer }}.json"
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: windows-upgrade-${{ matrix.installer }}
+          if-no-files-found: warn
+          path: test-results/*.json
