@@ -28,3 +28,4 @@ serde_yaml = "=0.9.34"
 sha2 = "=0.10.9"
 subtle = "=2.6.1"
 tauri = { version = "=2.11.5", features = [] }
+tauri-plugin-dialog = "=2.7.2"

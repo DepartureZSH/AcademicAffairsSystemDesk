@@ -389,6 +389,7 @@ async fn stop_sidecar(state: State<'_, Mutex<SidecarManager>>) -> Result<(), Str
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let application = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(SidecarManager::default()))
         .invoke_handler(tauri::generate_handler![
             runtime_status,

@@ -205,4 +205,15 @@ export const localApi = {
       path: "/v1/timetables/manual-fork",
       body: data,
     }),
+  exportCandidate: (data: Record<string, unknown>) =>
+    sidecarRequest<{ export: Record<string, unknown>; revision: number }>({
+      method: "POST",
+      path: "/v1/exports",
+      body: data,
+    }),
+  listExports: () =>
+    sidecarRequest<{ items: Array<Record<string, unknown>>; revision: number }>({
+      method: "GET",
+      path: "/v1/exports",
+    }),
 };

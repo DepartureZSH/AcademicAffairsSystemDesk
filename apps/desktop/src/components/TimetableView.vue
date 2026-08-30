@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import { save } from "@tauri-apps/plugin-dialog";
 import {
   formatLocalError,
   localApi,
@@ -31,6 +32,9 @@ const candidateName = ref("手工调整候选");
 const preview = ref<ManualMovePreview | null>(null);
 const busy = ref(false);
 const errorMessage = ref("");
+const exportType = ref("xlsx");
+const exportNotice = ref("");
+const exportHistory = ref<Array<Record<string, unknown>>>([]);
 
 watch(() => props.revision, (value) => { revision.value = value; });
 watch([filterType, filterId], () => { if (candidateId.value) void loadTimetable(); });
@@ -76,6 +80,8 @@ async function loadBase() {
     emit("revision", revision.value);
     if (!candidateId.value && candidates.value.length) candidateId.value = candidates.value[0].id;
     if (candidateId.value) await loadTimetable();
+    const exportsResult = await localApi.listExports();
+    exportHistory.value = exportsResult.items;
   } catch (error) {
     errorMessage.value = formatLocalError(error);
   } finally {
@@ -152,6 +158,41 @@ async function applyMove() {
   }
 }
 
+const exportOptions: Record<string, { label: string; extension: string }> = {
+  xlsx: { label: "Excel 工作簿", extension: "xlsx" },
+  csv: { label: "CSV 明细", extension: "csv" },
+  pdf: { label: "PDF 打印表", extension: "pdf" },
+  problem_xml: { label: "Problem XML", extension: "xml" },
+  solution_xml: { label: "Solution XML", extension: "xml" },
+};
+
+async function exportCandidate() {
+  if (!candidateId.value) return;
+  const option = exportOptions[exportType.value];
+  const destination = await save({
+    defaultPath: `时奕课表-${candidateId.value.slice(0, 8)}.${option.extension}`,
+    filters: [{ name: option.label, extensions: [option.extension] }],
+  });
+  if (!destination) return;
+  busy.value = true;
+  errorMessage.value = "";
+  exportNotice.value = "";
+  try {
+    const result = await localApi.exportCandidate({
+      candidate_id: candidateId.value,
+      export_type: exportType.value,
+      destination_path: destination,
+      overwrite: true,
+    });
+    exportNotice.value = `已导出 ${String(result.export.fileName)}，SHA-256 ${String(result.export.sha256).slice(0, 12)}…`;
+    exportHistory.value = (await localApi.listExports()).items;
+  } catch (error) {
+    errorMessage.value = formatLocalError(error);
+  } finally {
+    busy.value = false;
+  }
+}
+
 function undoToParent() {
   const parentId = selectedCandidate.value?.parent_candidate_id;
   if (parentId && candidates.value.some((item) => item.id === parentId)) {
@@ -174,6 +215,14 @@ onMounted(loadBase);
       <label>查看维度<select v-model="filterType" @change="filterId = ''"><option value="">全部课表</option><option value="homeroom">班级课表</option><option value="teacher">教师课表</option><option value="room">教室课表</option></select></label>
       <label v-if="filterType">对象<select v-model="filterId"><option value="">全部</option><option v-for="item in filterOptions" :key="item.id" :value="item.id">{{ filterLabel(item) }}</option></select></label>
       <button v-if="selectedCandidate?.parent_candidate_id" class="secondary-button" @click="undoToParent">回到父候选（撤销）</button>
+    </article>
+
+    <article v-if="candidates.length" class="panel export-toolbar">
+      <div><p class="eyebrow">LOCAL EXPORT</p><strong>导出当前候选</strong><small>文件先在项目内原子生成并校验，再复制到系统对话框选择的位置。</small></div>
+      <select v-model="exportType"><option v-for="(item, key) in exportOptions" :key="key" :value="key">{{ item.label }}</option></select>
+      <button class="primary-button" :disabled="busy" @click="exportCandidate">{{ busy ? "处理中…" : "选择位置并导出" }}</button>
+      <span v-if="exportNotice" class="export-notice">{{ exportNotice }}</span>
+      <small v-else-if="exportHistory.length">本项目已完成 {{ exportHistory.filter((item) => item.status === 'succeeded').length }} 次导出</small>
     </article>
 
     <div v-if="!candidates.length" class="state-panel compact-state"><h2>尚无可查看候选</h2><p>先在“排课运行”生成完整可行候选。</p></div>

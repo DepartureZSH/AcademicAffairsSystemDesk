@@ -160,6 +160,11 @@ nav { display: grid; gap: 7px; }
 .move-preview { border-radius: 9px; padding: 10px; font-size: 11px; line-height: 1.5; }
 .move-preview strong, .move-preview span { display: block; }.move-preview.valid { background: #e8f5ee; color: #256049; }.move-preview.invalid { background: #fceaea; color: #8d3939; }
 .move-preview ul { margin: 6px 0 0; padding-left: 17px; }
+.export-toolbar { display: flex; align-items: center; gap: 14px; margin: -2px 0 18px; padding: 14px 18px; }
+.export-toolbar > div { min-width: 280px; margin-right: auto; }.export-toolbar > div strong, .export-toolbar > div small { display: block; }
+.export-toolbar > div strong { margin-top: 4px; }.export-toolbar > div small { margin-top: 3px; color: #71837c; font-size: 10px; }
+.export-toolbar select { border: 1px solid #cad7d1; border-radius: 8px; padding: 8px 9px; background: white; }
+.export-toolbar .primary-button { margin: 0; }.export-toolbar > small { color: #71837c; }.export-notice { color: #27644f; font-size: 11px; max-width: 300px; }
 
 @media (max-width: 1120px) {
   .hero-card { grid-template-columns: 1fr; }

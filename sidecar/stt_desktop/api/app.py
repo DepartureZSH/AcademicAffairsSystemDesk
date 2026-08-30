@@ -25,6 +25,7 @@ from stt_desktop.storage import (
     RevisionConflictError,
 )
 from stt_desktop.storage.schema import SCHEMA_VERSION
+from stt_desktop.transfers import ExportService
 
 PROTOCOL_VERSION = "1"
 DEFAULT_ALLOWED_ORIGINS = frozenset(
@@ -59,6 +60,14 @@ class ManualMoveRequest(BaseModel):
     start_slot: int = Field(ge=0)
     room_id: str | None = None
     name: str | None = Field(default=None, max_length=200)
+
+
+class CandidateExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    candidate_id: str
+    export_type: str
+    destination_path: str | None = Field(default=None, max_length=32_767)
+    overwrite: bool = False
 
 
 @dataclass
@@ -397,5 +406,21 @@ def create_app(
             name=request.name,
         )
         return {"round": result, "revision": project.revision}
+
+    @app.post("/v1/exports", status_code=201)
+    async def export_candidate(request: CandidateExportRequest) -> dict[str, Any]:
+        project = state.require_project()
+        result = ExportService(project).export_candidate(
+            candidate_id=request.candidate_id,
+            export_type=request.export_type,
+            destination_path=request.destination_path,
+            overwrite=request.overwrite,
+        )
+        return {"export": result, "revision": project.revision}
+
+    @app.get("/v1/exports")
+    async def list_exports() -> dict[str, Any]:
+        project = state.require_project()
+        return {"items": ExportService(project).list_exports(), "revision": project.revision}
 
     return app
