@@ -14,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from stt_desktop.backups import BackupService
 from stt_desktop.scheduling import ManualConflictError, SchedulingService, TimetableService
 from stt_desktop.service_config import AppServiceConfig
 from stt_desktop.storage import (
@@ -68,6 +69,27 @@ class CandidateExportRequest(BaseModel):
     export_type: str
     destination_path: str | None = Field(default=None, max_length=32_767)
     overwrite: bool = False
+
+
+class BackupCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(default="manual", min_length=1, max_length=200)
+    retained: bool = False
+    destination_path: str | None = Field(default=None, max_length=32_767)
+    overwrite: bool = False
+
+
+class BackupRetainedRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    retained: bool
+
+
+class BackupRestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    archive_path: str | None = Field(default=None, min_length=1, max_length=32_767)
+    backup_id: str | None = None
+    restored_name: str | None = Field(default=None, max_length=200)
+    confirmed: bool
 
 
 @dataclass
@@ -314,7 +336,8 @@ def create_app(
         item, revision = project.save_entity(
             entity_type, request.data, request.expected_revision
         )
-        return {"item": item, "revision": revision}
+        backup_warning = _daily_backup_warning(project, workspace)
+        return {"item": item, "revision": revision, "backupWarning": backup_warning}
 
     @app.put("/v1/planning/tasks")
     async def save_teaching_task_bundle(request: EntityWriteRequest) -> dict[str, Any]:
@@ -322,7 +345,13 @@ def create_app(
         task, lessons, revision = project.save_teaching_task_bundle(
             request.data, request.expected_revision
         )
-        return {"task": task, "lessons": lessons, "revision": revision}
+        backup_warning = _daily_backup_warning(project, workspace)
+        return {
+            "task": task,
+            "lessons": lessons,
+            "revision": revision,
+            "backupWarning": backup_warning,
+        }
 
     @app.delete("/v1/data/{entity_type}/{entity_id}")
     async def delete_entity(
@@ -331,6 +360,9 @@ def create_app(
         expected_revision: int = Query(ge=0),
     ) -> dict[str, Any]:
         project = state.require_project()
+        if project.revision != expected_revision:
+            raise RevisionConflictError(expected_revision, project.revision)
+        BackupService(project, workspace).create_backup(reason="pre-destructive")
         revision = project.delete_entity(entity_type, entity_id, expected_revision)
         return {"deletedId": entity_id, "revision": revision}
 
@@ -423,4 +455,80 @@ def create_app(
         project = state.require_project()
         return {"items": ExportService(project).list_exports(), "revision": project.revision}
 
+    @app.post("/v1/backups", status_code=201)
+    async def create_backup(request: BackupCreateRequest) -> dict[str, Any]:
+        project = state.require_project()
+        result = BackupService(project, workspace).create_backup(
+            reason=request.reason,
+            retained=request.retained,
+            destination_path=request.destination_path,
+            overwrite=request.overwrite,
+        )
+        return {"backup": result, "revision": project.revision}
+
+    @app.get("/v1/backups")
+    async def list_backups() -> dict[str, Any]:
+        project = state.require_project()
+        return {
+            "items": BackupService(project, workspace).list_backups(),
+            "revision": project.revision,
+        }
+
+    @app.post("/v1/backups/{backup_id}/verify")
+    async def verify_backup(backup_id: str) -> dict[str, Any]:
+        project = state.require_project()
+        return BackupService(project, workspace).verify_record(backup_id)
+
+    @app.put("/v1/backups/{backup_id}/retained")
+    async def retain_backup(
+        backup_id: str, request: BackupRetainedRequest
+    ) -> dict[str, Any]:
+        project = state.require_project()
+        item = BackupService(project, workspace).set_retained(
+            backup_id, request.retained
+        )
+        return {"item": item, "revision": project.revision}
+
+    @app.post("/v1/backups/restore", status_code=201)
+    async def restore_backup(request: BackupRestoreRequest) -> dict[str, Any]:
+        if not request.confirmed:
+            raise HTTPException(
+                status_code=409,
+                detail=("RESTORE_CONFIRMATION_REQUIRED", "恢复前必须明确确认所选备份路径"),
+            )
+        project = state.require_project()
+        if bool(request.archive_path) == bool(request.backup_id):
+            raise HTTPException(
+                status_code=422,
+                detail=("RESTORE_SOURCE_INVALID", "必须且只能指定备份记录或外部备份文件之一"),
+            )
+        archive_path = request.archive_path
+        if request.backup_id:
+            archive_path = str(
+                BackupService(project, workspace).record_path(request.backup_id)
+            )
+        restored = BackupService.restore_backup(
+            workspace,
+            str(archive_path),
+            restored_name=request.restored_name,
+        )
+        with state.lock:
+            state.close_current()
+            state.current_project = workspace.open_project(restored["projectId"])
+            return {
+                "restored": restored,
+                "project": state.current_project.project_info(),
+                "revision": state.current_project.revision,
+            }
+
     return app
+
+
+def _daily_backup_warning(
+    project: ProjectRepository, workspace: ProjectWorkspace
+) -> str | None:
+    try:
+        BackupService(project, workspace).create_daily_backup_if_needed()
+        return None
+    except Exception:
+        return "本次业务数据已保存，但每日自动备份失败；请在备份恢复页重试"

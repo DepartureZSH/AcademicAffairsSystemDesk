@@ -6,6 +6,7 @@ import PlanningView from "./components/PlanningView.vue";
 import SchoolDataView from "./components/SchoolDataView.vue";
 import SchedulingView from "./components/SchedulingView.vue";
 import TimetableView from "./components/TimetableView.vue";
+import BackupsView from "./components/BackupsView.vue";
 import { accessGate, type GateStatus } from "./lib/accessGate";
 import {
   localApi,
@@ -28,7 +29,7 @@ const navItems: NavItem[] = [
   { key: "constraints", label: "约束配置", enabled: true },
   { key: "scheduling", label: "排课运行", enabled: true },
   { key: "timetables", label: "课表与导出", enabled: true },
-  { key: "backups", label: "备份恢复", enabled: false },
+  { key: "backups", label: "备份恢复", enabled: true },
 ];
 
 const gate = ref<GateStatus | null>(null);
@@ -73,6 +74,7 @@ const pageTitle = computed(() => {
   if (activeView.value === "constraints") return "约束配置";
   if (activeView.value === "scheduling") return "排课运行与候选方案";
   if (activeView.value === "timetables") return "课表查看与手工调整";
+  if (activeView.value === "backups") return "备份与恢复";
   return currentProject.value?.name ?? "项目工作台";
 });
 
@@ -203,6 +205,12 @@ async function openProject(projectId: string) {
   }
 }
 
+function applyRestoredProject(project: ProjectInfo, revision: number) {
+  currentProject.value = project;
+  projectRevision.value = revision;
+  void refreshProjects();
+}
+
 onMounted(bootstrapGate);
 </script>
 
@@ -319,6 +327,7 @@ onMounted(bootstrapGate);
       <ConstraintsView v-else-if="activeView === 'constraints' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
       <SchedulingView v-else-if="activeView === 'scheduling' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
       <TimetableView v-else-if="activeView === 'timetables' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
+      <BackupsView v-else-if="activeView === 'backups' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" @project-restored="applyRestoredProject" />
       <template v-else>
         <div v-if="workspaceBusy && !runtime" class="state-panel">
           <div class="spinner"></div><h2>正在启动安全本地服务</h2><p>校验随机端口、一次性令牌和项目工作目录…</p>

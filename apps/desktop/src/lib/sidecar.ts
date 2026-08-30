@@ -70,6 +70,18 @@ export interface ManualMovePreview {
   preview: Record<string, unknown> | null;
 }
 
+export interface BackupRecord extends Record<string, unknown> {
+  id: string;
+  reason: string;
+  revision: number;
+  relative_path: string;
+  sha256: string;
+  retained: number;
+  created_at: string;
+  exists: boolean;
+  size_bytes: number | null;
+}
+
 interface SidecarRequest {
   method: "GET" | "POST" | "PUT" | "DELETE";
   path: string;
@@ -215,5 +227,37 @@ export const localApi = {
     sidecarRequest<{ items: Array<Record<string, unknown>>; revision: number }>({
       method: "GET",
       path: "/v1/exports",
+    }),
+  createBackup: (data: Record<string, unknown>) =>
+    sidecarRequest<{ backup: Record<string, unknown>; revision: number }>({
+      method: "POST",
+      path: "/v1/backups",
+      body: data,
+    }),
+  listBackups: () =>
+    sidecarRequest<{ items: BackupRecord[]; revision: number }>({
+      method: "GET",
+      path: "/v1/backups",
+    }),
+  verifyBackup: (backupId: string) =>
+    sidecarRequest<Record<string, unknown>>({
+      method: "POST",
+      path: `/v1/backups/${encodeURIComponent(backupId)}/verify`,
+    }),
+  retainBackup: (backupId: string, retained: boolean) =>
+    sidecarRequest<{ item: BackupRecord; revision: number }>({
+      method: "PUT",
+      path: `/v1/backups/${encodeURIComponent(backupId)}/retained`,
+      body: { retained },
+    }),
+  restoreBackup: (data: Record<string, unknown>) =>
+    sidecarRequest<{
+      restored: Record<string, unknown>;
+      project: ProjectInfo;
+      revision: number;
+    }>({
+      method: "POST",
+      path: "/v1/backups/restore",
+      body: data,
     }),
 };

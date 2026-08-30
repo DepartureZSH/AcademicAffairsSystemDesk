@@ -165,6 +165,9 @@ nav { display: grid; gap: 7px; }
 .export-toolbar > div strong { margin-top: 4px; }.export-toolbar > div small { margin-top: 3px; color: #71837c; font-size: 10px; }
 .export-toolbar select { border: 1px solid #cad7d1; border-radius: 8px; padding: 8px 9px; background: white; }
 .export-toolbar .primary-button { margin: 0; }.export-toolbar > small { color: #71837c; }.export-notice { color: #27644f; font-size: 11px; max-width: 300px; }
+.soft-divider { border: 0; border-top: 1px solid #e5ebe8; margin: 24px 0; }
+.backup-row { align-items: flex-start; }.backup-row > span { flex: 1; overflow: hidden; }.backup-row small { overflow: hidden; text-overflow: ellipsis; }
+.backup-row .row-actions { flex-wrap: wrap; justify-content: flex-end; min-width: 150px; }
 
 @media (max-width: 1120px) {
   .hero-card { grid-template-columns: 1fr; }
