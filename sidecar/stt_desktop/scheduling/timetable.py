@@ -22,9 +22,14 @@ class TimetableService:
         entity_id: str | None = None,
     ) -> dict[str, Any]:
         candidate = self._candidate(candidate_id)
-        filters = {"teacher": "e.teacher_id", "homeroom": "e.homeroom_id", "room": "e.room_id"}
+        filters = {
+            "teacher": "e.teacher_id",
+            "homeroom": "e.homeroom_id",
+            "room": "e.room_id",
+            "grade": "h.grade_id",
+        }
         if entity_type and entity_type not in filters:
-            raise ProjectError("课表筛选类型只支持 teacher、homeroom 或 room")
+            raise ProjectError("课表筛选类型只支持 teacher、homeroom、room 或 grade")
         where = "e.candidate_id = ?"
         params: list[Any] = [candidate_id]
         if entity_type and entity_id:

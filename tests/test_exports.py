@@ -40,8 +40,14 @@ def export_fixture(tmp_path: Path):
             ],
             "teacher": [{"id": "teacher-1", "name": "张老师"}],
             "subject": [{"id": "subject-1", "name": "数学"}],
+            "grade": [{"id": "grade-1", "name": "一年级"}],
             "homeroom": [
-                {"id": "homeroom-1", "term_id": "term-1", "name": "一年级一班"}
+                {
+                    "id": "homeroom-1",
+                    "grade_id": "grade-1",
+                    "term_id": "term-1",
+                    "name": "一年级一班",
+                }
             ],
         },
         0,
@@ -126,6 +132,46 @@ def test_export_to_user_destination_is_atomic_and_requires_explicit_overwrite(
                 candidate_id=candidate_id,
                 export_type="xlsx",
                 destination_path=str(tmp_path / "wrong.csv"),
+            )
+    finally:
+        project.close()
+
+
+def test_filtered_export_masks_week_parity_and_records_presentation_options(
+    tmp_path: Path,
+) -> None:
+    project, candidate_id = export_fixture(tmp_path)
+    try:
+        service = ExportService(project)
+        result = service.export_candidate(
+            candidate_id=candidate_id,
+            export_type="xlsx",
+            entity_type="grade",
+            entity_id="grade-1",
+            week_mode="odd",
+            layout="portrait",
+            color_mode="grayscale",
+        )
+        assert result["rowCount"] == 2
+        assert result["viewOptions"] == {
+            "entity_type": "grade",
+            "entity_id": "grade-1",
+            "week_mode": "odd",
+            "layout": "portrait",
+            "color_mode": "grayscale",
+        }
+        workbook = load_workbook(project.project_directory / result["relativePath"], read_only=True)
+        assert workbook["候选课表"]["H2"].value == "10101010101010101010"
+        assert workbook["候选信息"]["B7"].value == "odd"
+        assert workbook["候选信息"]["B8"].value == "portrait"
+        assert workbook["候选信息"]["B9"].value == "grayscale"
+        workbook.close()
+
+        with pytest.raises(ProjectError, match="同时指定"):
+            service.export_candidate(
+                candidate_id=candidate_id,
+                export_type="csv",
+                entity_type="grade",
             )
     finally:
         project.close()

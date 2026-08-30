@@ -75,6 +75,11 @@ class CandidateExportRequest(BaseModel):
     export_type: str
     destination_path: str | None = Field(default=None, max_length=32_767)
     overwrite: bool = False
+    entity_type: str | None = Field(default=None, pattern="^(teacher|homeroom|room|grade)$")
+    entity_id: str | None = Field(default=None, max_length=200)
+    week_mode: str = Field(default="all", pattern="^(all|odd|even)$")
+    layout: str = Field(default="landscape", pattern="^(landscape|portrait)$")
+    color_mode: str = Field(default="color", pattern="^(color|grayscale)$")
 
 
 class BackupCreateRequest(BaseModel):
@@ -510,6 +515,11 @@ def create_app(
             export_type=request.export_type,
             destination_path=request.destination_path,
             overwrite=request.overwrite,
+            entity_type=request.entity_type,
+            entity_id=request.entity_id,
+            week_mode=request.week_mode,
+            layout=request.layout,
+            color_mode=request.color_mode,
         )
         return {"export": result, "revision": project.revision}
 

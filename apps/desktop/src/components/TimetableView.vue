@@ -21,6 +21,7 @@ const slots = ref<EntityRecord[]>([]);
 const rooms = ref<EntityRecord[]>([]);
 const teachers = ref<EntityRecord[]>([]);
 const homerooms = ref<EntityRecord[]>([]);
+const grades = ref<EntityRecord[]>([]);
 const filterType = ref("");
 const filterId = ref("");
 const basedOnOldData = ref(false);
@@ -35,12 +36,50 @@ const errorMessage = ref("");
 const exportType = ref("xlsx");
 const exportNotice = ref("");
 const exportHistory = ref<Array<Record<string, unknown>>>([]);
+const compareCandidateId = ref("");
+const compareEntries = ref<TimetableEntry[]>([]);
+const weekMode = ref<"all" | "odd" | "even">("all");
+const exportLayout = ref<"landscape" | "portrait">("landscape");
+const colorMode = ref<"color" | "grayscale">("color");
 
 watch(() => props.revision, (value) => { revision.value = value; });
-watch([filterType, filterId], () => { if (candidateId.value) void loadTimetable(); });
+watch([filterType, filterId], () => {
+  if (candidateId.value) void loadTimetable();
+  if (compareCandidateId.value) void loadComparison();
+});
+watch(compareCandidateId, () => { void loadComparison(); });
+watch(candidateId, () => { if (compareCandidateId.value) void loadComparison(); });
 
 const selectedCandidate = computed(() => candidates.value.find((item) => item.id === candidateId.value) ?? null);
-const filterOptions = computed(() => filterType.value === "teacher" ? teachers.value : filterType.value === "homeroom" ? homerooms.value : filterType.value === "room" ? rooms.value : []);
+const filterOptions = computed(() => filterType.value === "teacher" ? teachers.value : filterType.value === "homeroom" ? homerooms.value : filterType.value === "room" ? rooms.value : filterType.value === "grade" ? grades.value : []);
+const compareCandidate = computed(() => candidates.value.find((item) => item.id === compareCandidateId.value) ?? null);
+const comparison = computed(() => {
+  if (!compareCandidate.value || compareCandidateId.value === candidateId.value) return null;
+  const left = new Map(entries.value.map((item) => [item.task_lesson_id, item]));
+  const right = new Map(compareEntries.value.map((item) => [item.task_lesson_id, item]));
+  let moved = 0;
+  let added = 0;
+  let removed = 0;
+  let unchanged = 0;
+  for (const lessonId of new Set([...left.keys(), ...right.keys()])) {
+    const before = left.get(lessonId);
+    const after = right.get(lessonId);
+    if (!before) added += 1;
+    else if (!after) removed += 1;
+    else if (before.weekday !== after.weekday || before.start_slot !== after.start_slot || before.room_id !== after.room_id || before.week_bits !== after.week_bits) moved += 1;
+    else unchanged += 1;
+  }
+  return {
+    moved, added, removed, unchanged,
+    scoreDelta: compareCandidate.value.total_score - (selectedCandidate.value?.total_score ?? 0),
+  };
+});
+const isRawXmlExport = computed(() => exportType.value.endsWith("_xml"));
+const exportPreviewCount = computed(() => entries.value.filter((item) => {
+  if (weekMode.value === "all") return true;
+  const parity = weekMode.value === "odd" ? 0 : 1;
+  return [...item.week_bits].some((bit, index) => bit === "1" && index % 2 === parity);
+}).length);
 const weekdays = [1, 2, 3, 4, 5, 6, 7];
 const visibleStartSlots = computed(() => {
   const values = slots.value.filter((item) => Number(item.weekday) === targetWeekday.value);
@@ -64,28 +103,45 @@ async function loadBase() {
   busy.value = true;
   errorMessage.value = "";
   try {
-    const [candidateResult, slotResult, roomResult, teacherResult, homeroomResult] = await Promise.all([
+    const [candidateResult, slotResult, roomResult, teacherResult, homeroomResult, gradeResult] = await Promise.all([
       localApi.listSchedulingCandidates(),
       localApi.listEntities("time_slot"),
       localApi.listEntities("room"),
       localApi.listEntities("teacher"),
       localApi.listEntities("homeroom"),
+      localApi.listEntities("grade"),
     ]);
     candidates.value = candidateResult.items;
     slots.value = slotResult.items;
     rooms.value = roomResult.items;
     teachers.value = teacherResult.items;
     homerooms.value = homeroomResult.items;
-    revision.value = Math.max(candidateResult.revision, slotResult.revision, roomResult.revision, teacherResult.revision, homeroomResult.revision);
+    grades.value = gradeResult.items;
+    revision.value = Math.max(candidateResult.revision, slotResult.revision, roomResult.revision, teacherResult.revision, homeroomResult.revision, gradeResult.revision);
     emit("revision", revision.value);
     if (!candidateId.value && candidates.value.length) candidateId.value = candidates.value[0].id;
     if (candidateId.value) await loadTimetable();
+    if (compareCandidateId.value) await loadComparison();
     const exportsResult = await localApi.listExports();
     exportHistory.value = exportsResult.items;
   } catch (error) {
     errorMessage.value = formatLocalError(error);
   } finally {
     busy.value = false;
+  }
+}
+
+async function loadComparison() {
+  if (!compareCandidateId.value || compareCandidateId.value === candidateId.value) {
+    compareEntries.value = [];
+    return;
+  }
+  try {
+    const result = await localApi.getTimetable(compareCandidateId.value, filterType.value || undefined, filterId.value || undefined);
+    compareEntries.value = result.items;
+  } catch (error) {
+    errorMessage.value = formatLocalError(error);
+    compareEntries.value = [];
   }
 }
 
@@ -183,6 +239,11 @@ async function exportCandidate() {
       export_type: exportType.value,
       destination_path: destination,
       overwrite: true,
+      entity_type: filterType.value && filterId.value ? filterType.value : null,
+      entity_id: filterType.value && filterId.value ? filterId.value : null,
+      week_mode: weekMode.value,
+      layout: exportLayout.value,
+      color_mode: colorMode.value,
     });
     exportNotice.value = `已导出 ${String(result.export.fileName)}，SHA-256 ${String(result.export.sha256).slice(0, 12)}…`;
     exportHistory.value = (await localApi.listExports()).items;
@@ -212,17 +273,27 @@ onMounted(loadBase);
 
     <article class="panel timetable-toolbar">
       <label>候选方案<select v-model="candidateId" @change="loadTimetable"><option v-for="item in candidates" :key="item.id" :value="item.id">得分 {{ item.total_score }} · {{ item.entry_count }} 课次 · {{ item.name }}</option></select></label>
-      <label>查看维度<select v-model="filterType" @change="filterId = ''"><option value="">全部课表</option><option value="homeroom">班级课表</option><option value="teacher">教师课表</option><option value="room">教室课表</option></select></label>
+      <label>查看维度<select v-model="filterType" @change="filterId = ''"><option value="">全部课表</option><option value="grade">年级课表</option><option value="homeroom">班级课表</option><option value="teacher">教师课表</option><option value="room">教室课表</option></select></label>
       <label v-if="filterType">对象<select v-model="filterId"><option value="">全部</option><option v-for="item in filterOptions" :key="item.id" :value="item.id">{{ filterLabel(item) }}</option></select></label>
       <button v-if="selectedCandidate?.parent_candidate_id" class="secondary-button" @click="undoToParent">回到父候选（撤销）</button>
+    </article>
+
+    <article v-if="candidates.length > 1" class="panel comparison-toolbar">
+      <div><p class="eyebrow">CANDIDATE DIFF</p><strong>候选差异比较</strong><small>以当前候选和当前查看范围为基线，按课次 ID 比较时间、教室和周次。</small></div>
+      <select v-model="compareCandidateId"><option value="">选择对比候选</option><option v-for="item in candidates.filter((candidate) => candidate.id !== candidateId)" :key="item.id" :value="item.id">得分 {{ item.total_score }} · {{ item.name }}</option></select>
+      <div v-if="comparison" class="comparison-metrics"><span><b>{{ comparison.moved }}</b> 移动/变更</span><span><b>{{ comparison.added }}</b> 新增</span><span><b>{{ comparison.removed }}</b> 缺失</span><span><b>{{ comparison.unchanged }}</b> 未变</span><span :class="comparison.scoreDelta <= 0 ? 'better' : 'worse'"><b>{{ comparison.scoreDelta > 0 ? '+' : '' }}{{ comparison.scoreDelta }}</b> 得分差</span></div>
     </article>
 
     <article v-if="candidates.length" class="panel export-toolbar">
       <div><p class="eyebrow">LOCAL EXPORT</p><strong>导出当前候选</strong><small>文件先在项目内原子生成并校验，再复制到系统对话框选择的位置。</small></div>
       <select v-model="exportType"><option v-for="(item, key) in exportOptions" :key="key" :value="key">{{ item.label }}</option></select>
+      <select v-model="weekMode" :disabled="isRawXmlExport"><option value="all">全部周次</option><option value="odd">仅单周</option><option value="even">仅双周</option></select>
+      <select v-model="exportLayout" :disabled="isRawXmlExport"><option value="landscape">横向</option><option value="portrait">纵向</option></select>
+      <select v-model="colorMode" :disabled="isRawXmlExport"><option value="color">彩色</option><option value="grayscale">黑白</option></select>
       <button class="primary-button" :disabled="busy" @click="exportCandidate">{{ busy ? "处理中…" : "选择位置并导出" }}</button>
       <span v-if="exportNotice" class="export-notice">{{ exportNotice }}</span>
-      <small v-else-if="exportHistory.length">本项目已完成 {{ exportHistory.filter((item) => item.status === 'succeeded').length }} 次导出</small>
+      <small v-else-if="isRawXmlExport">XML 始终导出候选绑定的原始算法制品，不应用展示筛选。</small>
+      <small v-else>预览：{{ exportPreviewCount }} 条 · {{ filterId ? '当前筛选范围' : '全部范围' }} · {{ weekMode === 'odd' ? '单周' : weekMode === 'even' ? '双周' : '全部周次' }} · {{ exportLayout === 'landscape' ? '横向' : '纵向' }} · {{ colorMode === 'color' ? '彩色' : '黑白' }}</small>
     </article>
 
     <div v-if="!candidates.length" class="state-panel compact-state"><h2>尚无可查看候选</h2><p>先在“排课运行”生成完整可行候选。</p></div>

@@ -45,6 +45,11 @@ class ExportService:
         export_type: str,
         destination_path: str | None = None,
         overwrite: bool = False,
+        entity_type: str | None = None,
+        entity_id: str | None = None,
+        week_mode: str = "all",
+        layout: str = "landscape",
+        color_mode: str = "color",
     ) -> dict[str, Any]:
         if export_type not in EXPORT_SUFFIXES:
             raise ProjectError("导出类型只支持 CSV、XLSX、PDF、Problem XML 或 Solution XML")
@@ -64,8 +69,15 @@ class ExportService:
             (job_id, export_type, relative, now, now),
         )
         try:
-            rows = self._timetable_rows(candidate_id)
-            writers: dict[str, Callable[[Path, dict, list[dict]], None]] = {
+            options = self._view_options(
+                entity_type=entity_type,
+                entity_id=entity_id,
+                week_mode=week_mode,
+                layout=layout,
+                color_mode=color_mode,
+            )
+            rows = self._timetable_rows(candidate_id, **options)
+            writers: dict[str, Callable[[Path, dict, list[dict], dict], None]] = {
                 "csv": self._write_csv,
                 "xlsx": self._write_xlsx,
                 "pdf": self._write_pdf,
@@ -75,7 +87,7 @@ class ExportService:
             target.parent.mkdir(parents=True, exist_ok=True)
             temporary = target.with_name(f".{target.name}.{uuid7()}.tmp")
             try:
-                writers[export_type](temporary, candidate, rows)
+                writers[export_type](temporary, candidate, rows, options)
                 with temporary.open("r+b") as handle:
                     os.fsync(handle.fileno())
                 temporary.replace(target)
@@ -91,6 +103,7 @@ class ExportService:
                 "sha256": sha256,
                 "sizeBytes": size,
                 "copiedToUserDestination": destination is not None,
+                "viewOptions": options if export_type in {"csv", "xlsx", "pdf"} else {"rawArtifact": True},
             }
             finished = utc_now()
             self.project.connection.execute(
@@ -136,9 +149,30 @@ class ExportService:
             raise ProjectError("要导出的候选不存在或已失效")
         return dict(row)
 
-    def _timetable_rows(self, candidate_id: str) -> list[dict[str, Any]]:
+    def _timetable_rows(
+        self,
+        candidate_id: str,
+        *,
+        entity_type: str | None,
+        entity_id: str | None,
+        week_mode: str,
+        layout: str,
+        color_mode: str,
+    ) -> list[dict[str, Any]]:
+        del layout, color_mode
+        columns = {
+            "teacher": "e.teacher_id",
+            "homeroom": "e.homeroom_id",
+            "room": "e.room_id",
+            "grade": "h.grade_id",
+        }
+        where = "e.candidate_id = ?"
+        params: list[Any] = [candidate_id]
+        if entity_type and entity_id:
+            where += f" AND {columns[entity_type]} = ?"  # noqa: S608 - allowlisted column
+            params.append(entity_id)
         rows = self.project.connection.execute(
-            """
+            f"""
             SELECT e.weekday, e.start_slot, e.duration_slots, e.week_bits,
                    e.task_lesson_id, h.name AS homeroom_name, s.name AS subject_name,
                    t.name AS teacher_name, r.name AS room_name
@@ -147,12 +181,52 @@ class ExportService:
             LEFT JOIN subjects s ON s.id = e.subject_id
             LEFT JOIN teachers t ON t.id = e.teacher_id
             LEFT JOIN rooms r ON r.id = e.room_id
-            WHERE e.candidate_id = ?
+            WHERE {where}
             ORDER BY e.weekday, e.start_slot, h.name, s.name
-            """,
-            (candidate_id,),
+            """,  # noqa: S608 - fixed query plus allowlisted filter
+            tuple(params),
         ).fetchall()
-        return [dict(row) for row in rows]
+        filtered = []
+        for source in rows:
+            row = dict(source)
+            row["week_bits"] = self._masked_week_bits(str(row["week_bits"]), week_mode)
+            if "1" in row["week_bits"]:
+                filtered.append(row)
+        return filtered
+
+    @staticmethod
+    def _view_options(
+        *,
+        entity_type: str | None,
+        entity_id: str | None,
+        week_mode: str,
+        layout: str,
+        color_mode: str,
+    ) -> dict[str, str | None]:
+        if entity_type not in {None, "teacher", "homeroom", "room", "grade"}:
+            raise ProjectError("导出范围类型无效")
+        if bool(entity_type) != bool(entity_id):
+            raise ProjectError("导出范围必须同时指定类型和对象")
+        if week_mode not in {"all", "odd", "even"}:
+            raise ProjectError("单双周选项无效")
+        if layout not in {"landscape", "portrait"}:
+            raise ProjectError("版式选项无效")
+        if color_mode not in {"color", "grayscale"}:
+            raise ProjectError("颜色模式无效")
+        return {
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "week_mode": week_mode,
+            "layout": layout,
+            "color_mode": color_mode,
+        }
+
+    @staticmethod
+    def _masked_week_bits(week_bits: str, week_mode: str) -> str:
+        if week_mode == "all":
+            return week_bits
+        parity = 0 if week_mode == "odd" else 1
+        return "".join(bit if index % 2 == parity else "0" for index, bit in enumerate(week_bits))
 
     @staticmethod
     def _row_values(row: dict[str, Any]) -> tuple[Any, ...]:
@@ -175,13 +249,13 @@ class ExportService:
             for value in cls._row_values(row)
         )
 
-    def _write_csv(self, path: Path, _: dict, rows: list[dict]) -> None:
+    def _write_csv(self, path: Path, _: dict, rows: list[dict], __: dict) -> None:
         with path.open("w", encoding="utf-8-sig", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow(HEADERS)
             writer.writerows(self._spreadsheet_values(row) for row in rows)
 
-    def _write_xlsx(self, path: Path, candidate: dict, rows: list[dict]) -> None:
+    def _write_xlsx(self, path: Path, candidate: dict, rows: list[dict], options: dict) -> None:
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "候选课表"
@@ -190,7 +264,9 @@ class ExportService:
         sheet.append(HEADERS)
         for row in rows:
             sheet.append(self._spreadsheet_values(row))
-        header_fill = PatternFill("solid", fgColor="1F604D")
+        header_fill = PatternFill(
+            "solid", fgColor="4B4B4B" if options["color_mode"] == "grayscale" else "1F604D"
+        )
         for cell in sheet[1]:
             cell.fill = header_fill
             cell.font = Font(color="FFFFFF", bold=True)
@@ -207,15 +283,20 @@ class ExportService:
         summary.append(("总得分", candidate["total_score"]))
         summary.append(("硬约束违例", candidate["hard_violations"]))
         summary.append(("生成时间", candidate["created_at"]))
+        summary.append(("导出范围", options["entity_type"] or "全部"))
+        summary.append(("单双周", options["week_mode"]))
+        summary.append(("版式", options["layout"]))
+        summary.append(("颜色模式", options["color_mode"]))
         summary.column_dimensions["A"].width = 22
         summary.column_dimensions["B"].width = 56
         workbook.save(path)
 
-    def _write_pdf(self, path: Path, candidate: dict, rows: list[dict]) -> None:
+    def _write_pdf(self, path: Path, candidate: dict, rows: list[dict], options: dict) -> None:
         font_name = self._register_cjk_font()
+        page_size = landscape(A4) if options["layout"] == "landscape" else A4
         document = SimpleDocTemplate(
             str(path),
-            pagesize=landscape(A4),
+            pagesize=page_size,
             leftMargin=10 * mm,
             rightMargin=10 * mm,
             topMargin=10 * mm,
@@ -250,17 +331,31 @@ class ExportService:
         table = Table(
             table_data,
             repeatRows=1,
-            colWidths=[22 * mm, 18 * mm, 18 * mm, 34 * mm, 34 * mm, 34 * mm, 34 * mm],
+            colWidths=(
+                [22 * mm, 18 * mm, 18 * mm, 34 * mm, 34 * mm, 34 * mm, 34 * mm]
+                if options["layout"] == "landscape"
+                else [18 * mm, 14 * mm, 14 * mm, 25 * mm, 25 * mm, 25 * mm, 25 * mm]
+            ),
         )
         table.setStyle(
             TableStyle(
                 [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F604D")),
+                    (
+                        "BACKGROUND",
+                        (0, 0),
+                        (-1, 0),
+                        colors.HexColor("#4B4B4B" if options["color_mode"] == "grayscale" else "#1F604D"),
+                    ),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                     ("FONTNAME", (0, 0), (-1, -1), font_name),
                     ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#B9C9C2")),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F2F7F4")]),
+                    (
+                        "ROWBACKGROUNDS",
+                        (0, 1),
+                        (-1, -1),
+                        [colors.white, colors.HexColor("#EEEEEE" if options["color_mode"] == "grayscale" else "#F2F7F4")],
+                    ),
                     ("LEFTPADDING", (0, 0), (-1, -1), 3),
                     ("RIGHTPADDING", (0, 0), (-1, -1), 3),
                 ]
@@ -273,12 +368,12 @@ class ExportService:
             canvas.setFont(font_name, 7)
             canvas.setFillColor(colors.HexColor("#61756D"))
             canvas.drawString(10 * mm, 6 * mm, "时奕教务排课 · 本地导出")
-            canvas.drawRightString(landscape(A4)[0] - 10 * mm, 6 * mm, f"第 {doc.page} 页")
+            canvas.drawRightString(page_size[0] - 10 * mm, 6 * mm, f"第 {doc.page} 页")
             canvas.restoreState()
 
         document.build(story, onFirstPage=footer, onLaterPages=footer)
 
-    def _write_problem_xml(self, path: Path, candidate: dict, _: list[dict]) -> None:
+    def _write_problem_xml(self, path: Path, candidate: dict, _: list[dict], __: dict) -> None:
         source = self.project.project_directory / f"artifacts/problem/{candidate['round_id']}.xml"
         if not source.is_file():
             parent_round = self.project.connection.execute(
@@ -294,7 +389,7 @@ class ExportService:
             return
         shutil.copyfile(source, path)
 
-    def _write_solution_xml(self, path: Path, candidate: dict, _: list[dict]) -> None:
+    def _write_solution_xml(self, path: Path, candidate: dict, _: list[dict], __: dict) -> None:
         diagnostics = json.loads(candidate["diagnostics"] or "{}")
         relative = str(diagnostics.get("solutionPath") or "")
         source = (self.project.project_directory / relative).resolve()
