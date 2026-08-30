@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import CalendarView from "./components/CalendarView.vue";
+import SchoolDataView from "./components/SchoolDataView.vue";
 import { accessGate, type GateStatus } from "./lib/accessGate";
 import {
   localApi,
+  formatLocalError,
   startSidecar,
   stopSidecar,
   type HealthStatus,
@@ -15,8 +18,8 @@ type AuthMode = "signin" | "signup" | "reset";
 
 const navItems: NavItem[] = [
   { key: "workspace", label: "项目工作台", enabled: true },
-  { key: "calendar", label: "学期与作息", enabled: false },
-  { key: "school", label: "基础资料", enabled: false },
+  { key: "calendar", label: "学期与作息", enabled: true },
+  { key: "school", label: "基础资料", enabled: true },
   { key: "planning", label: "课程计划", enabled: false },
   { key: "constraints", label: "约束配置", enabled: false },
   { key: "scheduling", label: "排课运行", enabled: false },
@@ -37,6 +40,8 @@ const runtime = ref<RuntimeStatus | null>(null);
 const health = ref<HealthStatus | null>(null);
 const projects = ref<Array<Record<string, unknown>>>([]);
 const currentProject = ref<ProjectInfo | null>(null);
+const projectRevision = ref(0);
+const activeView = ref("workspace");
 const projectName = ref("");
 const workspaceBusy = ref(false);
 const workspaceError = ref("");
@@ -56,6 +61,13 @@ const licenseExpiry = computed(() => {
   return expiresAt ? new Date(expiresAt * 1000).toLocaleString("zh-CN") : "尚未激活";
 });
 
+const pageTitle = computed(() => {
+  if (!gate.value?.canStartSidecar) return "身份与设备授权";
+  if (activeView.value === "calendar") return "学期与作息";
+  if (activeView.value === "school") return "基础资料";
+  return currentProject.value?.name ?? "项目工作台";
+});
+
 async function refreshProjects() {
   projects.value = (await localApi.listProjects()).projects;
 }
@@ -68,7 +80,7 @@ async function bootstrapWorkspace() {
     health.value = await localApi.health();
     await refreshProjects();
   } catch (error) {
-    workspaceError.value = String(error);
+    workspaceError.value = formatLocalError(error);
   } finally {
     workspaceBusy.value = false;
   }
@@ -139,6 +151,7 @@ async function signOut() {
     runtime.value = null;
     health.value = null;
     currentProject.value = null;
+    activeView.value = "workspace";
     gate.value = await accessGate.signOut();
     gateNotice.value = "已退出并清除本地登录会话与授权；设备私钥已保留";
   } catch (error) {
@@ -156,11 +169,12 @@ async function createProject() {
   try {
     const result = await localApi.createProject(name);
     currentProject.value = result.project;
+    projectRevision.value = result.revision;
     projectName.value = "";
     await refreshProjects();
     health.value = await localApi.health();
   } catch (error) {
-    workspaceError.value = String(error);
+    workspaceError.value = formatLocalError(error);
   } finally {
     workspaceBusy.value = false;
   }
@@ -172,9 +186,10 @@ async function openProject(projectId: string) {
   try {
     const result = await localApi.openProject(projectId);
     currentProject.value = result.project;
+    projectRevision.value = result.revision;
     health.value = await localApi.health();
   } catch (error) {
-    workspaceError.value = String(error);
+    workspaceError.value = formatLocalError(error);
   } finally {
     workspaceBusy.value = false;
   }
@@ -196,8 +211,9 @@ onMounted(bootstrapGate);
           v-for="item in navItems"
           :key="item.key"
           class="nav-item"
-          :class="{ active: item.key === 'workspace' }"
-          :disabled="!item.enabled || !gate?.canStartSidecar"
+          :class="{ active: item.key === activeView }"
+          :disabled="!item.enabled || !gate?.canStartSidecar || (item.key !== 'workspace' && !currentProject)"
+          @click="activeView = item.key"
         >
           <span>{{ item.label }}</span><small v-if="!item.enabled">实施中</small>
         </button>
@@ -217,7 +233,7 @@ onMounted(bootstrapGate);
       <header class="topbar">
         <div>
           <p class="eyebrow">LOCAL-FIRST SCHEDULING</p>
-          <h1>{{ currentProject?.name ?? (gate?.canStartSidecar ? "项目工作台" : "身份与设备授权") }}</h1>
+          <h1>{{ pageTitle }}</h1>
         </div>
         <div class="topbar-badges">
           <span class="badge secure">教务数据仅在本机</span>
@@ -289,6 +305,8 @@ onMounted(bootstrapGate);
         </aside>
       </section>
 
+      <CalendarView v-else-if="activeView === 'calendar' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
+      <SchoolDataView v-else-if="activeView === 'school' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
       <template v-else>
         <div v-if="workspaceBusy && !runtime" class="state-panel">
           <div class="spinner"></div><h2>正在启动安全本地服务</h2><p>校验随机端口、一次性令牌和项目工作目录…</p>

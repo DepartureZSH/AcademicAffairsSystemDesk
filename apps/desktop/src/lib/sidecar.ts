@@ -23,6 +23,13 @@ export interface ProjectInfo {
   updated_at: string;
 }
 
+export interface EntityRecord {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  [key: string]: unknown;
+}
+
 interface SidecarRequest {
   method: "GET" | "POST" | "PUT" | "DELETE";
   path: string;
@@ -45,6 +52,19 @@ export async function sidecarRequest<T>(request: SidecarRequest): Promise<T> {
   return invoke<T>("sidecar_request", { request });
 }
 
+export function formatLocalError(error: unknown): string {
+  const raw = String(error);
+  try {
+    const parsed = JSON.parse(raw) as { error?: { message?: string; correlationId?: string } };
+    const message = parsed.error?.message;
+    const correlationId = parsed.error?.correlationId;
+    if (message) return correlationId ? `${message}（追踪号 ${correlationId}）` : message;
+  } catch {
+    // Tauri command errors that are not local API envelopes are already safe display strings.
+  }
+  return raw;
+}
+
 export const localApi = {
   health: () => sidecarRequest<HealthStatus>({ method: "GET", path: "/v1/health" }),
   listProjects: () =>
@@ -62,5 +82,25 @@ export const localApi = {
     sidecarRequest<{ project: ProjectInfo; revision: number }>({
       method: "POST",
       path: `/v1/projects/${encodeURIComponent(projectId)}/open`,
+    }),
+  listEntities: <T extends EntityRecord = EntityRecord>(entityType: string) =>
+    sidecarRequest<{ items: T[]; revision: number }>({
+      method: "GET",
+      path: `/v1/data/${encodeURIComponent(entityType)}`,
+    }),
+  saveEntity: <T extends EntityRecord = EntityRecord>(
+    entityType: string,
+    data: Record<string, unknown>,
+    expectedRevision: number,
+  ) =>
+    sidecarRequest<{ item: T; revision: number }>({
+      method: "PUT",
+      path: `/v1/data/${encodeURIComponent(entityType)}`,
+      body: { data, expected_revision: expectedRevision },
+    }),
+  deleteEntity: (entityType: string, entityId: string, expectedRevision: number) =>
+    sidecarRequest<{ deletedId: string; revision: number }>({
+      method: "DELETE",
+      path: `/v1/data/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}?expected_revision=${expectedRevision}`,
     }),
 };

@@ -47,6 +47,20 @@ def test_project_allows_only_one_writer(tmp_path: Path) -> None:
     reopened.close()
 
 
+def test_stale_lock_file_does_not_block_reopen(tmp_path: Path) -> None:
+    workspace = ProjectWorkspace(tmp_path / "workspace")
+    project = workspace.create_project("崩溃恢复锁测试")
+    project_id = project.project_info()["id"]
+    lock_path = project.project_directory / ".stt.lock"
+    project.close()
+
+    assert lock_path.is_file()
+    lock_path.write_text('{"pid":999999,"token":"stale"}', encoding="utf-8")
+
+    reopened = workspace.open_project(project_id)
+    reopened.close()
+
+
 def test_crud_increments_revision_and_rejects_stale_write(tmp_path: Path) -> None:
     workspace = ProjectWorkspace(tmp_path / "workspace")
     with workspace.create_project("版本测试") as project:

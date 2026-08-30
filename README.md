@@ -10,6 +10,7 @@
 - G0 本地开发环境与独立公开仓库已准备完成。
 - 已进入 `codex/desktop-local` 实施分支；外部依赖由 `config/services.yaml` 分项切换 real/mock。
 - 已建立 Tauri 2 + Vue 3 桌面壳、安全 Sidecar 生命周期和本地项目工作台。
+- 已开放学期作息与基础资料的本地增删改查，写入采用项目 revision 冲突保护。
 
 ## 开发基线
 
@@ -63,6 +64,8 @@ cargo test --locked
 桌面壳当前实现范围、进程身份校验和端到端验证记录见 [`docs/desktop/11-Tauri桌面壳实现.md`](./docs/desktop/11-Tauri桌面壳实现.md)。
 
 Supabase 登录、Windows Credential Manager、设备 Ed25519 密钥和 YAML Mock 许可证门禁见 [`docs/desktop/12-身份与许可证门禁实现.md`](./docs/desktop/12-身份与许可证门禁实现.md)。开发环境的 Mock 激活码为 `KARIOS-MOCK-LOCAL-2026`，仅用于本地测试，不是生产企业密钥。
+
+学年、学期、作息表、课节和学校基础资料的桌面流程见 [`docs/desktop/13-学期作息与基础资料实现.md`](./docs/desktop/13-学期作息与基础资料实现.md)。
 
 ## 开源许可证
 

@@ -172,23 +172,48 @@ class _ProjectLock:
         self.path = project_directory / ".stt.lock"
         self.token = secrets.token_hex(16)
         payload = json.dumps({"pid": os.getpid(), "token": self.token, "created_at": utc_now()})
+        self.descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR)
         try:
-            descriptor = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError as exc:
-            raise ProjectLockedError(f"项目已被另一个进程打开: {project_directory.name}") from exc
-        try:
-            os.write(descriptor, payload.encode("utf-8"))
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+            if os.fstat(self.descriptor).st_size == 0:
+                os.write(self.descriptor, b" ")
+                os.fsync(self.descriptor)
+            os.lseek(self.descriptor, 0, os.SEEK_SET)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(self.descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self.descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            os.ftruncate(self.descriptor, 0)
+            os.lseek(self.descriptor, 0, os.SEEK_SET)
+            os.write(self.descriptor, payload.encode("utf-8"))
+            os.fsync(self.descriptor)
+        except OSError as exc:
+            os.close(self.descriptor)
+            self.descriptor = -1
+            raise ProjectLockedError(
+                f"项目已被另一个进程打开: {project_directory.name}"
+            ) from exc
 
     def release(self) -> None:
-        try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
+        descriptor = getattr(self, "descriptor", -1)
+        if descriptor < 0:
             return
-        if payload.get("token") == self.token:
-            self.path.unlink(missing_ok=True)
+        try:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+            self.descriptor = -1
 
 
 class ProjectRepository:
