@@ -38,7 +38,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.release_tag || 'v0.1.0-test.1' }}
       EXPECTED_TEST_THUMBPRINT: BAC371BF3F9AA7F75F28B0E9BB77DC6AF921FFD5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download immutable release evidence
         shell: pwsh
@@ -60,7 +60,7 @@ jobs:
             -ExpectedThumbprint $env:EXPECTED_TEST_THUMBPRINT `
             -EvidencePath ".\test-results\clean-windows-${{ matrix.runner }}-${{ matrix.installer }}.json"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: clean-windows-${{ matrix.runner }}-${{ matrix.installer }}
