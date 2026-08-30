@@ -14,6 +14,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $desktopDirectory = Join-Path $repositoryRoot 'apps\desktop'
+$tauriConfigurationPath = Join-Path $desktopDirectory 'src-tauri\tauri.conf.json'
+$bundleVersion = [string](Get-Content -LiteralPath $tauriConfigurationPath -Raw -Encoding UTF8 | ConvertFrom-Json).version
+if ($bundleVersion -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') {
+    throw "tauri.conf.json 中的版本号无效: $bundleVersion"
+}
 $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
 
 if ((Test-Path -LiteralPath $cargoBin -PathType Container) -and
@@ -98,17 +103,25 @@ $selectedDirectories = if ($Bundle -eq 'all') {
 } else {
     @($Bundle)
 }
-$artifacts = $selectedDirectories |
-    ForEach-Object { Get-ChildItem -LiteralPath (Join-Path $bundleDirectory $_) -File } |
-    Where-Object { $_.Extension -in @('.exe', '.msi') } |
-    ForEach-Object {
-        $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
+$artifacts = foreach ($directoryName in $selectedDirectories) {
+    $directory = Join-Path $bundleDirectory $directoryName
+    $matches = @(Get-ChildItem -LiteralPath $directory -File |
+        Where-Object {
+            $_.Extension -in @('.exe', '.msi') -and
+            $_.Name -like "*_${bundleVersion}_*"
+        })
+    if ($matches.Count -ne 1) {
+        throw "期望在 $directory 找到唯一的 $bundleVersion 安装包，实际找到 $($matches.Count) 个。"
+    }
+    foreach ($artifact in $matches) {
+        $hash = Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256
         [pscustomobject]@{
-            Path = $_.FullName
-            SizeBytes = $_.Length
+            Path = $artifact.FullName
+            SizeBytes = $artifact.Length
             SHA256 = $hash.Hash
         }
     }
+}
 
 if (-not $artifacts) {
     throw "没有在 $bundleDirectory 找到本次选择的 Windows 安装包。"
