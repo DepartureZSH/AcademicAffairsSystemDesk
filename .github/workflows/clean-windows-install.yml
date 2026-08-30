@@ -1,0 +1,68 @@
+name: Clean Windows install verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Immutable prerelease tag to verify
+        required: true
+        default: v0.1.0-test.1
+  push:
+    branches: [codex/desktop-local]
+    paths:
+      - .github/workflows/clean-windows-install.yml
+      - scripts/Test-CleanWindowsInstall.ps1
+
+permissions:
+  contents: read
+
+jobs:
+  install-uninstall:
+    name: ${{ matrix.runner }} / ${{ matrix.installer }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            installer: nsis
+            installer_pattern: Karios-STT-Desktop_*_x64-setup.exe
+          - runner: windows-2025
+            installer: msi
+            installer_pattern: Karios-STT-Desktop_*_x64_zh-CN.msi
+          - runner: windows-11-arm
+            installer: nsis
+            installer_pattern: Karios-STT-Desktop_*_x64-setup.exe
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release_tag || 'v0.1.0-test.1' }}
+      EXPECTED_TEST_THUMBPRINT: BAC371BF3F9AA7F75F28B0E9BB77DC6AF921FFD5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download immutable release evidence
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
+          gh release download $env:RELEASE_TAG `
+            --repo $env:GITHUB_REPOSITORY `
+            --dir release-assets `
+            --pattern '${{ matrix.installer_pattern }}' `
+            --pattern 'Karios-Desktop-TEST-ONLY.cer' `
+            --pattern 'windows-release-manifest.json'
+
+      - name: Verify trust, install, launch, uninstall and data preservation
+        shell: pwsh
+        run: |
+          .\scripts\Test-CleanWindowsInstall.ps1 `
+            -AssetDirectory .\release-assets `
+            -InstallerKind '${{ matrix.installer }}' `
+            -ExpectedThumbprint $env:EXPECTED_TEST_THUMBPRINT `
+            -EvidencePath ".\test-results\clean-windows-${{ matrix.runner }}-${{ matrix.installer }}.json"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clean-windows-${{ matrix.runner }}-${{ matrix.installer }}
+          if-no-files-found: warn
+          path: test-results/*.json
