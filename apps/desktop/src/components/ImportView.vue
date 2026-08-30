@@ -23,6 +23,7 @@ watch(entityType, () => { preview.value = null; sourcePath.value = ""; mapping.v
 const entityOptions = [
   ["teacher", "教师"], ["subject", "科目"], ["grade", "年级"],
   ["room_type", "教室类型"], ["room", "教室"], ["homeroom", "班级"],
+  ["course_plan", "课程计划"], ["teaching_task", "教学任务"],
 ];
 const targetFields: Record<string, Array<[string, string]>> = {
   teacher: [["employee_no", "工号"], ["name", "姓名（必填）"], ["department", "部门"], ["status", "状态"]],
@@ -31,6 +32,8 @@ const targetFields: Record<string, Array<[string, string]>> = {
   room_type: [["name", "类型名称（必填）"], ["code", "代码"], ["description", "说明"]],
   room: [["name", "教室名称（必填）"], ["room_no", "编号"], ["capacity", "容量"], ["status", "状态"], ["room_type_name", "教室类型名称"]],
   homeroom: [["name", "班级名称（必填）"], ["group_name", "分组"], ["student_count", "学生人数"], ["status", "状态"], ["grade_name", "年级名称"], ["term_name", "学期名称"], ["head_teacher_name", "班主任姓名"], ["default_room_name", "默认教室名称"]],
+  course_plan: [["term_name", "学期名称"], ["homeroom_name", "班级名称（必填）"], ["subject_name", "科目名称（必填）"], ["weekly_slots", "每周课时（必填）"], ["duration_slots", "连续课时"], ["allow_double_period", "允许连堂"], ["priority", "优先级"], ["week_bits", "周次位图"], ["day_bits", "星期位图"]],
+  teaching_task: [["term_name", "学期名称"], ["homeroom_name", "班级名称（必填）"], ["subject_name", "科目名称（必填）"], ["primary_teacher_name", "主讲教师（必填）"], ["weekly_slots", "每周课时（必填）"], ["duration_slots", "连续课时"], ["required_room_type_name", "要求教室类型"], ["fixed_room_name", "固定教室"], ["status", "状态"], ["week_bits", "周次位图"], ["day_bits", "星期位图"]],
 };
 const mappedColumns = computed(() => preview.value?.headers.filter((header) => mapping.value[header]) ?? []);
 
@@ -108,7 +111,8 @@ async function confirmImport() {
     const result = await localApi.confirmImport(preview.value.id, revision.value);
     revision.value = result.revision;
     emit("revision", revision.value);
-    notice.value = `已导入 ${result.import.importedCount} 条记录；操作前备份 ${result.import.backupId}`;
+    const generated = Number(result.import.generatedLessonCount ?? 0);
+    notice.value = `已导入 ${result.import.importedCount} 条记录${generated ? `，自动生成 ${generated} 个课次` : ""}；操作前备份 ${result.import.backupId}`;
     preview.value = null;
     sourcePath.value = "";
     mapping.value = {};

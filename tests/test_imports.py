@@ -169,3 +169,73 @@ def test_localized_csv_and_xlsx_import_templates(tmp_path: Path) -> None:
         assert xlsx_result["sizeBytes"] > 0
     finally:
         project.close()
+
+
+def test_course_plan_and_teaching_task_import_generate_lessons_atomically(
+    tmp_path: Path,
+) -> None:
+    workspace = ProjectWorkspace(tmp_path / "workspace")
+    project = workspace.create_project("计划任务导入")
+    try:
+        term, _ = project.save_entity(
+            "term",
+            {"name": "第一学期", "week_count": 20, "day_count": 5},
+            project.revision,
+        )
+        project.save_entity(
+            "teacher", {"name": "张老师"}, project.revision
+        )
+        project.save_entity("subject", {"name": "数学"}, project.revision)
+        project.save_entity(
+            "homeroom",
+            {"name": "一年级一班", "term_id": term["id"]},
+            project.revision,
+        )
+        service = ImportService(project, workspace)
+        plan_file = tmp_path / "课程计划.csv"
+        write_csv(
+            plan_file,
+            [
+                ["班级", "科目", "每周课时", "连续课时", "允许连堂"],
+                ["一年级一班", "数学", "5", "2", "是"],
+            ],
+        )
+        plan_preview = service.preview_file(
+            source_path=str(plan_file), entity_type="course_plan"
+        )
+        assert plan_preview["canConfirm"]
+        plan_result = service.confirm_import(
+            plan_preview["id"], expected_revision=project.revision
+        )
+        assert plan_result["importedCount"] == 1
+        plan = project.list_entities("course_plan")[0]
+        assert plan["term_id"] == term["id"]
+        assert plan["duration_slots"] == 2
+
+        task_file = tmp_path / "教学任务.csv"
+        write_csv(
+            task_file,
+            [
+                ["班级", "科目", "主讲教师", "每周课时", "连续课时"],
+                ["一年级一班", "数学", "张老师", "5", "2"],
+            ],
+        )
+        task_preview = service.preview_file(
+            source_path=str(task_file), entity_type="teaching_task"
+        )
+        assert task_preview["canConfirm"]
+        task_result = service.confirm_import(
+            task_preview["id"], expected_revision=project.revision
+        )
+
+        assert task_result["importedCount"] == 1
+        assert task_result["generatedLessonCount"] == 3
+        task = project.list_entities("teaching_task")[0]
+        assert task["course_plan_id"] == plan["id"]
+        assert task["term_id"] == term["id"]
+        lessons = project.list_entities("task_lesson")
+        assert [item["duration_slots"] for item in lessons] == [2, 2, 1]
+        assert sum(item["duration_slots"] for item in lessons) == task["weekly_slots"]
+        assert project.integrity_check() == {"integrity": "ok", "foreign_key_issues": []}
+    finally:
+        project.close()

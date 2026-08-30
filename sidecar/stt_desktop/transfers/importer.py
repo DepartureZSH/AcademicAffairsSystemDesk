@@ -58,6 +58,20 @@ def _positive_integer(value: Any) -> int:
     return result
 
 
+def _nonnegative_integer(value: Any) -> int:
+    result = _integer(value)
+    if result is None or result < 0:
+        raise ValueError("必须为非负整数")
+    return result
+
+
+def _bits(value: Any, default: str, maximum: int) -> str:
+    result = _text(value) or default
+    if len(result) > maximum or any(bit not in {"0", "1"} for bit in result):
+        raise ValueError(f"必须是最多 {maximum} 位的 0/1 字符串")
+    return result
+
+
 def _boolean(value: Any) -> int:
     text = _text(value).lower()
     if text in {"1", "true", "yes", "y", "是", "需要"}:
@@ -115,6 +129,30 @@ IMPORT_SCHEMAS: dict[str, tuple[ImportField, ...]] = {
         ImportField("term_name", ("学期", "学期名称", "term_name"), converter=_optional_text),
         ImportField("head_teacher_name", ("班主任", "班主任姓名", "head_teacher_name"), converter=_optional_text),
         ImportField("default_room_name", ("默认教室", "教室", "default_room_name"), converter=_optional_text),
+    ),
+    "course_plan": (
+        ImportField("term_name", ("学期", "学期名称", "term_name"), converter=_optional_text),
+        ImportField("homeroom_name", ("班级", "班级名称", "homeroom_name"), required=True, converter=_text),
+        ImportField("subject_name", ("科目", "科目名称", "subject_name"), required=True, converter=_text),
+        ImportField("weekly_slots", ("每周课时", "周课时", "weekly_slots"), required=True, converter=_nonnegative_integer),
+        ImportField("duration_slots", ("连续课时", "每次课时", "duration_slots"), converter=lambda value: _positive_integer(value) if _text(value) else 1),
+        ImportField("allow_double_period", ("允许连堂", "连堂", "allow_double_period"), converter=_boolean),
+        ImportField("priority", ("优先级", "priority"), converter=lambda value: _integer(value) or 0),
+        ImportField("week_bits", ("周次位图", "week_bits"), converter=lambda value: _bits(value, "1" * 20, 60)),
+        ImportField("day_bits", ("星期位图", "day_bits"), converter=lambda value: _bits(value, "11111", 7)),
+    ),
+    "teaching_task": (
+        ImportField("term_name", ("学期", "学期名称", "term_name"), converter=_optional_text),
+        ImportField("homeroom_name", ("班级", "班级名称", "homeroom_name"), required=True, converter=_text),
+        ImportField("subject_name", ("科目", "科目名称", "subject_name"), required=True, converter=_text),
+        ImportField("primary_teacher_name", ("主讲教师", "教师", "教师姓名", "primary_teacher_name"), required=True, converter=_text),
+        ImportField("weekly_slots", ("每周课时", "周课时", "weekly_slots"), required=True, converter=_nonnegative_integer),
+        ImportField("duration_slots", ("连续课时", "每次课时", "duration_slots"), converter=lambda value: _positive_integer(value) if _text(value) else 1),
+        ImportField("required_room_type_name", ("要求教室类型", "教室类型", "required_room_type_name"), converter=_optional_text),
+        ImportField("fixed_room_name", ("固定教室", "教室", "fixed_room_name"), converter=_optional_text),
+        ImportField("status", ("状态", "status"), converter=_status),
+        ImportField("week_bits", ("周次位图", "week_bits"), converter=lambda value: _bits(value, "1" * 20, 60)),
+        ImportField("day_bits", ("星期位图", "day_bits"), converter=lambda value: _bits(value, "11111", 7)),
     ),
 }
 
@@ -227,14 +265,46 @@ class ImportService:
             raise ProjectError("导入仍存在校验错误，请返回预览修正字段映射或数据")
         backup = BackupService(self.project, self.workspace).create_backup(reason="pre-import")
         records = preview["allRecords"]
+        batches: dict[str, list[dict[str, Any]]] = {
+            summary["entityType"]: records
+        }
+        if summary["entityType"] == "teaching_task":
+            tasks: list[dict[str, Any]] = []
+            lessons: list[dict[str, Any]] = []
+            for row_index, record in enumerate(records, start=1):
+                task_id = uuid7()
+                task = {"id": task_id, **record}
+                tasks.append(task)
+                remaining = int(record["weekly_slots"])
+                duration = int(record.get("duration_slots") or 1)
+                lesson_index = 0
+                while remaining > 0:
+                    lesson_duration = min(duration, remaining)
+                    lessons.append(
+                        {
+                            "id": uuid7(),
+                            "teaching_task_id": task_id,
+                            "lesson_index": lesson_index,
+                            "duration_slots": lesson_duration,
+                            "source_id": f"import:{job_id}:{row_index}:{lesson_index}",
+                            "week_bits": record.get("week_bits") or "1" * 20,
+                            "day_bits": record.get("day_bits") or "11111",
+                            "label": f"第{lesson_index + 1}次课",
+                            "enabled": 1,
+                        }
+                    )
+                    remaining -= lesson_duration
+                    lesson_index += 1
+            batches = {"teaching_task": tasks, "task_lesson": lessons}
         counts, revision = self.project.bulk_insert_entities(
-            {summary["entityType"]: records}, expected_revision=expected_revision
+            batches, expected_revision=expected_revision
         )
         completed_summary = {
             **summary,
             "confirmedCount": counts[summary["entityType"]],
             "confirmedRevision": revision,
             "preImportBackupId": backup["id"],
+            "generatedLessonCount": counts.get("task_lesson", 0),
         }
         self.project.connection.execute(
             "UPDATE import_jobs SET status = 'confirmed', summary = ?, updated_at = ? WHERE id = ?",
@@ -245,6 +315,7 @@ class ImportService:
             "status": "confirmed",
             "entityType": summary["entityType"],
             "importedCount": counts[summary["entityType"]],
+            "generatedLessonCount": counts.get("task_lesson", 0),
             "revision": revision,
             "backupId": backup["id"],
         }
@@ -471,7 +542,7 @@ class ImportService:
         records: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
-        seen_names: set[str] = set()
+        seen_records: set[tuple[Any, ...]] = set()
         for row_number, values in enumerate(rows, start=2):
             source = {header: values[index] if index < len(values) else None for index, header in enumerate(headers)}
             record: dict[str, Any] = {}
@@ -492,15 +563,15 @@ class ImportService:
             for field in fields.values():
                 if field.required and not _text(record.get(field.name)):
                     row_errors.append(f"{field.name} 不能为空")
-            name = _text(record.get("name"))
-            if name and name in seen_names:
-                row_errors.append("名称在导入文件内重复")
-            seen_names.add(name)
             if row_errors:
                 errors.append({"row": row_number, "messages": row_errors})
                 continue
             try:
                 prepared = self._resolve_references(entity_type, record)
+                duplicate_key = self._duplicate_key(entity_type, prepared)
+                if duplicate_key in seen_records:
+                    raise ProjectError("记录在导入文件内重复")
+                seen_records.add(duplicate_key)
                 self._check_existing_duplicate(entity_type, prepared)
             except ProjectError as exc:
                 errors.append({"row": row_number, "messages": [str(exc)]})
@@ -521,6 +592,19 @@ class ImportService:
                 "head_teacher_name": ("teachers", "head_teacher_id"),
                 "default_room_name": ("rooms", "default_room_id"),
             },
+            "course_plan": {
+                "term_name": ("terms", "term_id"),
+                "homeroom_name": ("homerooms", "homeroom_id"),
+                "subject_name": ("subjects", "subject_id"),
+            },
+            "teaching_task": {
+                "term_name": ("terms", "term_id"),
+                "homeroom_name": ("homerooms", "homeroom_id"),
+                "subject_name": ("subjects", "subject_id"),
+                "primary_teacher_name": ("teachers", "primary_teacher_id"),
+                "required_room_type_name": ("room_types", "required_room_type"),
+                "fixed_room_name": ("rooms", "fixed_room_id"),
+            },
         }
         for source_field, (table, target_field) in references.get(entity_type, {}).items():
             name = result.pop(source_field, None)
@@ -533,6 +617,35 @@ class ImportService:
             if len(rows) != 1:
                 raise ProjectError(f"引用 {name} 在本地 {table} 中不存在或不唯一")
             result[target_field] = rows[0]["id"]
+        if entity_type in {"course_plan", "teaching_task"} and not result.get(
+            "term_id"
+        ):
+            homeroom = self.project.connection.execute(
+                "SELECT term_id FROM homerooms WHERE id = ?",
+                (result["homeroom_id"],),
+            ).fetchone()
+            if homeroom and homeroom["term_id"]:
+                result["term_id"] = homeroom["term_id"]
+        if entity_type == "teaching_task":
+            term_id = result.get("term_id")
+            rows = self.project.connection.execute(
+                """
+                SELECT id FROM course_plans
+                WHERE homeroom_id = ? AND subject_id = ?
+                  AND ((term_id IS NULL AND ? IS NULL) OR term_id = ?)
+                ORDER BY id
+                """,
+                (
+                    result["homeroom_id"],
+                    result["subject_id"],
+                    term_id,
+                    term_id,
+                ),
+            ).fetchall()
+            if len(rows) == 1:
+                result["course_plan_id"] = rows[0]["id"]
+            elif len(rows) > 1:
+                raise ProjectError("匹配到多个课程计划，无法自动关联")
         return result
 
     def _check_existing_duplicate(self, entity_type: str, record: dict[str, Any]) -> None:
@@ -543,13 +656,65 @@ class ImportService:
             "room_type": "room_types",
             "room": "rooms",
             "homeroom": "homerooms",
-        }[entity_type]
-        row = self.project.connection.execute(
-            f"SELECT id FROM {table} WHERE name = ? LIMIT 1",  # noqa: S608 - fixed allowlist
-            (record["name"],),
-        ).fetchone()
+        }.get(entity_type)
+        if table:
+            row = self.project.connection.execute(
+                f"SELECT id FROM {table} WHERE name = ? LIMIT 1",  # noqa: S608 - fixed allowlist
+                (record["name"],),
+            ).fetchone()
+            label = record["name"]
+        elif entity_type == "course_plan":
+            term_id = record.get("term_id")
+            row = self.project.connection.execute(
+                """
+                SELECT id FROM course_plans
+                WHERE homeroom_id = ? AND subject_id = ?
+                  AND ((term_id IS NULL AND ? IS NULL) OR term_id = ?)
+                LIMIT 1
+                """,
+                (record["homeroom_id"], record["subject_id"], term_id, term_id),
+            ).fetchone()
+            label = "同学期、班级和科目的课程计划"
+        elif entity_type == "teaching_task":
+            term_id = record.get("term_id")
+            row = self.project.connection.execute(
+                """
+                SELECT id FROM teaching_tasks
+                WHERE homeroom_id = ? AND subject_id = ?
+                  AND primary_teacher_id = ?
+                  AND ((term_id IS NULL AND ? IS NULL) OR term_id = ?)
+                LIMIT 1
+                """,
+                (
+                    record["homeroom_id"],
+                    record["subject_id"],
+                    record.get("primary_teacher_id"),
+                    term_id,
+                    term_id,
+                ),
+            ).fetchone()
+            label = "同学期、班级、科目和教师的教学任务"
+        else:
+            raise ProjectError("导入类型不受支持")
         if row:
-            raise ProjectError(f"本地已存在同名记录: {record['name']}")
+            raise ProjectError(f"本地已存在{label}")
+
+    @staticmethod
+    def _duplicate_key(entity_type: str, record: dict[str, Any]) -> tuple[Any, ...]:
+        if entity_type == "course_plan":
+            return (
+                record.get("term_id"),
+                record.get("homeroom_id"),
+                record.get("subject_id"),
+            )
+        if entity_type == "teaching_task":
+            return (
+                record.get("term_id"),
+                record.get("homeroom_id"),
+                record.get("subject_id"),
+                record.get("primary_teacher_id"),
+            )
+        return (record.get("name"),)
 
     def _preview_job(self, job_id: str) -> tuple[dict[str, Any], dict[str, Any], Path]:
         row = self.project.connection.execute(
