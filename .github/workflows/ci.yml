@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main, codex/desktop-local]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python-config:
+    name: Python configuration tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.13"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen --extra dev
+      - run: uv run pytest

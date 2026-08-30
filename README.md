@@ -8,7 +8,18 @@
 
 - 已完成第一阶段需求和架构文档。
 - G0 本地开发环境与独立公开仓库已准备完成。
-- 尚未进入桌面业务代码实现。
+- 已进入 `codex/desktop-local` 实施分支；外部依赖由 `config/services.yaml` 分项切换 real/mock。
+
+## 开发基线
+
+Python 配置层使用 `uv` 管理依赖：
+
+```powershell
+uv sync --extra dev
+uv run pytest
+```
+
+外部服务模拟范围和切换条件见 [`docs/desktop/08-Mock服务清单.md`](./docs/desktop/08-Mock服务清单.md)。本地排课业务数据和算法不使用 mock。
 
 ## 开源许可证
 
