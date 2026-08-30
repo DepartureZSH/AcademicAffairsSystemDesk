@@ -16,21 +16,24 @@
 
 | 制品 | 字节数 | SHA-256 |
 | --- | ---: | --- |
-| `时奕教务排课_0.1.0_x64-setup.exe` | 75,867,056 | `0C71BAB83A3054F27535B3CFDA37791FC50392CCAD6A101A6669C29F08CB2777` |
-| `时奕教务排课_0.1.0_x64-setup.exe.sig` | 432 | `4A76F5AD123E2ABEBFC0C98E213EB98D7F70C1B2A7DBA2A66FF8F5F2EC3FD5B4` |
-| `时奕教务排课_0.1.0_x64_zh-CN.msi` | 77,524,992 | `EB588759F007E0B2EE7E0C941C89ADDF715F2825149426F39F254639DE195F70` |
-| `时奕教务排课_0.1.0_x64_zh-CN.msi.sig` | 432 | `750DCA9367B473348944E162E70CC9C6684847F6CF8FD616F2E80162008AA7E7` |
+| `Karios-STT-Desktop_0.1.0_x64-setup.exe` | 75,867,056 | `0C71BAB83A3054F27535B3CFDA37791FC50392CCAD6A101A6669C29F08CB2777` |
+| `Karios-STT-Desktop_0.1.0_x64-setup.exe.sig` | 432 | `4A76F5AD123E2ABEBFC0C98E213EB98D7F70C1B2A7DBA2A66FF8F5F2EC3FD5B4` |
+| `Karios-STT-Desktop_0.1.0_x64_zh-CN.msi` | 77,524,992 | `EB588759F007E0B2EE7E0C941C89ADDF715F2825149426F39F254639DE195F70` |
+| `Karios-STT-Desktop_0.1.0_x64_zh-CN.msi.sig` | 432 | `750DCA9367B473348944E162E70CC9C6684847F6CF8FD616F2E80162008AA7E7` |
 | `Karios-Desktop-TEST-ONLY.cer` | 1,178 | `A8102D0E8BBC5D19DC4A1EB7750A4BB03326A4226CEB46CF98ABE03E675D5D4B` |
 
 本地路径：
 
 - NSIS：`apps/desktop/src-tauri/target/release/bundle/nsis/`
 - MSI：`apps/desktop/src-tauri/target/release/bundle/msi/`
+- GitHub ASCII 发布副本：`build/release/assets/`
 - 公开测试证书：`build/signing/Karios-Desktop-TEST-ONLY.cer`
 - 发布清单与校验和：`build/release/`
 - 依赖清单与 CycloneDX SBOM：`build/compliance/`
 
 `build/` 和 `target/` 是 Git 忽略的本地制品目录，不提交私钥、密码、PFX 或安装包二进制。
+
+GitHub prerelease：<https://github.com/DepartureZSH/AcademicAffairsSystemDesk/releases/tag/v0.1.0-test.1>。Release tag 精确指向二进制源码提交 `bc37324`。公开下载名使用 ASCII，避免托管平台归一化中文文件名后与 manifest 不一致；安装后的产品名和界面仍为“时奕教务排课”。
 
 ## 3. 自动验证结果
 

@@ -14,6 +14,7 @@
 - 6000 课次基准在当前验收机 25.762 秒生成硬约束 0 的完整候选。
 - `config/services.yaml` 中身份和旧数据迁移源为本机真实 Supabase；许可证、支付、SMTP 和远程更新仍明确为 Mock，不能用于生产发行。
 - 最新需求追踪与未完成发布门槛见 [`docs/desktop/46-需求追踪与发布就绪审计.md`](./docs/desktop/46-需求追踪与发布就绪审计.md)。
+- 首个自签名 Windows 测试版已作为 [v0.1.0-test.1 prerelease](https://github.com/DepartureZSH/AcademicAffairsSystemDesk/releases/tag/v0.1.0-test.1) 发布；使用前必须核对 SHA-256、证书指纹和 Mock 服务限制。
 
 ## 开发基线
 
