@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { formatLocalError, localApi, type EntityRecord } from "../lib/sidecar";
 
 const props = defineProps<{ revision: number }>();
@@ -10,6 +10,12 @@ const years = ref<EntityRecord[]>([]);
 const terms = ref<EntityRecord[]>([]);
 const schedules = ref<EntityRecord[]>([]);
 const slots = ref<EntityRecord[]>([]);
+const assignments = ref<EntityRecord[]>([]);
+const teachers = ref<EntityRecord[]>([]);
+const homerooms = ref<EntityRecord[]>([]);
+const subjects = ref<EntityRecord[]>([]);
+const rooms = ref<EntityRecord[]>([]);
+const roomTypes = ref<EntityRecord[]>([]);
 const busy = ref(false);
 const errorMessage = ref("");
 
@@ -17,9 +23,19 @@ const yearForm = ref({ name: "", start_date: "", end_date: "" });
 const termForm = ref({ academic_year_id: "", name: "", start_date: "", end_date: "", week_count: 20, day_count: 5 });
 const scheduleForm = ref({ term_id: "", name: "", day_count: 5, slot_duration_minutes: 40, is_default: 1 });
 const slotForm = ref({ bell_schedule_id: "", weekday: 1, period_index: 0, label: "第1节", start_time: "08:00", end_time: "08:40" });
+const assignmentForm = ref({ entity_type: "homeroom", entity_id: "", bell_schedule_id: "" });
 const editing = reactive<Record<string, string | null>>({ academic_year: null, term: null, bell_schedule: null, time_slot: null });
 
 watch(() => props.revision, (value) => { revision.value = value; });
+
+const assignmentOptions = computed(() => {
+  if (assignmentForm.value.entity_type === "homeroom") return homerooms.value;
+  if (assignmentForm.value.entity_type === "teacher") return teachers.value;
+  if (assignmentForm.value.entity_type === "subject") return subjects.value;
+  if (assignmentForm.value.entity_type === "room") return rooms.value;
+  if (assignmentForm.value.entity_type === "room_type") return roomTypes.value;
+  return [];
+});
 
 function minutes(value: string) {
   const [hour, minute] = value.split(":").map(Number);
@@ -37,17 +53,30 @@ async function loadAll() {
   busy.value = true;
   errorMessage.value = "";
   try {
-    const [yearResult, termResult, scheduleResult, slotResult] = await Promise.all([
+    const results = await Promise.all([
       localApi.listEntities("academic_year"),
       localApi.listEntities("term"),
       localApi.listEntities("bell_schedule"),
       localApi.listEntities("time_slot"),
+      localApi.listEntities("timetable_template_assignment"),
+      localApi.listEntities("teacher"),
+      localApi.listEntities("homeroom"),
+      localApi.listEntities("subject"),
+      localApi.listEntities("room"),
+      localApi.listEntities("room_type"),
     ]);
+    const [yearResult, termResult, scheduleResult, slotResult, assignmentResult, teacherResult, homeroomResult, subjectResult, roomResult, roomTypeResult] = results;
     years.value = yearResult.items;
     terms.value = termResult.items;
     schedules.value = scheduleResult.items;
     slots.value = slotResult.items;
-    revision.value = Math.max(yearResult.revision, termResult.revision, scheduleResult.revision, slotResult.revision);
+    assignments.value = assignmentResult.items;
+    teachers.value = teacherResult.items;
+    homerooms.value = homeroomResult.items;
+    subjects.value = subjectResult.items;
+    rooms.value = roomResult.items;
+    roomTypes.value = roomTypeResult.items;
+    revision.value = Math.max(...results.map((result) => result.revision));
     emit("revision", revision.value);
   } catch (error) {
     errorMessage.value = formatLocalError(error);
@@ -131,6 +160,30 @@ async function createSlot() {
   }
 }
 
+async function saveAssignment() {
+  const entityType = assignmentForm.value.entity_type;
+  const entityId = entityType === "all" ? null : assignmentForm.value.entity_id;
+  const existing = assignments.value.find((item) => item.entity_type === entityType && String(item.entity_id ?? "") === String(entityId ?? ""));
+  if (await save("timetable_template_assignment", {
+    ...(existing ? { id: existing.id } : {}),
+    entity_type: entityType,
+    entity_id: entityId,
+    bell_schedule_id: assignmentForm.value.bell_schedule_id,
+  })) {
+    assignmentForm.value.entity_id = "";
+  }
+}
+
+function assignmentEntityName(item: EntityRecord) {
+  if (item.entity_type === "all") return "全部未单独分配的课程";
+  const collections: Record<string, EntityRecord[]> = { homeroom: homerooms.value, teacher: teachers.value, subject: subjects.value, room: rooms.value, room_type: roomTypes.value };
+  return String(collections[String(item.entity_type)]?.find((value) => value.id === item.entity_id)?.name ?? "未知对象");
+}
+
+function scheduleName(id: unknown) {
+  return String(schedules.value.find((item) => item.id === id)?.name ?? "未知作息表");
+}
+
 function editYear(item: EntityRecord) {
   yearForm.value = { name: String(item.name), start_date: String(item.start_date ?? ""), end_date: String(item.end_date ?? "") };
   editing.academic_year = item.id;
@@ -207,6 +260,20 @@ onMounted(loadAll);
           <button class="primary-button" :disabled="busy">{{ editing.time_slot ? "更新课节" : "新增课节" }}</button>
         </form>
         <div class="data-list tall-list"><div v-for="item in slots" :key="item.id" class="data-row"><span><strong>周{{ item.weekday }} · {{ item.label }}</strong><small>{{ clock(item.start_time_minutes) }}–{{ clock(item.end_time_minutes) }}</small></span><div class="row-actions"><button @click="editSlot(item)">编辑</button><button class="danger-action" @click="remove('time_slot', item)">删除</button></div></div></div>
+      </article>
+
+      <article class="panel data-panel">
+        <h3>作息模板分配</h3>
+        <form class="compact-form" @submit.prevent="saveAssignment">
+          <select v-model="assignmentForm.entity_type" @change="assignmentForm.entity_id = ''">
+            <option value="homeroom">班级</option><option value="teacher">教师</option><option value="subject">科目</option><option value="room">教室</option><option value="room_type">教室类型</option><option value="all">全局回退</option>
+          </select>
+          <select v-if="assignmentForm.entity_type !== 'all'" v-model="assignmentForm.entity_id" required><option value="" disabled>选择分配对象</option><option v-for="item in assignmentOptions" :key="item.id" :value="item.id">{{ item.name }}</option></select>
+          <select v-model="assignmentForm.bell_schedule_id" required><option value="" disabled>选择作息表</option><option v-for="item in schedules" :key="item.id" :value="item.id">{{ item.name }}</option></select>
+          <button class="primary-button" :disabled="busy">保存分配</button>
+          <small>排课优先级：班级 → 教师 → 科目 → 全局 → 默认作息。教室分配用于对应课表展示。</small>
+        </form>
+        <div class="data-list tall-list"><div v-for="item in assignments" :key="item.id" class="data-row"><span><strong>{{ assignmentEntityName(item) }}</strong><small>{{ item.entity_type }} · {{ scheduleName(item.bell_schedule_id) }}</small></span><div class="row-actions"><button class="danger-action" @click="remove('timetable_template_assignment', item)">删除</button></div></div></div>
       </article>
     </div>
   </section>

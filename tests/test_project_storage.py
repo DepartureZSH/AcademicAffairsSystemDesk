@@ -297,3 +297,46 @@ def test_failed_migration_rolls_back_and_keeps_verified_backup(
     backups = list((workspace.backups_directory / project_id).glob("*.sttbackup"))
     assert len(backups) == 1
     assert BackupService.verify_archive(backups[0])["schemaVersion"] == 1
+
+
+def test_timetable_template_assignment_validates_target_and_replaces_by_id(
+    tmp_path: Path,
+) -> None:
+    workspace = ProjectWorkspace(tmp_path / "workspace")
+    with workspace.create_project("作息分配") as project:
+        _, revision = project.save_entity(
+            "bell_schedule", {"id": "schedule-1", "name": "常规作息"}, 0
+        )
+        _, revision = project.save_entity(
+            "homeroom", {"id": "class-1", "name": "一班"}, revision
+        )
+        assignment, revision = project.save_entity(
+            "timetable_template_assignment",
+            {
+                "entity_type": "homeroom",
+                "entity_id": "class-1",
+                "bell_schedule_id": "schedule-1",
+            },
+            revision,
+        )
+        assert assignment["entity_id"] == "class-1"
+        with pytest.raises(ProjectError, match="对象不存在"):
+            project.save_entity(
+                "timetable_template_assignment",
+                {
+                    "entity_type": "teacher",
+                    "entity_id": "missing",
+                    "bell_schedule_id": "schedule-1",
+                },
+                revision,
+            )
+        global_assignment, _ = project.save_entity(
+            "timetable_template_assignment",
+            {
+                "entity_type": "all",
+                "entity_id": "ignored",
+                "bell_schedule_id": "schedule-1",
+            },
+            revision,
+        )
+        assert global_assignment["entity_id"] is None

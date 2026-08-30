@@ -24,6 +24,7 @@ SNAPSHOT_TABLES = (
     "task_lessons",
     "availability_rules",
     "constraints",
+    "timetable_template_assignments",
 )
 
 
@@ -496,18 +497,40 @@ class SchedulingService:
         schedules = tables["bell_schedules"]
         task_terms = {item["term_id"] for item in tasks if item.get("term_id")}
         eligible = [item for item in schedules if not task_terms or item.get("term_id") in task_terms]
-        schedule = next((item for item in eligible if item["is_default"]), eligible[0] if eligible else None)
-        diagnostics: dict[str, Any] = {"errors": [], "warnings": [], "lesson_count": len(lessons), "option_count": 0, "compiled_limit_count": 0}
+        default_schedule = next((item for item in eligible if item["is_default"]), eligible[0] if eligible else None)
+        schedule_by_id = {str(item["id"]): item for item in schedules}
+        slots_by_schedule: dict[str, list[dict[str, Any]]] = {}
+        for slot in tables["time_slots"]:
+            if slot["active"]:
+                slots_by_schedule.setdefault(str(slot["bell_schedule_id"]), []).append(slot)
+        assignment_ids = {
+            (str(item["entity_type"]), str(item.get("entity_id") or "")): str(item["bell_schedule_id"])
+            for item in tables["timetable_template_assignments"]
+        }
+        diagnostics: dict[str, Any] = {"errors": [], "warnings": [], "lesson_count": len(lessons), "option_count": 0, "compiled_limit_count": 0, "assigned_schedule_count": 0}
         if not tasks or not lessons:
             diagnostics["errors"].append({"code": "NO_ACTIVE_LESSONS", "message": "没有可参与排课的启用课次"})
-        if schedule is None:
+        if default_schedule is None:
             diagnostics["errors"].append({"code": "NO_BELL_SCHEDULE", "message": "没有与教学任务学期匹配的作息表"})
-        slots = [
-            item for item in tables["time_slots"]
-            if schedule and item["bell_schedule_id"] == schedule["id"] and item["active"]
-        ]
-        if schedule and not slots:
+        if default_schedule and not slots_by_schedule.get(str(default_schedule["id"])):
             diagnostics["errors"].append({"code": "NO_ACTIVE_TIME_SLOTS", "message": "当前作息表没有启用课节"})
+
+        def schedule_for_task(task: dict[str, Any]) -> dict[str, Any] | None:
+            schedule_id = ""
+            for entity_type, entity_id in (
+                ("homeroom", task.get("homeroom_id")),
+                ("teacher", task.get("primary_teacher_id")),
+                ("subject", task.get("subject_id")),
+                ("all", None),
+            ):
+                candidate = assignment_ids.get((entity_type, str(entity_id or "")))
+                if candidate:
+                    schedule_id = candidate
+                    break
+            selected = schedule_by_id.get(schedule_id) if schedule_id else default_schedule
+            if schedule_id and selected is not None:
+                diagnostics["assigned_schedule_count"] += 1
+            return selected
 
         rooms = [item for item in tables["rooms"] if item["status"] == "active"]
         room_by_id = {item["id"]: item for item in rooms}
@@ -528,6 +551,8 @@ class SchedulingService:
         lesson_ids_by_task: dict[str, list[str]] = {}
         for lesson in lessons:
             task = task_by_id[lesson["teaching_task_id"]]
+            schedule = schedule_for_task(task)
+            slots = slots_by_schedule.get(str(schedule["id"]), []) if schedule else []
             label = "-".join(
                 value for value in (
                     str(homeroom_by_id.get(task["homeroom_id"], {}).get("name") or ""),
@@ -538,7 +563,9 @@ class SchedulingService:
             )
             node = SubElement(classes_node, "class", {"id": lesson["id"], "subject": task["subject_id"], "label": label})
             duration = int(lesson.get("duration_slots") or task.get("duration_slots") or 1)
-            applicable = self._applicable_rules(rules, task, lesson)
+            applicable = self._applicable_rules(
+                rules, task, lesson, str(schedule["id"]) if schedule else None
+            )
             required_slot_ids = {rule["time_slot_id"] for rule in applicable if rule["required"] and rule.get("time_slot_id")}
             emitted_times: list[tuple[dict[str, str], set[str]]] = []
             for slot, window in _slot_windows(slots, duration):
@@ -584,6 +611,7 @@ class SchedulingService:
                     rule for rule in rules
                     if rule["entity_type"] == "room"
                     and rule["entity_id"] == room_id
+                    and schedule
                     and (not rule.get("bell_schedule_id") or rule["bell_schedule_id"] == schedule["id"])
                     and _bits_overlap(str(rule.get("week_bits") or ""), str(lesson.get("week_bits") or task.get("week_bits") or ""))
                 ]
@@ -623,13 +651,30 @@ class SchedulingService:
         return tostring(root, encoding="unicode"), diagnostics
 
     @staticmethod
-    def _applicable_rules(rules: list[dict], task: dict, lesson: dict) -> list[dict]:
+    def _applicable_rules(
+        rules: list[dict],
+        task: dict,
+        lesson: dict,
+        bell_schedule_id: str | None,
+    ) -> list[dict]:
         targets = {
             ("teacher", task.get("primary_teacher_id")),
             ("homeroom", task.get("homeroom_id")),
             ("lesson", lesson.get("id")),
         }
-        return [rule for rule in rules if (rule["entity_type"], rule["entity_id"]) in targets and _bits_overlap(str(rule.get("week_bits") or ""), str(lesson.get("week_bits") or task.get("week_bits") or ""))]
+        return [
+            rule
+            for rule in rules
+            if (rule["entity_type"], rule["entity_id"]) in targets
+            and (
+                not rule.get("bell_schedule_id")
+                or rule["bell_schedule_id"] == bell_schedule_id
+            )
+            and _bits_overlap(
+                str(rule.get("week_bits") or ""),
+                str(lesson.get("week_bits") or task.get("week_bits") or ""),
+            )
+        ]
 
     @staticmethod
     def _candidate_rooms(task: dict, homerooms: dict[str, dict], rooms: list[dict], room_by_id: dict[str, dict]) -> list[str]:

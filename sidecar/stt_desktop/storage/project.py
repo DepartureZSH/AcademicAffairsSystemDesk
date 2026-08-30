@@ -169,6 +169,12 @@ ENTITY_SPECS: dict[str, EntitySpec] = {
         frozenset({"type", "name"}),
         "name",
     ),
+    "timetable_template_assignment": EntitySpec(
+        "timetable_template_assignments",
+        frozenset({"entity_type", "entity_id", "bell_schedule_id"}),
+        frozenset({"entity_type", "bell_schedule_id"}),
+        "entity_type, entity_id",
+    ),
 }
 
 
@@ -398,6 +404,11 @@ class ProjectRepository:
 
         values = {key: payload[key] for key in payload if key in spec.fields}
         values = self._normalize_entity_values(entity_type, values)
+        if entity_type == "timetable_template_assignment":
+            effective_assignment = {**(existing or {}), **values}
+            self._validate_timetable_template_assignment(effective_assignment)
+            if effective_assignment.get("entity_type") == "all":
+                values["entity_id"] = None
         now = utc_now()
         self._begin_write(expected_revision)
         try:
@@ -604,6 +615,29 @@ class ProjectRepository:
                 raise ProjectError(f"{entity_type}.{field} 必须是 JSON 对象")
             normalized[field] = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
         return normalized
+
+    def _validate_timetable_template_assignment(self, values: dict[str, Any]) -> None:
+        entity_type = str(values.get("entity_type") or "")
+        entity_id = values.get("entity_id")
+        if entity_type == "all":
+            return
+        target_tables = {
+            "homeroom": "homerooms",
+            "teacher": "teachers",
+            "subject": "subjects",
+            "room_type": "room_types",
+            "room": "rooms",
+        }
+        table = target_tables.get(entity_type)
+        if table is None:
+            raise ProjectError("作息模板分配对象类型无效")
+        if not entity_id:
+            raise ProjectError("作息模板分配必须选择具体对象")
+        if self.connection.execute(
+            f"SELECT 1 FROM {table} WHERE id = ?",  # noqa: S608 - allowlisted table
+            (str(entity_id),),
+        ).fetchone() is None:
+            raise ProjectError("作息模板分配对象不存在")
 
     def _begin_write(self, expected_revision: int) -> None:
         self.connection.execute("BEGIN IMMEDIATE")

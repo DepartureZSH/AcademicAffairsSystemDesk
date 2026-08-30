@@ -144,6 +144,60 @@ def test_hard_infeasible_round_has_diagnostics_but_no_candidate(tmp_path: Path) 
         project.close()
 
 
+def test_homeroom_timetable_assignment_selects_its_own_schedule(tmp_path: Path) -> None:
+    project, _, _ = seed_project(tmp_path, slot_count=2)
+    try:
+        project.save_entity(
+            "bell_schedule",
+            {
+                "id": "schedule-special",
+                "name": "班级特殊作息",
+                "day_count": 5,
+                "slot_duration_minutes": 40,
+                "is_default": 0,
+            },
+            project.revision,
+        )
+        for index in range(2):
+            project.save_entity(
+                "time_slot",
+                {
+                    "id": f"special-slot-{index}",
+                    "bell_schedule_id": "schedule-special",
+                    "weekday": 2,
+                    "period_index": index,
+                    "label": f"特殊第 {index + 1} 节",
+                    "start_slot": 10 + index,
+                    "length_slots": 1,
+                    "start_time_minutes": 600 + index * 50,
+                    "end_time_minutes": 640 + index * 50,
+                },
+                project.revision,
+            )
+        project.save_entity(
+            "timetable_template_assignment",
+            {
+                "entity_type": "homeroom",
+                "entity_id": "homeroom-1",
+                "bell_schedule_id": "schedule-special",
+            },
+            project.revision,
+        )
+
+        result = SchedulingService(project).run_round(time_budget_seconds=10)
+
+        assert result["status"] == "succeeded"
+        entries = project.connection.execute(
+            "SELECT weekday, start_slot FROM timetable_entries WHERE candidate_id = ?",
+            (result["candidate_id"],),
+        ).fetchall()
+        assert {item["weekday"] for item in entries} == {2}
+        assert {item["start_slot"] for item in entries} == {10, 11}
+        assert result["candidate_diagnostics"]["compile"]["assigned_schedule_count"] == 2
+    finally:
+        project.close()
+
+
 def test_snapshot_is_canonical_and_contains_no_remote_service_data(tmp_path: Path) -> None:
     project, _, _ = seed_project(tmp_path, slot_count=2)
     try:
