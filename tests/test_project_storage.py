@@ -9,10 +9,13 @@ import pytest
 from stt_desktop.storage import (
     ProjectError,
     ProjectLockedError,
+    ProjectMigrationError,
     ProjectSchemaTooNewError,
     ProjectWorkspace,
     RevisionConflictError,
 )
+from stt_desktop.storage.schema import MIGRATIONS, SCHEMA_VERSION
+from stt_desktop.backups import BackupService
 
 
 def test_create_project_builds_required_layout(tmp_path: Path) -> None:
@@ -24,7 +27,7 @@ def test_create_project_builds_required_layout(tmp_path: Path) -> None:
 
         assert info["name"] == "第一学期排课"
         assert manifest["project_id"] == info["id"]
-        assert manifest["schema_version"] == 1
+        assert manifest["schema_version"] == SCHEMA_VERSION
         assert manifest["revision"] == 0
         assert (project.project_directory / "attachments").is_dir()
         assert (project.project_directory / "artifacts" / "problem").is_dir()
@@ -225,3 +228,72 @@ def test_constraint_parameters_require_json_object(tmp_path: Path) -> None:
                 {"type": "spacing", "name": "间隔", "parameters": "[]"},
                 0,
             )
+
+
+def _downgrade_fixture_to_v1(workspace: ProjectWorkspace) -> tuple[str, Path]:
+    project = workspace.create_project("旧版项目")
+    project_id = project.project_info()["id"]
+    manifest_path = project.manifest_path
+    database_path = project.database_path
+    project.close()
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute("DROP TABLE timetable_template_assignments")
+        connection.execute(
+            "UPDATE app_metadata SET value = '1' WHERE key = 'schema_version'"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = 1
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    return project_id, database_path
+
+
+def test_old_project_is_backed_up_and_migrated_before_open(tmp_path: Path) -> None:
+    workspace = ProjectWorkspace(tmp_path / "workspace")
+    project_id, _ = _downgrade_fixture_to_v1(workspace)
+
+    with workspace.open_project(project_id) as project:
+        assert project.schema_version == SCHEMA_VERSION
+        assert project.manifest["schema_version"] == SCHEMA_VERSION
+        assert project.connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'timetable_template_assignments'"
+        ).fetchone()
+        records = project.connection.execute(
+            "SELECT * FROM backup_records WHERE reason = 'pre-migration'"
+        ).fetchall()
+        assert len(records) == 1
+        archive = workspace.root / records[0]["relative_path"]
+        backup_manifest = BackupService.verify_archive(archive)
+        assert backup_manifest["schemaVersion"] == 1
+
+
+def test_failed_migration_rolls_back_and_keeps_verified_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = ProjectWorkspace(tmp_path / "workspace")
+    project_id, database_path = _downgrade_fixture_to_v1(workspace)
+    monkeypatch.setitem(
+        MIGRATIONS,
+        2,
+        "CREATE TABLE migration_probe(id TEXT PRIMARY KEY); INVALID MIGRATION SQL;",
+    )
+
+    with pytest.raises(ProjectMigrationError, match="已保留迁移前备份"):
+        workspace.open_project(project_id)
+
+    connection = sqlite3.connect(database_path)
+    try:
+        assert connection.execute(
+            "SELECT value FROM app_metadata WHERE key = 'schema_version'"
+        ).fetchone()[0] == "1"
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'migration_probe'"
+        ).fetchone() is None
+    finally:
+        connection.close()
+    backups = list((workspace.backups_directory / project_id).glob("*.sttbackup"))
+    assert len(backups) == 1
+    assert BackupService.verify_archive(backups[0])["schemaVersion"] == 1

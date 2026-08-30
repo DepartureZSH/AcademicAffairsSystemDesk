@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_V1 = r"""
 CREATE TABLE app_metadata (
@@ -381,3 +381,32 @@ CREATE INDEX idx_entries_teacher_slot ON timetable_entries(candidate_id, teacher
 CREATE INDEX idx_entries_homeroom_slot ON timetable_entries(candidate_id, homeroom_id, weekday, start_slot);
 CREATE INDEX idx_entries_room_slot ON timetable_entries(candidate_id, room_id, weekday, start_slot);
 """
+
+
+SCHEMA_V2 = r"""
+CREATE TABLE timetable_template_assignments (
+    id TEXT PRIMARY KEY,
+    entity_type TEXT NOT NULL CHECK (
+        entity_type IN ('homeroom', 'teacher', 'subject', 'room_type', 'room', 'all')
+    ),
+    entity_id TEXT,
+    bell_schedule_id TEXT NOT NULL REFERENCES bell_schedules(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (
+        (entity_type = 'all' AND entity_id IS NULL)
+        OR (entity_type <> 'all' AND entity_id IS NOT NULL)
+    )
+) STRICT;
+
+CREATE UNIQUE INDEX idx_timetable_template_assignment_entity
+ON timetable_template_assignments(entity_type, ifnull(entity_id, ''));
+
+CREATE INDEX idx_timetable_template_assignment_schedule
+ON timetable_template_assignments(bell_schedule_id);
+"""
+
+
+MIGRATIONS: dict[int, str] = {
+    2: SCHEMA_V2,
+}

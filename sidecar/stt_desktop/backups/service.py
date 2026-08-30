@@ -73,7 +73,7 @@ class BackupService:
                 "sourceProjectName": self.project.project_info()["name"],
                 "sourceRevision": self.project.revision,
                 "appVersion": APP_VERSION,
-                "schemaVersion": SCHEMA_VERSION,
+                "schemaVersion": self.project.schema_version,
                 "files": files,
             }
             _atomic_write_json(staging / "backup-manifest.json", archive_manifest)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import shutil
 import sqlite3
 import time
 import uuid
@@ -12,7 +13,7 @@ from pathlib import Path
 from collections.abc import Sequence
 from typing import Any, Mapping
 
-from .schema import SCHEMA_V1, SCHEMA_VERSION
+from .schema import MIGRATIONS, SCHEMA_V1, SCHEMA_VERSION
 
 FORMAT_VERSION = 1
 APP_VERSION = "0.1.0"
@@ -28,6 +29,10 @@ class ProjectLockedError(ProjectError):
 
 
 class ProjectSchemaTooNewError(ProjectError):
+    pass
+
+
+class ProjectMigrationError(ProjectError):
     pass
 
 
@@ -217,8 +222,14 @@ class _ProjectLock:
 
 
 class ProjectRepository:
-    def __init__(self, project_directory: Path, manifest: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        project_directory: Path,
+        manifest: dict[str, Any],
+        workspace: ProjectWorkspace | None = None,
+    ) -> None:
         self.project_directory = project_directory
+        self.workspace = workspace
         self.manifest_path = project_directory / "manifest.json"
         self.database_path = project_directory / "project.sqlite3"
         self.manifest = manifest
@@ -258,6 +269,83 @@ class ProjectRepository:
             raise ProjectSchemaTooNewError(
                 f"项目 schema {schema_version} 高于应用支持版本 {SCHEMA_VERSION}"
             )
+        if schema_version < 1:
+            raise ProjectMigrationError(f"不支持从 schema {schema_version} 迁移")
+        if schema_version < SCHEMA_VERSION:
+            self._migrate_database(schema_version)
+            schema_version = self.schema_version
+        if schema_version != SCHEMA_VERSION:
+            raise ProjectMigrationError(
+                f"项目 schema 迁移后仍为 {schema_version}，期望 {SCHEMA_VERSION}"
+            )
+        if self.connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise ProjectMigrationError("项目迁移后 SQLite 完整性检查失败")
+        if self.connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise ProjectMigrationError("项目迁移后存在外键错误")
+
+    @property
+    def schema_version(self) -> int:
+        row = self.connection.execute(
+            "SELECT value FROM app_metadata WHERE key = 'schema_version'"
+        ).fetchone()
+        if row is None:
+            raise ProjectMigrationError("项目数据库缺少 schema_version")
+        return int(row[0])
+
+    def _migrate_database(self, source_version: int) -> None:
+        workspace = self.workspace or ProjectWorkspace(self.project_directory.parents[1])
+        project_size = sum(
+            path.stat().st_size
+            for path in self.project_directory.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        )
+        required_free = project_size * 2 + 500 * 1024 * 1024
+        free_bytes = shutil.disk_usage(workspace.root).free
+        if free_bytes < required_free:
+            raise ProjectMigrationError(
+                f"项目迁移至少需要 {required_free} 字节可用空间，当前仅 {free_bytes} 字节"
+            )
+
+        from stt_desktop.backups import BackupService
+
+        backup = BackupService(self, workspace).create_backup(reason="pre-migration")
+        if not backup.get("verified"):
+            raise ProjectMigrationError("迁移前备份未通过校验")
+
+        current = source_version
+        try:
+            while current < SCHEMA_VERSION:
+                target = current + 1
+                migration = MIGRATIONS.get(target)
+                if not migration:
+                    raise ProjectMigrationError(f"缺少 schema {current} 到 {target} 的迁移")
+                script = (
+                    "BEGIN IMMEDIATE;\n"
+                    f"{migration}\n"
+                    "UPDATE app_metadata SET value = "
+                    f"'{target}' WHERE key = 'schema_version';\n"
+                    "COMMIT;"
+                )
+                self.connection.executescript(script)
+                current = target
+        except Exception as exc:
+            if self.connection.in_transaction:
+                self.connection.execute("ROLLBACK")
+            if isinstance(exc, ProjectMigrationError):
+                raise
+            raise ProjectMigrationError(
+                f"项目从 schema {current} 迁移失败；已保留迁移前备份 {backup['fileName']}"
+            ) from exc
+
+        now = utc_now()
+        self.manifest.update(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "app_version": APP_VERSION,
+                "updated_at": now,
+            }
+        )
+        _atomic_write_json(self.manifest_path, self.manifest)
 
     @property
     def revision(self) -> int:
@@ -583,6 +671,11 @@ class ProjectWorkspace:
             connection = sqlite3.connect(database_path)
             connection.execute("PRAGMA foreign_keys = ON")
             connection.executescript(SCHEMA_V1)
+            for target in range(2, SCHEMA_VERSION + 1):
+                migration = MIGRATIONS.get(target)
+                if not migration:
+                    raise ProjectMigrationError(f"缺少新项目 schema {target} 定义")
+                connection.executescript(migration)
             connection.execute(
                 "INSERT INTO app_metadata(key, value) VALUES ('schema_version', ?), ('revision', '0')",
                 (str(SCHEMA_VERSION),),
@@ -646,4 +739,4 @@ class ProjectWorkspace:
             raise ProjectSchemaTooNewError(
                 f"项目 schema {manifest_schema} 高于应用支持版本 {SCHEMA_VERSION}"
             )
-        return ProjectRepository(project_directory, manifest)
+        return ProjectRepository(project_directory, manifest, self)

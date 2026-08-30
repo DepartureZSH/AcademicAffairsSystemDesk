@@ -1,6 +1,7 @@
 from .project import (
     ProjectError,
     ProjectLockedError,
+    ProjectMigrationError,
     ProjectRepository,
     ProjectSchemaTooNewError,
     ProjectWorkspace,
@@ -10,6 +11,7 @@ from .project import (
 __all__ = [
     "ProjectError",
     "ProjectLockedError",
+    "ProjectMigrationError",
     "ProjectRepository",
     "ProjectSchemaTooNewError",
     "ProjectWorkspace",
