@@ -77,11 +77,24 @@ class Distribution:
 
 
 @dataclass(frozen=True)
+class ResourceLimit:
+    constraint_id: str
+    limit_type: str
+    required: bool
+    penalty: int
+    limit: int
+    class_ids: tuple[str, ...]
+    name: str = ""
+    scope: str = ""
+
+
+@dataclass(frozen=True)
 class Problem:
     name: str
     rooms: tuple[Room, ...]
     agents: tuple[ClassAgent, ...]
     distributions: tuple[Distribution, ...]
+    resource_limits: tuple[ResourceLimit, ...]
 
 
 def run_cgcs_greedy(problem_xml: str, run_id: str, algorithm_config: dict | None = None) -> dict:
@@ -354,11 +367,35 @@ def parse_problem(problem_xml: str) -> Problem:
             )
         )
 
+    resource_limits = []
+    for limit_node in root.findall("./limits/limit"):
+        limit_type = limit_node.attrib.get("type", "")
+        class_ids = tuple(
+            class_node.attrib["id"]
+            for class_node in limit_node.findall("class")
+            if class_node.attrib.get("id")
+        )
+        if limit_type not in {"max_daily_lessons", "consecutive_limit"} or not class_ids:
+            continue
+        resource_limits.append(
+            ResourceLimit(
+                constraint_id=limit_node.attrib.get("id", ""),
+                limit_type=limit_type,
+                required=limit_node.attrib.get("required", "false").lower() == "true",
+                penalty=int(limit_node.attrib.get("penalty", "0")),
+                limit=max(1, int(limit_node.attrib.get("limit", "1"))),
+                class_ids=class_ids,
+                name=limit_node.attrib.get("name", ""),
+                scope=limit_node.attrib.get("scope", ""),
+            )
+        )
+
     return Problem(
         name=root.attrib.get("name", "stt-problem"),
         rooms=rooms,
         agents=tuple(agents),
         distributions=tuple(distributions),
+        resource_limits=tuple(resource_limits),
     )
 
 
@@ -597,4 +634,3 @@ def _failed_result(run_id: str, message: str, assigned_count: int = 0, class_cou
         "total_score": 0,
         "log": f"{message}（已成功安排 {assigned_count}/{class_count} 个课次）",
     }
-

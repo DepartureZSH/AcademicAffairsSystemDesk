@@ -14,6 +14,7 @@ from .cgcs import (
     ClassAgent,
     Distribution,
     Problem,
+    ResourceLimit,
     TimeOption,
     _actions,
     _build_solution_xml,
@@ -75,6 +76,7 @@ def run_cp_sat_v1(
     if (
         len(greedy_assignments) == len(problem.agents)
         and greedy_metrics["total_score"] == 0
+        and not problem.resource_limits
     ):
         elapsed_ms = round((time.perf_counter() - started_at) * 1000, 1)
         return {
@@ -134,6 +136,11 @@ def run_cp_sat_v1(
     ) = _compile_constraints(
         problem, candidates_by_class
     )
+    soft_resource_limits = _compile_resource_limits(
+        model,
+        problem,
+        candidates_by_class,
+    )
 
     candidate_by_ordinal = {
         candidate.ordinal: candidate
@@ -170,7 +177,7 @@ def run_cp_sat_v1(
         problem,
         candidates_by_class,
         assigned_by_class,
-        soft_violations,
+        [*soft_violations, *soft_resource_limits],
     )
 
     _add_greedy_hint(model, candidates_by_class, assigned_by_class, greedy_assignments)
@@ -231,6 +238,12 @@ def run_cp_sat_v1(
             best_objective_bound = int(round(quality_solver.best_objective_bound))
 
     metrics = _score(assignments, problem.distributions)
+    resource_limit_penalty = _score_resource_limits(
+        assignments,
+        problem.resource_limits,
+    )
+    metrics["distribution_penalty"] += resource_limit_penalty
+    metrics["total_score"] += resource_limit_penalty
     agents_by_id = {agent.class_id: agent for agent in problem.agents}
     unassigned_ids = [
         agent.class_id for agent in problem.agents if agent.class_id not in assignments
@@ -310,10 +323,15 @@ def run_cp_sat_v1(
         ),
         "quality_status": quality_status_name,
         "candidate_count": sum(len(items) for items in candidates_by_class.values()),
-        "hard_conflict_count": len(hard_groups) + len(hard_pairs),
+        "hard_conflict_count": (
+            len(hard_groups)
+            + len(hard_pairs)
+            + sum(limit.required for limit in problem.resource_limits)
+        ),
         "hard_group_count": len(hard_groups),
         "hard_pair_count": len(hard_pairs),
-        "soft_conflict_count": len(soft_violations),
+        "soft_conflict_count": len(soft_violations) + len(soft_resource_limits),
+        "resource_limit_penalty_included": True,
         "num_search_workers": num_workers,
         "model_build_ms": model_build_ms,
         "greedy_search_ms": greedy_search_ms,
@@ -442,6 +460,127 @@ def _compile_constraints(
         hard_group_sources,
         hard_pair_sources,
     )
+
+
+def _compile_resource_limits(
+    model: cp_model.CpModel,
+    problem: Problem,
+    candidates_by_class: dict[str, tuple[Candidate, ...]],
+) -> list[tuple[int, cp_model.IntVar]]:
+    soft_excesses: list[tuple[int, cp_model.IntVar]] = []
+    for limit_index, resource_limit in enumerate(problem.resource_limits):
+        candidates = [
+            candidate
+            for class_id in resource_limit.class_ids
+            for candidate in candidates_by_class.get(class_id, ())
+        ]
+        for weekday in range(1, 8):
+            day_candidates = [
+                candidate
+                for candidate in candidates
+                if _action_uses_day(candidate.action, weekday)
+            ]
+            if resource_limit.limit_type == "max_daily_lessons":
+                terms = [
+                    (candidate.action.time.length, candidate.literal)
+                    for candidate in day_candidates
+                ]
+                _add_resource_limit_expression(
+                    model,
+                    terms,
+                    resource_limit,
+                    f"limit_{limit_index}_day_{weekday}",
+                    soft_excesses,
+                )
+                continue
+
+            periods = [
+                int(candidate.action.time.period_index)
+                for candidate in day_candidates
+                if candidate.action.time.period_index is not None
+            ]
+            if not periods:
+                continue
+            for window_start in range(min(periods), max(periods) + 1):
+                window_end = window_start + resource_limit.limit + 1
+                terms = []
+                for candidate in day_candidates:
+                    period = candidate.action.time.period_index
+                    if period is None:
+                        continue
+                    action_start = int(period)
+                    action_end = action_start + candidate.action.time.length
+                    overlap = max(
+                        0,
+                        min(action_end, window_end) - max(action_start, window_start),
+                    )
+                    if overlap:
+                        terms.append((overlap, candidate.literal))
+                _add_resource_limit_expression(
+                    model,
+                    terms,
+                    resource_limit,
+                    f"limit_{limit_index}_day_{weekday}_window_{window_start}",
+                    soft_excesses,
+                )
+    return soft_excesses
+
+
+def _add_resource_limit_expression(
+    model: cp_model.CpModel,
+    terms: list[tuple[int, cp_model.IntVar]],
+    resource_limit: ResourceLimit,
+    variable_name: str,
+    soft_excesses: list[tuple[int, cp_model.IntVar]],
+) -> None:
+    if not terms:
+        return
+    expression = sum(coefficient * literal for coefficient, literal in terms)
+    if resource_limit.required:
+        model.add(expression <= resource_limit.limit)
+        return
+    maximum = sum(coefficient for coefficient, _ in terms)
+    excess = model.new_int_var(0, max(0, maximum), f"{variable_name}_excess")
+    model.add(excess >= expression - resource_limit.limit)
+    soft_excesses.append((resource_limit.penalty, excess))
+
+
+def _action_uses_day(action: Action, weekday: int) -> bool:
+    return len(action.time.days) >= weekday and action.time.days[weekday - 1] == "1"
+
+
+def _score_resource_limits(
+    assignments: dict[str, Action],
+    resource_limits: tuple[ResourceLimit, ...],
+) -> int:
+    total = 0
+    for resource_limit in resource_limits:
+        if resource_limit.required:
+            continue
+        actions = [
+            assignments[class_id]
+            for class_id in resource_limit.class_ids
+            if class_id in assignments
+        ]
+        for weekday in range(1, 8):
+            day_actions = [action for action in actions if _action_uses_day(action, weekday)]
+            if resource_limit.limit_type == "max_daily_lessons":
+                load = sum(action.time.length for action in day_actions)
+                total += max(0, load - resource_limit.limit) * resource_limit.penalty
+                continue
+            occupied: set[int] = set()
+            for action in day_actions:
+                if action.time.period_index is None:
+                    continue
+                start = int(action.time.period_index)
+                occupied.update(range(start, start + action.time.length))
+            if not occupied:
+                continue
+            for window_start in range(min(occupied), max(occupied) + 1):
+                window = range(window_start, window_start + resource_limit.limit + 1)
+                excess = max(0, sum(period in occupied for period in window) - resource_limit.limit)
+                total += excess * resource_limit.penalty
+    return total
 
 
 def _compile_conflict_buckets(
@@ -691,8 +830,46 @@ def _build_unassigned_explanations(
                 "虽然没有发现直接冲突，但在本次求解时间内仍未被选中"
             )
 
+        applicable_limits = [
+            resource_limit
+            for resource_limit in problem.resource_limits
+            if resource_limit.required and class_id in resource_limit.class_ids
+        ]
+        primary_limit = applicable_limits[0] if applicable_limits else None
+        for resource_limit in applicable_limits:
+            reason_groups.append(
+                {
+                    "code": resource_limit.limit_type.upper(),
+                    "title": resource_limit.name or "资源课时上限",
+                    "detail": (
+                        f"该课次受 {resource_limit.scope or '资源'} 范围的"
+                        f" {resource_limit.limit_type}={resource_limit.limit} 硬约束限制"
+                    ),
+                    "constraint_id": resource_limit.constraint_id,
+                    "constraint_type": resource_limit.limit_type,
+                    "constraint_name": resource_limit.name,
+                    "constraint_scope": resource_limit.scope,
+                }
+            )
+        if primary_limit is not None:
+            summary = (
+                f"{summary}；同时受到“{primary_limit.name or '资源课时上限'}”"
+                f"（上限 {primary_limit.limit}）约束"
+            )
+
         explanations.append(
             {
+                "code": (
+                    primary_limit.limit_type.upper()
+                    if primary_limit is not None
+                    else "UNASSIGNED_LESSON"
+                ),
+                "constraintId": (
+                    primary_limit.constraint_id if primary_limit is not None else None
+                ),
+                "constraintName": (
+                    primary_limit.name if primary_limit is not None else None
+                ),
                 "class_id": class_id,
                 "label": label,
                 "candidate_count": candidate_count,

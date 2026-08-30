@@ -208,6 +208,151 @@ def test_hard_daily_limit_rejects_candidate_before_persistence(tmp_path: Path) -
         project.close()
 
 
+def test_hard_daily_limit_is_enforced_during_search_instead_of_false_infeasible(
+    tmp_path: Path,
+) -> None:
+    project, _, _ = seed_project(tmp_path, slot_count=2)
+    try:
+        for index in range(2):
+            project.save_entity(
+                "time_slot",
+                {
+                    "id": f"day-2-slot-{index}",
+                    "bell_schedule_id": "schedule-1",
+                    "weekday": 2,
+                    "period_index": index,
+                    "label": f"周二第 {index + 1} 节",
+                    "start_slot": index,
+                    "length_slots": 1,
+                    "start_time_minutes": 480 + index * 50,
+                    "end_time_minutes": 520 + index * 50,
+                },
+                project.revision,
+            )
+        project.save_entity(
+            "constraint",
+            {
+                "type": "max_daily_lessons",
+                "name": "每天至多一课时",
+                "severity": "hard",
+                "weight": 100,
+                "parameters": {"max": 1},
+            },
+            project.revision,
+        )
+
+        result = SchedulingService(project).run_round(time_budget_seconds=10)
+
+        assert result["status"] == "succeeded"
+        entries = project.connection.execute(
+            "SELECT weekday FROM timetable_entries WHERE candidate_id = ?",
+            (result["candidate_id"],),
+        ).fetchall()
+        assert {item["weekday"] for item in entries} == {1, 2}
+        assert result["candidate_diagnostics"]["compile"]["compiled_limit_count"] == 2
+    finally:
+        project.close()
+
+
+def test_hard_consecutive_limit_is_enforced_during_search(tmp_path: Path) -> None:
+    project, task, _ = seed_project(tmp_path, slot_count=3)
+    try:
+        project.save_teaching_task_bundle(
+            {"id": task["id"], "weekly_slots": 3, "duration_slots": 1},
+            expected_revision=project.revision,
+        )
+        project.save_entity(
+            "time_slot",
+            {
+                "id": "day-2-slot-0",
+                "bell_schedule_id": "schedule-1",
+                "weekday": 2,
+                "period_index": 0,
+                "label": "周二第一节",
+                "start_slot": 0,
+                "length_slots": 1,
+                "start_time_minutes": 480,
+                "end_time_minutes": 520,
+            },
+            project.revision,
+        )
+        project.save_entity(
+            "constraint",
+            {
+                "type": "consecutive_limit",
+                "name": "连续授课不超过两节",
+                "severity": "hard",
+                "weight": 100,
+                "parameters": {"maxConsecutive": 2},
+            },
+            project.revision,
+        )
+
+        result = SchedulingService(project).run_round(time_budget_seconds=10)
+
+        assert result["status"] == "succeeded"
+        entries = project.connection.execute(
+            "SELECT weekday, start_slot, duration_slots FROM timetable_entries WHERE candidate_id = ?",
+            (result["candidate_id"],),
+        ).fetchall()
+        occupied_by_day: dict[int, set[int]] = {}
+        for item in entries:
+            occupied_by_day.setdefault(item["weekday"], set()).update(
+                range(item["start_slot"], item["start_slot"] + item["duration_slots"])
+            )
+        assert all(
+            not {0, 1, 2}.issubset(occupied)
+            for occupied in occupied_by_day.values()
+        )
+    finally:
+        project.close()
+
+
+def test_soft_daily_limit_is_part_of_quality_objective_without_double_counting(
+    tmp_path: Path,
+) -> None:
+    project, _, _ = seed_project(tmp_path, slot_count=2)
+    try:
+        for index in range(2):
+            project.save_entity(
+                "time_slot",
+                {
+                    "id": f"soft-day-2-slot-{index}",
+                    "bell_schedule_id": "schedule-1",
+                    "weekday": 2,
+                    "period_index": index,
+                    "label": f"周二第 {index + 1} 节",
+                    "start_slot": index,
+                    "length_slots": 1,
+                    "start_time_minutes": 480 + index * 50,
+                    "end_time_minutes": 520 + index * 50,
+                },
+                project.revision,
+            )
+        project.save_entity(
+            "constraint",
+            {
+                "type": "max_daily_lessons",
+                "name": "尽量每天至多一课时",
+                "severity": "soft",
+                "weight": 25,
+                "parameters": {"max": 1},
+            },
+            project.revision,
+        )
+
+        result = SchedulingService(project).run_round(time_budget_seconds=10)
+
+        assert result["status"] == "succeeded"
+        assert result["total_score"] == 0
+        assert result["candidate_diagnostics"]["solver"]["fast_path"] is None
+        candidate = SchedulingService(project).list_candidates()[0]
+        assert candidate["metrics"]["distribution_penalty"] == 0
+        assert candidate["metrics"]["total_score"] == 0
+    finally:
+        project.close()
+
+
 def test_room_availability_removes_only_blocked_room_time_pair(tmp_path: Path) -> None:
     project, _, _ = seed_project(tmp_path, slot_count=3)
     try:

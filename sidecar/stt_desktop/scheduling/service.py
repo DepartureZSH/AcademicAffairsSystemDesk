@@ -264,7 +264,9 @@ class SchedulingService:
                 },
                 "求解结果违反启用的硬约束",
             )
-        if validation["softPenalty"]:
+        if validation["softPenalty"] and not result.get(
+            "resource_limit_penalty_included"
+        ):
             result["distribution_penalty"] = int(
                 result.get("distribution_penalty") or 0
             ) + validation["softPenalty"]
@@ -495,7 +497,7 @@ class SchedulingService:
         task_terms = {item["term_id"] for item in tasks if item.get("term_id")}
         eligible = [item for item in schedules if not task_terms or item.get("term_id") in task_terms]
         schedule = next((item for item in eligible if item["is_default"]), eligible[0] if eligible else None)
-        diagnostics: dict[str, Any] = {"errors": [], "warnings": [], "lesson_count": len(lessons), "option_count": 0}
+        diagnostics: dict[str, Any] = {"errors": [], "warnings": [], "lesson_count": len(lessons), "option_count": 0, "compiled_limit_count": 0}
         if not tasks or not lessons:
             diagnostics["errors"].append({"code": "NO_ACTIVE_LESSONS", "message": "没有可参与排课的启用课次"})
         if schedule is None:
@@ -592,10 +594,21 @@ class SchedulingService:
             lesson_ids_by_task.setdefault(task["id"], []).append(lesson["id"])
 
         distributions_node = SubElement(root, "distributions")
+        limits_node = SubElement(root, "limits")
         for prefix, groups in (("teacher", lesson_ids_by_teacher), ("homeroom", lesson_ids_by_homeroom)):
             for entity_id, lesson_ids in groups.items():
                 self._distribution(distributions_node, f"builtin-{prefix}-{entity_id}", "NotOverlap", lesson_ids, True, 0, f"{prefix}资源冲突", prefix)
-        self._compile_user_constraints(distributions_node, constraints, lesson_ids_by_task, diagnostics)
+        self._compile_user_constraints(
+            distributions_node,
+            limits_node,
+            constraints,
+            lesson_ids_by_task,
+            {
+                "teacher": lesson_ids_by_teacher,
+                "homeroom": lesson_ids_by_homeroom,
+            },
+            diagnostics,
+        )
         return tostring(root, encoding="unicode"), diagnostics
 
     @staticmethod
@@ -628,7 +641,15 @@ class SchedulingService:
             result.update(int(value) for value in parameters.get("periods", []) if isinstance(value, int))
         return result
 
-    def _compile_user_constraints(self, node: Element, constraints: list[dict], lessons_by_task: dict[str, list[str]], diagnostics: dict) -> None:
+    def _compile_user_constraints(
+        self,
+        node: Element,
+        limits_node: Element,
+        constraints: list[dict],
+        lessons_by_task: dict[str, list[str]],
+        resource_groups: dict[str, dict[str, list[str]]],
+        diagnostics: dict,
+    ) -> None:
         all_lessons = [lesson_id for values in lessons_by_task.values() for lesson_id in values]
         for constraint in constraints:
             parameters = json.loads(constraint["parameters"] or "{}")
@@ -645,7 +666,37 @@ class SchedulingService:
             elif constraint["type"] in {"preferred_periods"}:
                 continue
             elif constraint["type"] in {"max_daily_lessons", "consecutive_limit"}:
-                diagnostics["warnings"].append({"code": "CONSTRAINT_VALIDATED_AFTER_SOLVE", "constraintId": constraint["id"], "message": f"{constraint['name']} 将在候选校验阶段检查"})
+                limit_key = (
+                    "max"
+                    if constraint["type"] == "max_daily_lessons"
+                    else "maxConsecutive"
+                )
+                default_limit = 6 if limit_key == "max" else 3
+                limit = max(1, int(parameters.get(limit_key, default_limit)))
+                selected_resource_type = str(parameters.get("resourceType") or "")
+                for resource_type, groups in resource_groups.items():
+                    if selected_resource_type and selected_resource_type != resource_type:
+                        continue
+                    for resource_id, group_lesson_ids in groups.items():
+                        targets = [
+                            lesson_id
+                            for lesson_id in group_lesson_ids
+                            if not lesson_ids or lesson_id in lesson_ids
+                        ]
+                        if not targets:
+                            continue
+                        self._resource_limit(
+                            limits_node,
+                            f"user-{constraint['id']}-{resource_type}-{resource_id}",
+                            constraint["type"],
+                            targets,
+                            required,
+                            penalty,
+                            limit,
+                            constraint["name"],
+                            resource_type,
+                        )
+                        diagnostics["compiled_limit_count"] += 1
             elif constraint["type"] in {"NotOverlap", "SameRoom", "DifferentTime", "DifferentDays", "DifferentWeeks", "SameDays", "SameStart", "SameTime", "Precedence", "Consecutive"} and len(lesson_ids) >= 2:
                 self._distribution(node, f"user-{constraint['id']}", constraint["type"], lesson_ids, required, penalty, constraint["name"], "custom")
             else:
@@ -696,14 +747,19 @@ class SchedulingService:
                             key=lambda item: item["start"],
                         )
                         if constraint["type"] == "max_daily_lessons":
-                            excess = len(values) - limit
+                            excess = sum(item["length"] for item in values) - limit
                         else:
-                            longest = current = 0
-                            previous_end: int | None = None
+                            occupied: set[int] = set()
                             for item in values:
-                                current = current + 1 if previous_end == item["start"] else 1
+                                occupied.update(
+                                    range(item["start"], item["start"] + item["length"])
+                                )
+                            longest = current = 0
+                            previous: int | None = None
+                            for period in sorted(occupied):
+                                current = current + 1 if previous is not None and period == previous + 1 else 1
                                 longest = max(longest, current)
-                                previous_end = item["start"] + item["length"]
+                                previous = period
                             excess = longest - limit
                         if excess > 0:
                             issues.append(
@@ -736,6 +792,35 @@ class SchedulingService:
         distribution = SubElement(node, "distribution", attrs)
         for lesson_id in unique:
             SubElement(distribution, "class", {"id": lesson_id})
+
+    @staticmethod
+    def _resource_limit(
+        node: Element,
+        constraint_id: str,
+        kind: str,
+        lesson_ids: Iterable[str],
+        required: bool,
+        penalty: int,
+        limit: int,
+        name: str,
+        scope: str,
+    ) -> None:
+        unique = tuple(dict.fromkeys(lesson_ids))
+        if not unique:
+            return
+        attrs = {
+            "id": constraint_id,
+            "type": kind,
+            "required": str(required).lower(),
+            "limit": str(limit),
+            "name": name,
+            "scope": scope,
+        }
+        if not required:
+            attrs["penalty"] = str(penalty)
+        limit_node = SubElement(node, "limit", attrs)
+        for lesson_id in unique:
+            SubElement(limit_node, "class", {"id": lesson_id})
 
     def _persist_candidate(self, *, round_id: str, snapshot_id: str, input_hash: str, parent_candidate_id: str | None, result: dict, snapshot: dict, compile_diagnostics: dict) -> dict:
         candidate_id = uuid7()

@@ -144,11 +144,12 @@ onMounted(loadAll);
       <article class="panel data-panel">
         <p class="eyebrow">{{ editingId ? "EDIT" : "NEW" }}</p><h3>{{ activeTab === "constraints" ? "规则约束" : "可用时段" }}</h3>
         <form v-if="activeTab === 'constraints'" class="compact-form" @submit.prevent="saveActive">
-          <select v-model="constraintForm.type" @change="applyTemplate"><option value="max_daily_lessons">每日最大课时</option><option value="same_day_spacing">同科课次分散</option><option value="consecutive_limit">连续授课限制</option><option value="preferred_periods">优先时段</option><option value="custom">自定义</option></select>
+          <select v-model="constraintForm.type" @change="applyTemplate"><option value="max_daily_lessons">每日最大课时</option><option value="same_day_spacing">同科课次分散</option><option value="consecutive_limit">连续授课限制</option><option value="preferred_periods">优先时段</option><option v-if="constraintForm.type === 'custom'" value="custom" disabled>旧版未编译自定义类型</option></select>
           <input v-model="constraintForm.name" placeholder="约束名称" required />
           <div class="inline-fields"><select v-model="constraintForm.severity"><option value="hard">硬约束</option><option value="soft">软约束</option></select><label>权重<input v-model.number="constraintForm.weight" type="number" min="0" /></label></div>
           <label>参数（JSON 对象）<textarea v-model="constraintForm.parameters" spellcheck="false"></textarea></label>
           <label class="check-label"><input v-model="constraintForm.enabled" type="checkbox" :true-value="1" :false-value="0" />启用</label>
+          <p class="form-copy">这里列出的四类规则均进入本地求解或候选校验；不接受会被静默忽略的任意自定义类型。</p>
           <button class="primary-button" :disabled="busy">{{ editingId ? "更新约束" : "保存约束" }}</button>
         </form>
         <form v-else class="compact-form" @submit.prevent="saveActive">
