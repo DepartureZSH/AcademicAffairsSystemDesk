@@ -10,6 +10,12 @@ services:
     env:
       publishable_key: STT_SUPABASE_PUBLISHABLE_KEY
 
+  legacy_data:
+    provider: direct-postgres-readonly
+    mode: real
+    env:
+      database_url: STT_LEGACY_DATABASE_URL
+
   license:
     provider: deterministic-local-license
     mode: mock

@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Any, Mapping
 
 from .schema import SCHEMA_V1, SCHEMA_VERSION
@@ -310,6 +311,50 @@ class ProjectRepository:
         if saved is None:
             raise ProjectError("保存后无法读取实体")
         return saved, revision
+
+    def bulk_insert_entities(
+        self,
+        batches: Mapping[str, Sequence[Mapping[str, Any]]],
+        expected_revision: int,
+    ) -> tuple[dict[str, int], int]:
+        """Insert a dependency-ordered import as one revision and one transaction."""
+        prepared: list[tuple[EntitySpec, str, dict[str, Any]]] = []
+        counts: dict[str, int] = {}
+        seen_ids: set[str] = set()
+        for entity_type, payloads in batches.items():
+            spec = self._entity_spec(entity_type)
+            counts[entity_type] = len(payloads)
+            for payload in payloads:
+                unknown = sorted(set(payload) - spec.fields - {"id"})
+                if unknown:
+                    raise ProjectError(f"{entity_type} 包含未知字段: {', '.join(unknown)}")
+                missing = sorted(field for field in spec.required if field not in payload)
+                if missing:
+                    raise ProjectError(f"{entity_type} 缺少必要字段: {', '.join(missing)}")
+                entity_id = str(payload.get("id") or uuid7())
+                if entity_id in seen_ids:
+                    raise ProjectError(f"批量导入包含重复 ID: {entity_id}")
+                seen_ids.add(entity_id)
+                values = {key: payload[key] for key in payload if key in spec.fields}
+                prepared.append((spec, entity_id, values))
+
+        now = utc_now()
+        self._begin_write(expected_revision)
+        try:
+            for spec, entity_id, values in prepared:
+                columns = ["id", *values.keys(), "created_at", "updated_at"]
+                placeholders = ", ".join("?" for _ in columns)
+                parameters = [entity_id, *values.values(), now, now]
+                self.connection.execute(
+                    f"INSERT INTO {spec.table} ({', '.join(columns)}) VALUES ({placeholders})",  # noqa: S608
+                    parameters,
+                )
+            revision = self._commit_write(now)
+        except Exception:
+            self.connection.execute("ROLLBACK")
+            raise
+        self._write_manifest_revision(revision, now)
+        return counts, revision
 
     def delete_entity(self, entity_type: str, entity_id: str, expected_revision: int) -> int:
         spec = self._entity_spec(entity_type)

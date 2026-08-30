@@ -118,3 +118,45 @@ def test_unknown_fields_and_entity_types_are_rejected(tmp_path: Path) -> None:
             project.save_entity("teacher", {"name": "A", "phone": "not-stored"}, 0)
         with pytest.raises(ProjectError, match="不支持的实体类型"):
             project.list_entities("organization")
+
+
+def test_bulk_import_is_one_revision_and_rolls_back_as_a_unit(tmp_path: Path) -> None:
+    workspace = ProjectWorkspace(tmp_path / "workspace")
+    with workspace.create_project("批量导入") as project:
+        counts, revision = project.bulk_insert_entities(
+            {
+                "teacher": [{"id": "teacher-1", "name": "教师一"}],
+                "subject": [{"id": "subject-1", "name": "数学"}],
+                "homeroom": [{"id": "class-1", "name": "一年级一班"}],
+                "course_plan": [
+                    {
+                        "id": "plan-1",
+                        "homeroom_id": "class-1",
+                        "subject_id": "subject-1",
+                        "weekly_slots": 5,
+                    }
+                ],
+            },
+            expected_revision=0,
+        )
+        assert counts == {"teacher": 1, "subject": 1, "homeroom": 1, "course_plan": 1}
+        assert revision == 1
+        assert project.revision == 1
+
+        with pytest.raises(sqlite3.IntegrityError):
+            project.bulk_insert_entities(
+                {
+                    "teacher": [{"id": "teacher-2", "name": "教师二"}],
+                    "course_plan": [
+                        {
+                            "id": "bad-plan",
+                            "homeroom_id": "missing",
+                            "subject_id": "subject-1",
+                            "weekly_slots": 1,
+                        }
+                    ],
+                },
+                expected_revision=1,
+            )
+        assert project.get_entity("teacher", "teacher-2") is None
+        assert project.revision == 1

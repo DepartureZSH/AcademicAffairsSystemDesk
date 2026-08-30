@@ -16,6 +16,7 @@
 | 服务 | YAML 键 | 当前模式 | 实现/数据源 | 切换为真实服务的条件 |
 | --- | --- | --- | --- | --- |
 | 身份认证 | `services.identity` | `real` | 本机 Docker `stt-local` Supabase，`http://127.0.0.1:55421` | Sealos 预发布 Auth、HTTPS 与 redirect allowlist 准备后替换 endpoint |
+| 旧版数据迁移源 | `services.legacy_data` | `real` | 本机 Docker `stt-local` PostgreSQL，只读重复读事务 | 首批项目迁移并核验后可设为 `disabled` |
 | 许可证 | `services.license` | `mock` | 本地确定性 7 天授权、3 台设备上限测试适配器 | 许可证 schema、激活/续签接口、签名密钥和撤销测试完成 |
 | 支付 | `services.payment` | `mock` | 1 分测试产品、确定性成功状态，不产生真实资金交易 | Karios Pay 权威定价、鉴权、幂等、webhook 与预发布小额支付完成 |
 | SMTP | `services.smtp` | `mock` | 邮件写入 `.local/mock-mail`，不向公网发信 | 企业 SMTP、SPF/DKIM/DMARC 与退信流程完成 |

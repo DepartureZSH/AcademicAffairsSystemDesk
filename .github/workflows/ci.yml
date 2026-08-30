@@ -26,4 +26,5 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --frozen --extra dev
+      - run: uv run ruff check sidecar tests
       - run: uv run pytest
