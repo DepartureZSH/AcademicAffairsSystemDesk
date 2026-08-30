@@ -274,6 +274,22 @@ export const localApi = {
       path: "/v1/backups/restore",
       body: data,
     }),
+  exportProjectArchive: (destinationPath: string, overwrite = false) =>
+    sidecarRequest<{ package: Record<string, unknown>; revision: number }>({
+      method: "POST",
+      path: "/v1/project-archives/export",
+      body: { destination_path: destinationPath, overwrite },
+    }),
+  importProjectArchive: (data: Record<string, unknown>) =>
+    sidecarRequest<{
+      imported: Record<string, unknown>;
+      project: ProjectInfo;
+      revision: number;
+    }>({
+      method: "POST",
+      path: "/v1/project-archives/import",
+      body: data,
+    }),
   previewImport: (data: Record<string, unknown>) =>
     sidecarRequest<{ preview: ImportPreview; revision: number }>({
       method: "POST",

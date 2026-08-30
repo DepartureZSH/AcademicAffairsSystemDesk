@@ -166,3 +166,42 @@ def test_scheduling_endpoint_returns_infeasible_diagnostics_without_candidate(
         )
         candidates = api.get("/v1/scheduling/candidates", headers=headers())
         assert candidates.json()["items"] == []
+
+
+def test_project_archive_api_exports_and_imports_without_overwriting(tmp_path: Path) -> None:
+    archive = tmp_path / "API 项目.sttproj"
+    with client(tmp_path) as api:
+        created = api.post("/v1/projects", headers=headers(), json={"name": "迁移源"})
+        source_id = created.json()["project"]["id"]
+        api.put(
+            "/v1/data/teacher",
+            headers=headers(),
+            json={"expected_revision": 0, "data": {"name": "陈老师"}},
+        )
+        exported = api.post(
+            "/v1/project-archives/export",
+            headers=headers(),
+            json={"destination_path": str(archive), "overwrite": False},
+        )
+        assert exported.status_code == 201
+        assert exported.json()["package"]["verified"]
+
+        api.post("/v1/projects/current/close", headers=headers())
+        rejected = api.post(
+            "/v1/project-archives/import",
+            headers=headers(),
+            json={"archive_path": str(archive), "confirmed": False},
+        )
+        assert rejected.status_code == 409
+        imported = api.post(
+            "/v1/project-archives/import",
+            headers=headers(),
+            json={"archive_path": str(archive), "confirmed": True},
+        )
+        assert imported.status_code == 201
+        assert imported.json()["project"]["id"] != source_id
+        assert imported.json()["revision"] == 1
+        assert api.get("/v1/data/teacher", headers=headers()).json()["items"][0][
+            "name"
+        ] == "陈老师"
+        assert len(api.get("/v1/projects", headers=headers()).json()["projects"]) == 2

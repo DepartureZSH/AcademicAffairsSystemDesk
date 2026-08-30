@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from stt_desktop.backups import BackupService
+from stt_desktop.project_archives import ProjectArchiveService
 from stt_desktop.scheduling import ManualConflictError, SchedulingService, TimetableService
 from stt_desktop.service_config import AppServiceConfig
 from stt_desktop.storage import (
@@ -89,6 +90,19 @@ class BackupRestoreRequest(BaseModel):
     archive_path: str | None = Field(default=None, min_length=1, max_length=32_767)
     backup_id: str | None = None
     restored_name: str | None = Field(default=None, max_length=200)
+    confirmed: bool
+
+
+class ProjectArchiveExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    destination_path: str = Field(min_length=1, max_length=32_767)
+    overwrite: bool = False
+
+
+class ProjectArchiveImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    archive_path: str = Field(min_length=1, max_length=32_767)
+    imported_name: str | None = Field(default=None, max_length=200)
     confirmed: bool
 
 
@@ -544,6 +558,39 @@ def create_app(
             state.current_project = workspace.open_project(restored["projectId"])
             return {
                 "restored": restored,
+                "project": state.current_project.project_info(),
+                "revision": state.current_project.revision,
+            }
+
+    @app.post("/v1/project-archives/export", status_code=201)
+    async def export_project_archive(
+        request: ProjectArchiveExportRequest,
+    ) -> dict[str, Any]:
+        project = state.require_project()
+        package = ProjectArchiveService(project, workspace).export_project(
+            request.destination_path, overwrite=request.overwrite
+        )
+        return {"package": package, "revision": project.revision}
+
+    @app.post("/v1/project-archives/import", status_code=201)
+    async def import_project_archive(
+        request: ProjectArchiveImportRequest,
+    ) -> dict[str, Any]:
+        if not request.confirmed:
+            raise HTTPException(
+                status_code=409,
+                detail=("PROJECT_IMPORT_CONFIRMATION_REQUIRED", "导入项目前必须明确确认"),
+            )
+        imported = ProjectArchiveService.import_project(
+            workspace,
+            request.archive_path,
+            imported_name=request.imported_name,
+        )
+        with state.lock:
+            state.close_current()
+            state.current_project = workspace.open_project(imported["projectId"])
+            return {
+                "imported": imported,
                 "project": state.current_project.project_info(),
                 "revision": state.current_project.revision,
             }

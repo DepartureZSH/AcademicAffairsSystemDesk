@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { confirm, open, save } from "@tauri-apps/plugin-dialog";
 import CalendarView from "./components/CalendarView.vue";
 import ConstraintsView from "./components/ConstraintsView.vue";
 import PlanningView from "./components/PlanningView.vue";
@@ -52,6 +53,7 @@ const activeView = ref("workspace");
 const projectName = ref("");
 const workspaceBusy = ref(false);
 const workspaceError = ref("");
+const workspaceNotice = ref("");
 
 const mockServices = computed(() => {
   const serviceModes = health.value?.serviceModes;
@@ -208,6 +210,59 @@ async function openProject(projectId: string) {
   }
 }
 
+async function exportProjectArchive() {
+  if (!currentProject.value) return;
+  const path = await save({
+    defaultPath: `${currentProject.value.name}.sttproj`,
+    filters: [{ name: "时奕排课项目", extensions: ["sttproj"] }],
+  });
+  if (!path) return;
+  workspaceBusy.value = true;
+  workspaceError.value = "";
+  workspaceNotice.value = "";
+  try {
+    const result = await localApi.exportProjectArchive(path, true);
+    workspaceNotice.value = `项目包已导出并校验：${String(result.package.fileName)}`;
+  } catch (error) {
+    workspaceError.value = formatLocalError(error);
+  } finally {
+    workspaceBusy.value = false;
+  }
+}
+
+async function importProjectArchive() {
+  const path = await open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: "时奕排课项目", extensions: ["sttproj"] }],
+  });
+  if (typeof path !== "string") return;
+  const accepted = await confirm(
+    `将校验并导入为一个新的本地项目，不覆盖任何现有项目：\n\n${path}\n\n是否继续？`,
+    { title: "确认导入项目", kind: "warning" },
+  );
+  if (!accepted) return;
+  workspaceBusy.value = true;
+  workspaceError.value = "";
+  workspaceNotice.value = "";
+  try {
+    const result = await localApi.importProjectArchive({
+      archive_path: path,
+      imported_name: null,
+      confirmed: true,
+    });
+    currentProject.value = result.project;
+    projectRevision.value = result.revision;
+    workspaceNotice.value = `已导入并打开项目：${result.project.name}`;
+    await refreshProjects();
+    health.value = await localApi.health();
+  } catch (error) {
+    workspaceError.value = formatLocalError(error);
+  } finally {
+    workspaceBusy.value = false;
+  }
+}
+
 function applyRestoredProject(project: ProjectInfo, revision: number) {
   currentProject.value = project;
   projectRevision.value = revision;
@@ -356,9 +411,15 @@ onMounted(bootstrapGate);
           <section class="grid-layout">
             <article class="panel create-panel">
               <p class="eyebrow">新建项目</p><h2>从空白项目开始</h2>
+              <p v-if="workspaceError" class="form-message error-copy">{{ workspaceError }}</p>
+              <p v-if="workspaceNotice" class="form-message notice-copy">{{ workspaceNotice }}</p>
               <label for="project-name">项目名称</label>
               <input id="project-name" v-model="projectName" maxlength="200" placeholder="例如：2026 学年第一学期" @keyup.enter="createProject" />
               <button class="primary-button" :disabled="workspaceBusy || !projectName.trim()" @click="createProject">创建并打开</button>
+              <hr class="soft-divider" />
+              <p class="eyebrow">可移植项目包</p>
+              <button class="secondary-button" :disabled="workspaceBusy" @click="importProjectArchive">导入 .sttproj</button>
+              <button class="secondary-button" :disabled="workspaceBusy || !currentProject" @click="exportProjectArchive">导出当前项目</button>
             </article>
             <article class="panel projects-panel">
               <div class="panel-heading"><div><p class="eyebrow">最近项目</p><h2>本机项目</h2></div><span>{{ projects.length }} 个</span></div>
