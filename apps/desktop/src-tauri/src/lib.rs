@@ -399,6 +399,9 @@ async fn sidecar_request(
         .await
         .map_err(|error| format!("本地服务请求失败: {error}"))?;
     let status = response.status();
+    if status == reqwest::StatusCode::NO_CONTENT {
+        return Ok(Value::Null);
+    }
     let payload: Value = response
         .json()
         .await
@@ -411,19 +414,30 @@ async fn sidecar_request(
 
 #[tauri::command]
 async fn stop_sidecar(state: State<'_, Mutex<SidecarManager>>) -> Result<(), String> {
-    let runtime = state.lock().runtime.take();
-    if let Some(mut runtime) = runtime {
-        let _ = reqwest::Client::new()
-            .post(format!("{}/v1/projects/current/close", runtime.base_url))
-            .bearer_auth(&runtime.token)
+    let connection = state
+        .lock()
+        .runtime
+        .as_ref()
+        .map(|runtime| (runtime.base_url.clone(), runtime.token.clone()));
+    if let Some((base_url, token)) = connection {
+        let response = reqwest::Client::new()
+            .post(format!("{base_url}/v1/projects/current/close"))
+            .bearer_auth(token)
             .timeout(Duration::from_secs(3))
             .send()
-            .await;
-        runtime
-            .child
-            .kill()
-            .map_err(|error| format!("无法停止 sidecar: {error}"))?;
-        let _ = runtime.child.wait();
+            .await
+            .map_err(|error| format!("停止前无法安全关闭当前项目: {error}"))?;
+        if !response.status().is_success() {
+            return Err("当前项目拒绝关闭；请先取消正在运行的排课轮次".into());
+        }
+        let runtime = state.lock().runtime.take();
+        if let Some(mut runtime) = runtime {
+            runtime
+                .child
+                .kill()
+                .map_err(|error| format!("无法停止 sidecar: {error}"))?;
+            let _ = runtime.child.wait();
+        }
     }
     Ok(())
 }

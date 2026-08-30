@@ -150,6 +150,11 @@ export const localApi = {
       method: "POST",
       path: `/v1/projects/${encodeURIComponent(projectId)}/open`,
     }),
+  closeProject: () =>
+    sidecarRequest<void>({
+      method: "POST",
+      path: "/v1/projects/current/close",
+    }),
   listEntities: <T extends EntityRecord = EntityRecord>(entityType: string) =>
     sidecarRequest<{ items: T[]; revision: number }>({
       method: "GET",

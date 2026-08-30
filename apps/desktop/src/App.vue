@@ -11,6 +11,7 @@ import BackupsView from "./components/BackupsView.vue";
 import ImportView from "./components/ImportView.vue";
 import { accessGate, type GateStatus } from "./lib/accessGate";
 import { updater, type UpdateStatus } from "./lib/updater";
+import { savedWorkspacePath, saveWorkspacePath } from "./lib/workspaceSettings";
 import {
   localApi,
   formatLocalError,
@@ -57,6 +58,7 @@ const workspaceError = ref("");
 const workspaceNotice = ref("");
 const updateBusy = ref(false);
 const availableUpdate = ref<UpdateStatus | null>(null);
+const preferredWorkspacePath = ref(savedWorkspacePath() ?? "");
 
 const mockServices = computed(() => {
   const serviceModes = health.value?.serviceModes;
@@ -94,7 +96,7 @@ async function bootstrapWorkspace() {
   workspaceBusy.value = true;
   workspaceError.value = "";
   try {
-    runtime.value = await startSidecar();
+    runtime.value = await startSidecar(preferredWorkspacePath.value || undefined);
     health.value = await localApi.health();
     await refreshProjects();
   } catch (error) {
@@ -208,6 +210,82 @@ async function openProject(projectId: string) {
     health.value = await localApi.health();
   } catch (error) {
     workspaceError.value = formatLocalError(error);
+  } finally {
+    workspaceBusy.value = false;
+  }
+}
+
+async function closeCurrentProject() {
+  if (!currentProject.value) return;
+  const accepted = await confirm(
+    `关闭项目“${currentProject.value.name}”？所有已提交数据仍保留在：\n\n${runtime.value?.workspacePath ?? "当前工作目录"}`,
+    { title: "关闭当前项目", kind: "info" },
+  );
+  if (!accepted) return;
+  workspaceBusy.value = true;
+  workspaceError.value = "";
+  try {
+    await localApi.closeProject();
+    currentProject.value = null;
+    projectRevision.value = 0;
+    activeView.value = "workspace";
+    health.value = await localApi.health();
+    workspaceNotice.value = "项目已关闭，本地文件未删除";
+  } catch (error) {
+    workspaceError.value = formatLocalError(error);
+  } finally {
+    workspaceBusy.value = false;
+  }
+}
+
+async function selectWorkspaceDirectory() {
+  if (health.value?.activeSchedulingRounds.length) {
+    workspaceError.value = "排课轮次运行期间不能切换工作目录，请先取消或等待完成";
+    activeView.value = "scheduling";
+    return;
+  }
+  const selected = await open({
+    multiple: false,
+    directory: true,
+    title: "选择时奕教务排课项目工作目录",
+  });
+  if (typeof selected !== "string" || selected === runtime.value?.workspacePath) return;
+  const accepted = await confirm(
+    `切换工作目录会关闭当前项目并重启本地服务。不会移动或删除原目录中的任何项目。\n\n新目录：${selected}\n\n是否继续？`,
+    { title: "切换项目工作目录", kind: "warning" },
+  );
+  if (!accepted) return;
+
+  workspaceBusy.value = true;
+  workspaceError.value = "";
+  workspaceNotice.value = "";
+  const previousPath = preferredWorkspacePath.value;
+  try {
+    if (runtime.value?.running) await stopSidecar();
+    runtime.value = null;
+    health.value = null;
+    currentProject.value = null;
+    projectRevision.value = 0;
+    preferredWorkspacePath.value = selected;
+    saveWorkspacePath(selected);
+    runtime.value = await startSidecar(selected);
+    health.value = await localApi.health();
+    await refreshProjects();
+    workspaceNotice.value = `已切换工作目录：${selected}`;
+  } catch (error) {
+    preferredWorkspacePath.value = previousPath;
+    saveWorkspacePath(previousPath || undefined);
+    workspaceError.value = `无法使用新工作目录，已恢复原设置：${formatLocalError(error)}`;
+    try {
+      runtime.value = await startSidecar(previousPath || undefined);
+      health.value = await localApi.health();
+      await refreshProjects();
+      workspaceNotice.value = workspaceError.value;
+      workspaceError.value = "";
+    } catch {
+      runtime.value = null;
+      health.value = null;
+    }
   } finally {
     workspaceBusy.value = false;
   }
@@ -434,12 +512,16 @@ onMounted(bootstrapGate);
             <div>
               <p class="eyebrow">工作目录</p><h2>建立或打开一个本地排课项目</h2>
               <p>每个项目使用独立 SQLite、附件与备份目录。账号和授权服务不会接收教务数据。</p>
+              <div class="hero-actions">
+                <button class="secondary-button" :disabled="workspaceBusy" @click="selectWorkspaceDirectory">选择工作目录</button>
+                <button v-if="currentProject" class="text-button" :disabled="workspaceBusy" @click="closeCurrentProject">关闭当前项目</button>
+              </div>
             </div>
             <dl>
               <div><dt>协议</dt><dd>v{{ health?.protocolVersion }}</dd></div>
               <div><dt>数据结构</dt><dd>Schema {{ health?.schemaVersion }}</dd></div>
               <div><dt>授权到期</dt><dd>{{ licenseExpiry }}</dd></div>
-              <div><dt>工作区</dt><dd>{{ runtime?.workspacePath ?? "应用数据目录" }}</dd></div>
+              <div><dt>工作区</dt><dd class="path-value">{{ runtime?.workspacePath ?? "应用数据目录" }}</dd></div>
             </dl>
           </section>
 
