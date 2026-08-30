@@ -1,4 +1,5 @@
 mod access_gate;
+mod app_updates;
 
 use hmac::{Hmac, Mac};
 use parking_lot::Mutex;
@@ -427,11 +428,29 @@ async fn stop_sidecar(state: State<'_, Mutex<SidecarManager>>) -> Result<(), Str
     Ok(())
 }
 
+#[tauri::command]
+async fn check_for_update(
+    app: AppHandle,
+    pending: State<'_, app_updates::PendingUpdate>,
+) -> Result<app_updates::UpdateStatus, String> {
+    let root = runtime_root(&app)?;
+    app_updates::check(app, &root, pending).await
+}
+
+#[tauri::command]
+async fn install_checked_update(
+    pending: State<'_, app_updates::PendingUpdate>,
+) -> Result<(), String> {
+    app_updates::install(pending).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let application = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Mutex::new(SidecarManager::default()))
+        .manage(app_updates::PendingUpdate::default())
         .invoke_handler(tauri::generate_handler![
             runtime_status,
             access_gate_status,
@@ -442,7 +461,9 @@ pub fn run() {
             license_activate,
             start_sidecar,
             sidecar_request,
-            stop_sidecar
+            stop_sidecar,
+            check_for_update,
+            install_checked_update
         ])
         .build(tauri::generate_context!())
         .expect("error while building the desktop application");

@@ -4,7 +4,11 @@ param(
     [string]$Bundle = 'all',
     [switch]$SkipSync,
     [switch]$SkipSidecar,
-    [switch]$SkipNodeInstall
+    [switch]$SkipNodeInstall,
+    [string]$CertificateThumbprint,
+    [string]$TimestampUrl = 'http://timestamp.digicert.com',
+    [string]$UpdaterPrivateKeyPath,
+    [string]$UpdaterPasswordCredentialPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,8 +43,52 @@ try {
     if ($Bundle -ne 'all') {
         $arguments += @('--bundles', $Bundle)
     }
-    & npx.cmd @arguments
-    if ($LASTEXITCODE -ne 0) { throw 'Tauri Windows 安装包构建失败。' }
+    $override = @{ bundle = @{ } }
+    if ($CertificateThumbprint) {
+        $certificate = Get-Item "Cert:\CurrentUser\My\$CertificateThumbprint" -ErrorAction Stop
+        if (-not $certificate.HasPrivateKey) {
+            throw '指定的 Authenticode 证书没有可用私钥。'
+        }
+        $override.bundle.windows = @{
+            certificateThumbprint = $certificate.Thumbprint
+            digestAlgorithm = 'sha256'
+            timestampUrl = $TimestampUrl
+        }
+    }
+
+    $oldPrivateKey = $env:TAURI_SIGNING_PRIVATE_KEY
+    $oldPrivateKeyPath = $env:TAURI_SIGNING_PRIVATE_KEY_PATH
+    $oldPrivateKeyPassword = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+    try {
+        if ($UpdaterPrivateKeyPath) {
+            if (-not (Test-Path -LiteralPath $UpdaterPrivateKeyPath -PathType Leaf)) {
+                throw "Tauri updater 私钥不存在: $UpdaterPrivateKeyPath"
+            }
+            $env:TAURI_SIGNING_PRIVATE_KEY = (Resolve-Path -LiteralPath $UpdaterPrivateKeyPath).Path
+            $env:TAURI_SIGNING_PRIVATE_KEY_PATH = $null
+            $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $null
+            if ($UpdaterPasswordCredentialPath) {
+                $credential = Import-Clixml -LiteralPath $UpdaterPasswordCredentialPath
+                if ($credential -isnot [System.Management.Automation.PSCredential]) {
+                    throw 'updater 密码凭据文件格式无效。'
+                }
+                $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $credential.GetNetworkCredential().Password
+            }
+            $override.bundle.createUpdaterArtifacts = $true
+        }
+        if ($override.bundle.Count -gt 0) {
+            # npx.cmd is a batch shim; unescaped JSON quotes are removed by cmd.exe.
+            $configurationJson = $override | ConvertTo-Json -Compress -Depth 5
+            $arguments += @('--config', ($configurationJson -replace '"', '\"'))
+        }
+        & npx.cmd @arguments
+        if ($LASTEXITCODE -ne 0) { throw 'Tauri Windows 安装包构建失败。' }
+    }
+    finally {
+        $env:TAURI_SIGNING_PRIVATE_KEY = $oldPrivateKey
+        $env:TAURI_SIGNING_PRIVATE_KEY_PATH = $oldPrivateKeyPath
+        $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $oldPrivateKeyPassword
+    }
 }
 finally { Pop-Location }
 

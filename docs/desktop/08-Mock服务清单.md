@@ -20,7 +20,7 @@
 | 许可证 | `services.license` | `mock` | 本地确定性 7 天授权、3 台设备上限测试适配器 | 许可证 schema、激活/续签接口、签名密钥和撤销测试完成 |
 | 支付 | `services.payment` | `mock` | 1 分测试产品、确定性成功状态，不产生真实资金交易 | Karios Pay 权威定价、鉴权、幂等、webhook 与预发布小额支付完成 |
 | SMTP | `services.smtp` | `mock` | 邮件写入 `.local/mock-mail`，不向公网发信 | 企业 SMTP、SPF/DKIM/DMARC 与退信流程完成 |
-| 自动更新 | `services.updates` | `mock` | 本地静态 manifest，默认无更新 | updater 公钥、测试发布通道与签名制品完成 |
+| 自动更新 | `services.updates` | `mock` | Rust 更新器返回确定性的“无更新”，禁止安装 mock 制品 | `updates.karios.tech` HTTPS manifest 与测试 rollout channel 上线 |
 
 本地 Supabase 仅承载身份验证和作为旧网页版数据的只读迁移源。迁入 SQLite 后，教务数据不再从 Supabase 读取，也不实现反向同步。
 
@@ -58,7 +58,8 @@
 ### 4.4 更新器
 
 - 默认报告无更新。
-- 后续可用本地静态 manifest 测试版本比较、签名失败和回滚，不访问公网更新域名。
+- 已内置 updater Ed25519 公钥；只有切换为 `real` 后才访问 HTTPS 更新域名。
+- mock 清单即使错误声明“有更新”，客户端也拒绝下载和安装未签名的模拟制品。
 
 ## 5. 切换记录模板
 
@@ -70,3 +71,4 @@
 | 2026-08-31 | license/payment/smtp/updates | 未配置 | mock | development | 配置加载与安全拒绝测试 | 待本模块提交 |
 | 2026-08-31 | identity | real | real | development | 桌面端经 Rust 可信层完成本机 Supabase 密码登录 | 切换 Sealos 时只更换 HTTPS endpoint 与 publishable key |
 | 2026-08-31 | license | mock | mock | development | 企业密钥、设备 Ed25519 签名、7 天凭证、Sidecar 门禁和退出清理已实测 | 真实激活/续签 Edge Function、服务端 JWS 与撤销接口完成后切换 |
+| 2026-08-31 | updates | mock | mock | development | Authenticode 内外层签名、DigiCert 时间戳、NSIS/MSI updater Ed25519 验签通过；远程 manifest 尚未上线 | `updates.karios.tech` 上线并完成测试通道演练后切换 real |

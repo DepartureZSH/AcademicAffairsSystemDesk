@@ -10,6 +10,7 @@ import TimetableView from "./components/TimetableView.vue";
 import BackupsView from "./components/BackupsView.vue";
 import ImportView from "./components/ImportView.vue";
 import { accessGate, type GateStatus } from "./lib/accessGate";
+import { updater, type UpdateStatus } from "./lib/updater";
 import {
   localApi,
   formatLocalError,
@@ -54,6 +55,8 @@ const projectName = ref("");
 const workspaceBusy = ref(false);
 const workspaceError = ref("");
 const workspaceNotice = ref("");
+const updateBusy = ref(false);
+const availableUpdate = ref<UpdateStatus | null>(null);
 
 const mockServices = computed(() => {
   const serviceModes = health.value?.serviceModes;
@@ -263,6 +266,36 @@ async function importProjectArchive() {
   }
 }
 
+async function checkForUpdate() {
+  updateBusy.value = true;
+  workspaceError.value = "";
+  try {
+    availableUpdate.value = await updater.check();
+    workspaceNotice.value = availableUpdate.value.message;
+  } catch (error) {
+    workspaceError.value = String(error);
+  } finally {
+    updateBusy.value = false;
+  }
+}
+
+async function installUpdate() {
+  if (!availableUpdate.value?.available) return;
+  const accepted = await confirm(
+    `已验证版本 ${availableUpdate.value.version} 的 Ed25519 更新签名。安装将关闭并重新启动应用，是否继续？`,
+    { title: "安装时奕教务排课更新", kind: "info" },
+  );
+  if (!accepted) return;
+  updateBusy.value = true;
+  workspaceError.value = "";
+  try {
+    await updater.install();
+  } catch (error) {
+    workspaceError.value = String(error);
+    updateBusy.value = false;
+  }
+}
+
 function applyRestoredProject(project: ProjectInfo, revision: number) {
   currentProject.value = project;
   projectRevision.value = revision;
@@ -313,6 +346,8 @@ onMounted(bootstrapGate);
           <span class="badge secure">教务数据仅在本机</span>
           <span v-if="mockServices.length" class="badge mock">模拟服务：{{ mockServices.join(" / ") }}</span>
           <span v-if="gate?.auth.user" class="badge account">{{ gate.auth.user.email }}</span>
+          <button v-if="gate?.canStartSidecar" class="text-button" :disabled="updateBusy" @click="checkForUpdate">{{ updateBusy ? "检查中…" : "检查更新" }}</button>
+          <button v-if="availableUpdate?.available" class="text-button" :disabled="updateBusy" @click="installUpdate">安装 {{ availableUpdate.version }}</button>
           <button v-if="gate?.auth.authenticated" class="text-button" :disabled="gateBusy" @click="signOut">退出</button>
         </div>
       </header>
