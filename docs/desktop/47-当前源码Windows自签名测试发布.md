@@ -41,6 +41,7 @@ GitHub prerelease：<https://github.com/DepartureZSH/AcademicAffairsSystemDesk/r
 
 - 冻结 sidecar 在 20 秒门槛内启动，返回独立 launcher/worker PID 和健康状态 `ok`。
 - 经带 Bearer 令牌和 Tauri Origin 的本地 API 请求关闭后，launcher 与 worker 均退出，无残留端口进程。
+- 同一冻结 Sidecar 后续通过项目创建、课程计划、预检、两轮 warm start 排课、五种导出、备份恢复和项目归档往返的制品级全流程验收，详见 `49-冻结Sidecar全流程验收.md`。
 - NSIS/MSI 外层安装包、内层 `karios-stt-desktop.exe` 和 `stt-sidecar.exe` 均匹配测试证书指纹并包含时间戳。
 - 当前开发机未信任自签名根，因此 Authenticode 状态为预期的 `UnknownError / 不受信任的根`；验证器已排除无签名、哈希不匹配、错误指纹和缺时间戳。
 - 两个 `.sig` 均由应用内置 updater 公钥完成真实 minisign/Ed25519 验证。
