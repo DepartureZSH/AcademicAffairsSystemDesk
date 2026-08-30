@@ -309,6 +309,7 @@ class ProjectRepository:
             raise ProjectError(f"{entity_type} 没有可保存字段")
 
         values = {key: payload[key] for key in payload if key in spec.fields}
+        values = self._normalize_entity_values(entity_type, values)
         now = utc_now()
         self._begin_write(expected_revision)
         try:
@@ -336,6 +337,95 @@ class ProjectRepository:
         if saved is None:
             raise ProjectError("保存后无法读取实体")
         return saved, revision
+
+    def save_teaching_task_bundle(
+        self,
+        payload: Mapping[str, Any],
+        expected_revision: int,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], int]:
+        """Save one teaching task and regenerate its weekly lessons atomically."""
+        spec = self._entity_spec("teaching_task")
+        unknown = sorted(set(payload) - spec.fields - {"id"})
+        if unknown:
+            raise ProjectError(f"teaching_task 包含未知字段: {', '.join(unknown)}")
+        task_id = str(payload.get("id") or uuid7())
+        existing = self.get_entity("teaching_task", task_id)
+        missing = sorted(
+            field for field in spec.required if field not in payload and existing is None
+        )
+        if missing:
+            raise ProjectError(f"teaching_task 缺少必要字段: {', '.join(missing)}")
+        values = {key: payload[key] for key in payload if key in spec.fields}
+        effective = {**(existing or {}), **values}
+        weekly_slots = int(effective.get("weekly_slots", 0))
+        duration_slots = int(effective.get("duration_slots", 1))
+        if weekly_slots < 0 or duration_slots <= 0:
+            raise ProjectError("教学任务课时必须为非负数，连续课时必须大于 0")
+        week_bits = str(effective.get("week_bits", "11111111111111111111"))
+        day_bits = str(effective.get("day_bits", "11111"))
+        now = utc_now()
+        self._begin_write(expected_revision)
+        try:
+            if existing:
+                if not values:
+                    raise ProjectError("teaching_task 没有可保存字段")
+                assignments = ", ".join(f"{key} = ?" for key in values)
+                self.connection.execute(
+                    f"UPDATE {spec.table} SET {assignments}, updated_at = ? WHERE id = ?",  # noqa: S608
+                    [*values.values(), now, task_id],
+                )
+            else:
+                columns = ["id", *values.keys(), "created_at", "updated_at"]
+                placeholders = ", ".join("?" for _ in columns)
+                self.connection.execute(
+                    f"INSERT INTO {spec.table} ({', '.join(columns)}) VALUES ({placeholders})",  # noqa: S608
+                    [task_id, *values.values(), now, now],
+                )
+            self.connection.execute(
+                "DELETE FROM task_lessons WHERE teaching_task_id = ?", (task_id,)
+            )
+            remaining = weekly_slots
+            lesson_index = 0
+            while remaining > 0:
+                lesson_duration = min(duration_slots, remaining)
+                self.connection.execute(
+                    """
+                    INSERT INTO task_lessons(
+                        id, teaching_task_id, lesson_index, duration_slots, source_id,
+                        week_bits, day_bits, label, enabled, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                    """,
+                    (
+                        uuid7(),
+                        task_id,
+                        lesson_index,
+                        lesson_duration,
+                        f"generated:{task_id}:{lesson_index}",
+                        week_bits,
+                        day_bits,
+                        f"第{lesson_index + 1}次课",
+                        now,
+                        now,
+                    ),
+                )
+                remaining -= lesson_duration
+                lesson_index += 1
+            revision = self._commit_write(now)
+        except Exception:
+            self.connection.execute("ROLLBACK")
+            raise
+        self._write_manifest_revision(revision, now)
+        task = self.get_entity("teaching_task", task_id)
+        if task is None:
+            raise ProjectError("保存后无法读取教学任务")
+        lessons = [
+            dict(row)
+            for row in self.connection.execute(
+                "SELECT * FROM task_lessons WHERE teaching_task_id = ? ORDER BY lesson_index",
+                (task_id,),
+            )
+        ]
+        return task, lessons, revision
 
     def bulk_insert_entities(
         self,
@@ -404,6 +494,28 @@ class ProjectRepository:
             return ENTITY_SPECS[entity_type]
         except KeyError as exc:
             raise ProjectError(f"不支持的实体类型: {entity_type}") from exc
+
+    def _normalize_entity_values(
+        self, entity_type: str, values: dict[str, Any]
+    ) -> dict[str, Any]:
+        json_fields: dict[str, tuple[str, ...]] = {
+            "bell_schedule": ("display_config",),
+            "time_slot": ("display_config",),
+            "constraint": ("parameters",),
+        }
+        normalized = dict(values)
+        for field in json_fields.get(entity_type, ()):
+            if field not in normalized:
+                continue
+            raw = normalized[field]
+            try:
+                parsed = json.loads(raw) if isinstance(raw, str) else raw
+            except json.JSONDecodeError as exc:
+                raise ProjectError(f"{entity_type}.{field} 必须是有效 JSON") from exc
+            if not isinstance(parsed, dict):
+                raise ProjectError(f"{entity_type}.{field} 必须是 JSON 对象")
+            normalized[field] = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
+        return normalized
 
     def _begin_write(self, expected_revision: int) -> None:
         self.connection.execute("BEGIN IMMEDIATE")

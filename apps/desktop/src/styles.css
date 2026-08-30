@@ -121,12 +121,15 @@ nav { display: grid; gap: 7px; }
 .data-tabs small { opacity: .7; margin-left: 4px; }
 .directory-layout { display: grid; grid-template-columns: minmax(300px,.7fr) minmax(420px,1.3fr); gap: 18px; align-items: start; }
 .records-panel { min-height: 420px; }
+.planning-layout { grid-template-columns: minmax(340px,.8fr) minmax(460px,1.2fr); }
 .check-label { display: flex; align-items: center; gap: 8px; }
 .check-label input { width: auto; margin: 0; }
+.invariant-banner { display: flex; gap: 14px; align-items: center; padding: 12px 15px; margin: -3px 0 16px; border: 1px solid #cfe0d8; border-radius: 11px; background: #e9f3ee; color: #456258; font-size: 12px; }
+.invariant-banner strong { color: #1d5c47; white-space: nowrap; }
 
 @media (max-width: 1120px) {
   .hero-card { grid-template-columns: 1fr; }
   .grid-layout { grid-template-columns: 1fr; }
   .auth-layout { grid-template-columns: 1fr; }
-  .directory-layout, .module-grid { grid-template-columns: 1fr; }
+  .directory-layout, .planning-layout, .module-grid { grid-template-columns: 1fr; }
 }

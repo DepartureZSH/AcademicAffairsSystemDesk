@@ -104,3 +104,41 @@ def test_errors_have_correlation_id_and_no_request_body_echo(tmp_path: Path) -> 
         assert response.status_code == 422
         assert body["error"]["correlationId"] == "test-correlation"
         assert "input" not in str(body)
+
+
+def test_planning_task_endpoint_generates_lessons_atomically(tmp_path: Path) -> None:
+    with client(tmp_path) as api:
+        api.post("/v1/projects", headers=headers(), json={"name": "任务 API"})
+        revision = 0
+        ids: dict[str, str] = {}
+        for entity_type, name in (
+            ("teacher", "教师"),
+            ("subject", "数学"),
+            ("homeroom", "一班"),
+        ):
+            saved = api.put(
+                f"/v1/data/{entity_type}",
+                headers=headers(),
+                json={"expected_revision": revision, "data": {"name": name}},
+            )
+            assert saved.status_code == 200
+            revision = saved.json()["revision"]
+            ids[entity_type] = saved.json()["item"]["id"]
+
+        response = api.put(
+            "/v1/planning/tasks",
+            headers=headers(),
+            json={
+                "expected_revision": revision,
+                "data": {
+                    "homeroom_id": ids["homeroom"],
+                    "subject_id": ids["subject"],
+                    "primary_teacher_id": ids["teacher"],
+                    "weekly_slots": 5,
+                    "duration_slots": 2,
+                },
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["revision"] == revision + 1
+        assert [item["duration_slots"] for item in response.json()["lessons"]] == [2, 2, 1]

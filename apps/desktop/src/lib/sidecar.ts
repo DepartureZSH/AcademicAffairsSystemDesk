@@ -103,4 +103,13 @@ export const localApi = {
       method: "DELETE",
       path: `/v1/data/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}?expected_revision=${expectedRevision}`,
     }),
+  saveTeachingTask: (
+    data: Record<string, unknown>,
+    expectedRevision: number,
+  ) =>
+    sidecarRequest<{ task: EntityRecord; lessons: EntityRecord[]; revision: number }>({
+      method: "PUT",
+      path: "/v1/planning/tasks",
+      body: { data, expected_revision: expectedRevision },
+    }),
 };

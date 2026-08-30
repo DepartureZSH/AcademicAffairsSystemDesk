@@ -277,6 +277,14 @@ def create_app(
         )
         return {"item": item, "revision": revision}
 
+    @app.put("/v1/planning/tasks")
+    async def save_teaching_task_bundle(request: EntityWriteRequest) -> dict[str, Any]:
+        project = state.require_project()
+        task, lessons, revision = project.save_teaching_task_bundle(
+            request.data, request.expected_revision
+        )
+        return {"task": task, "lessons": lessons, "revision": revision}
+
     @app.delete("/v1/data/{entity_type}/{entity_id}")
     async def delete_entity(
         entity_type: str,

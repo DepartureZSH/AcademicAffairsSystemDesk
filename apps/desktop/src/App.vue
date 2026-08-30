@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import CalendarView from "./components/CalendarView.vue";
+import ConstraintsView from "./components/ConstraintsView.vue";
+import PlanningView from "./components/PlanningView.vue";
 import SchoolDataView from "./components/SchoolDataView.vue";
 import { accessGate, type GateStatus } from "./lib/accessGate";
 import {
@@ -20,8 +22,8 @@ const navItems: NavItem[] = [
   { key: "workspace", label: "项目工作台", enabled: true },
   { key: "calendar", label: "学期与作息", enabled: true },
   { key: "school", label: "基础资料", enabled: true },
-  { key: "planning", label: "课程计划", enabled: false },
-  { key: "constraints", label: "约束配置", enabled: false },
+  { key: "planning", label: "课程计划", enabled: true },
+  { key: "constraints", label: "约束配置", enabled: true },
   { key: "scheduling", label: "排课运行", enabled: false },
   { key: "timetables", label: "课表与导出", enabled: false },
   { key: "backups", label: "备份恢复", enabled: false },
@@ -65,6 +67,8 @@ const pageTitle = computed(() => {
   if (!gate.value?.canStartSidecar) return "身份与设备授权";
   if (activeView.value === "calendar") return "学期与作息";
   if (activeView.value === "school") return "基础资料";
+  if (activeView.value === "planning") return "课程计划";
+  if (activeView.value === "constraints") return "约束配置";
   return currentProject.value?.name ?? "项目工作台";
 });
 
@@ -307,6 +311,8 @@ onMounted(bootstrapGate);
 
       <CalendarView v-else-if="activeView === 'calendar' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
       <SchoolDataView v-else-if="activeView === 'school' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
+      <PlanningView v-else-if="activeView === 'planning' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
+      <ConstraintsView v-else-if="activeView === 'constraints' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
       <template v-else>
         <div v-if="workspaceBusy && !runtime" class="state-panel">
           <div class="spinner"></div><h2>正在启动安全本地服务</h2><p>校验随机端口、一次性令牌和项目工作目录…</p>
