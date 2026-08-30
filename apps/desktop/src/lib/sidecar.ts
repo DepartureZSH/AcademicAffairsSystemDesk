@@ -82,6 +82,20 @@ export interface BackupRecord extends Record<string, unknown> {
   size_bytes: number | null;
 }
 
+export interface ImportPreview extends Record<string, unknown> {
+  id: string;
+  entityType: string;
+  headers: string[];
+  mapping: Record<string, string>;
+  sheetName: string | null;
+  availableSheets: string[];
+  rowCount: number;
+  previewRows: Array<Record<string, unknown>>;
+  errors: Array<{ row: number; messages: string[] }>;
+  warnings: Array<{ row: number; message: string }>;
+  canConfirm: boolean;
+}
+
 interface SidecarRequest {
   method: "GET" | "POST" | "PUT" | "DELETE";
   path: string;
@@ -258,6 +272,40 @@ export const localApi = {
     }>({
       method: "POST",
       path: "/v1/backups/restore",
+      body: data,
+    }),
+  previewImport: (data: Record<string, unknown>) =>
+    sidecarRequest<{ preview: ImportPreview; revision: number }>({
+      method: "POST",
+      path: "/v1/imports/preview",
+      body: data,
+    }),
+  remapImport: (jobId: string, data: Record<string, unknown>) =>
+    sidecarRequest<{ preview: ImportPreview; revision: number }>({
+      method: "POST",
+      path: `/v1/imports/${encodeURIComponent(jobId)}/remap`,
+      body: data,
+    }),
+  confirmImport: (jobId: string, expectedRevision: number) =>
+    sidecarRequest<{ import: Record<string, unknown>; revision: number }>({
+      method: "POST",
+      path: `/v1/imports/${encodeURIComponent(jobId)}/confirm`,
+      body: { expected_revision: expectedRevision },
+    }),
+  abandonImport: (jobId: string) =>
+    sidecarRequest<{ import: Record<string, unknown>; revision: number }>({
+      method: "POST",
+      path: `/v1/imports/${encodeURIComponent(jobId)}/abandon`,
+    }),
+  listImports: () =>
+    sidecarRequest<{ items: Array<Record<string, unknown>>; revision: number }>({
+      method: "GET",
+      path: "/v1/imports",
+    }),
+  createImportTemplate: (data: Record<string, unknown>) =>
+    sidecarRequest<{ template: Record<string, unknown>; revision: number }>({
+      method: "POST",
+      path: "/v1/imports/template",
       body: data,
     }),
 };

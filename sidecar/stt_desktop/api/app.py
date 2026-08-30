@@ -26,7 +26,7 @@ from stt_desktop.storage import (
     RevisionConflictError,
 )
 from stt_desktop.storage.schema import SCHEMA_VERSION
-from stt_desktop.transfers import ExportService
+from stt_desktop.transfers import ExportService, ImportService
 
 PROTOCOL_VERSION = "1"
 DEFAULT_ALLOWED_ORIGINS = frozenset(
@@ -90,6 +90,33 @@ class BackupRestoreRequest(BaseModel):
     backup_id: str | None = None
     restored_name: str | None = Field(default=None, max_length=200)
     confirmed: bool
+
+
+class ImportPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_path: str = Field(min_length=1, max_length=32_767)
+    entity_type: str
+    mapping: dict[str, str] | None = None
+    sheet_name: str | None = Field(default=None, max_length=255)
+
+
+class ImportRemapRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mapping: dict[str, str]
+    sheet_name: str | None = Field(default=None, max_length=255)
+
+
+class ImportConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=0)
+
+
+class ImportTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    entity_type: str
+    file_format: str
+    destination_path: str = Field(min_length=1, max_length=32_767)
+    overwrite: bool = False
 
 
 @dataclass
@@ -520,6 +547,62 @@ def create_app(
                 "project": state.current_project.project_info(),
                 "revision": state.current_project.revision,
             }
+
+    @app.post("/v1/imports/preview", status_code=201)
+    async def preview_import(request: ImportPreviewRequest) -> dict[str, Any]:
+        project = state.require_project()
+        preview = ImportService(project, workspace).preview_file(
+            source_path=request.source_path,
+            entity_type=request.entity_type,
+            mapping=request.mapping,
+            sheet_name=request.sheet_name,
+        )
+        return {"preview": preview, "revision": project.revision}
+
+    @app.post("/v1/imports/template", status_code=201)
+    async def create_import_template(request: ImportTemplateRequest) -> dict[str, Any]:
+        project = state.require_project()
+        result = ImportService(project, workspace).create_template(
+            entity_type=request.entity_type,
+            file_format=request.file_format,
+            destination_path=request.destination_path,
+            overwrite=request.overwrite,
+        )
+        return {"template": result, "revision": project.revision}
+
+    @app.post("/v1/imports/{job_id}/remap")
+    async def remap_import(job_id: str, request: ImportRemapRequest) -> dict[str, Any]:
+        project = state.require_project()
+        preview = ImportService(project, workspace).remap_preview(
+            job_id,
+            mapping=request.mapping,
+            sheet_name=request.sheet_name,
+        )
+        return {"preview": preview, "revision": project.revision}
+
+    @app.post("/v1/imports/{job_id}/confirm")
+    async def confirm_import(job_id: str, request: ImportConfirmRequest) -> dict[str, Any]:
+        project = state.require_project()
+        result = ImportService(project, workspace).confirm_import(
+            job_id, request.expected_revision
+        )
+        return {"import": result, "revision": result["revision"]}
+
+    @app.post("/v1/imports/{job_id}/abandon")
+    async def abandon_import(job_id: str) -> dict[str, Any]:
+        project = state.require_project()
+        return {
+            "import": ImportService(project, workspace).abandon(job_id),
+            "revision": project.revision,
+        }
+
+    @app.get("/v1/imports")
+    async def list_imports() -> dict[str, Any]:
+        project = state.require_project()
+        return {
+            "items": ImportService(project, workspace).list_imports(),
+            "revision": project.revision,
+        }
 
     return app
 

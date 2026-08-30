@@ -168,11 +168,18 @@ class ExportService:
             row["task_lesson_id"] or "",
         )
 
+    @classmethod
+    def _spreadsheet_values(cls, row: dict[str, Any]) -> tuple[Any, ...]:
+        return tuple(
+            f"'{value}" if isinstance(value, str) and value.startswith(("=", "+", "-", "@")) else value
+            for value in cls._row_values(row)
+        )
+
     def _write_csv(self, path: Path, _: dict, rows: list[dict]) -> None:
         with path.open("w", encoding="utf-8-sig", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow(HEADERS)
-            writer.writerows(self._row_values(row) for row in rows)
+            writer.writerows(self._spreadsheet_values(row) for row in rows)
 
     def _write_xlsx(self, path: Path, candidate: dict, rows: list[dict]) -> None:
         workbook = Workbook()
@@ -182,7 +189,7 @@ class ExportService:
         sheet.auto_filter.ref = f"A1:I{max(1, len(rows) + 1)}"
         sheet.append(HEADERS)
         for row in rows:
-            sheet.append(self._row_values(row))
+            sheet.append(self._spreadsheet_values(row))
         header_fill = PatternFill("solid", fgColor="1F604D")
         for cell in sheet[1]:
             cell.fill = header_fill

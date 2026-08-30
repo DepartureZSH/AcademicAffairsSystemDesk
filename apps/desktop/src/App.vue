@@ -7,6 +7,7 @@ import SchoolDataView from "./components/SchoolDataView.vue";
 import SchedulingView from "./components/SchedulingView.vue";
 import TimetableView from "./components/TimetableView.vue";
 import BackupsView from "./components/BackupsView.vue";
+import ImportView from "./components/ImportView.vue";
 import { accessGate, type GateStatus } from "./lib/accessGate";
 import {
   localApi,
@@ -25,6 +26,7 @@ const navItems: NavItem[] = [
   { key: "workspace", label: "项目工作台", enabled: true },
   { key: "calendar", label: "学期与作息", enabled: true },
   { key: "school", label: "基础资料", enabled: true },
+  { key: "imports", label: "批量导入", enabled: true },
   { key: "planning", label: "课程计划", enabled: true },
   { key: "constraints", label: "约束配置", enabled: true },
   { key: "scheduling", label: "排课运行", enabled: true },
@@ -70,6 +72,7 @@ const pageTitle = computed(() => {
   if (!gate.value?.canStartSidecar) return "身份与设备授权";
   if (activeView.value === "calendar") return "学期与作息";
   if (activeView.value === "school") return "基础资料";
+  if (activeView.value === "imports") return "CSV / Excel 批量导入";
   if (activeView.value === "planning") return "课程计划";
   if (activeView.value === "constraints") return "约束配置";
   if (activeView.value === "scheduling") return "排课运行与候选方案";
@@ -323,6 +326,7 @@ onMounted(bootstrapGate);
 
       <CalendarView v-else-if="activeView === 'calendar' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
       <SchoolDataView v-else-if="activeView === 'school' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
+      <ImportView v-else-if="activeView === 'imports' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
       <PlanningView v-else-if="activeView === 'planning' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
       <ConstraintsView v-else-if="activeView === 'constraints' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
       <SchedulingView v-else-if="activeView === 'scheduling' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
