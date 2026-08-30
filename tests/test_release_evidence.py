@@ -114,3 +114,16 @@ def test_bundled_font_matches_audited_asset_metadata() -> None:
             "sizeBytes": 17_773_132,
         }
     ]
+
+
+def test_windows_installers_block_downgrades_and_keep_stable_upgrade_identity() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads(
+        (root / "apps" / "desktop" / "src-tauri" / "tauri.conf.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    windows = config["bundle"]["windows"]
+
+    assert windows["allowDowngrades"] is False
+    assert windows["wix"]["upgradeCode"] == "450405c0-85b9-5bc5-a05c-de2bbb1e5805"
