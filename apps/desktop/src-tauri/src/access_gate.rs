@@ -16,7 +16,9 @@ const CREDENTIAL_SERVICE: &str = "tech.karios.stt.desktop";
 const SESSION_CREDENTIAL: &str = "supabase-session";
 const DEVICE_CREDENTIAL: &str = "device-ed25519";
 const ENTITLEMENT_CREDENTIAL: &str = "mock-entitlement";
+const CLOCK_CREDENTIAL: &str = "license-clock-checkpoint";
 const REFRESH_MARGIN_SECONDS: i64 = 60;
+const CLOCK_ROLLBACK_TOLERANCE_SECONDS: i64 = 300;
 
 #[derive(Clone, Debug, Deserialize)]
 struct RawConfig {
@@ -129,6 +131,32 @@ fn now_seconds() -> Result<i64, String> {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .map_err(|_| "系统时间早于 UNIX epoch，需要联网校验".into())
+}
+
+fn clock_is_acceptable(now: i64, last_seen: Option<i64>) -> bool {
+    last_seen
+        .is_none_or(|checkpoint| now.saturating_add(CLOCK_ROLLBACK_TOLERANCE_SECONDS) >= checkpoint)
+}
+
+fn check_and_advance_clock(now: i64) -> Result<bool, String> {
+    let checkpoint = read_credential(CLOCK_CREDENTIAL)?
+        .map(|value| {
+            value
+                .parse::<i64>()
+                .map_err(|_| "本地授权时钟检查点已损坏".to_string())
+        })
+        .transpose()?;
+    if !clock_is_acceptable(now, checkpoint) {
+        return Ok(false);
+    }
+    if checkpoint.is_none_or(|value| now > value) {
+        write_credential(CLOCK_CREDENTIAL, &now.to_string())?;
+    }
+    Ok(true)
+}
+
+fn reset_clock_checkpoint(now: i64) -> Result<(), String> {
+    write_credential(CLOCK_CREDENTIAL, &now.to_string())
 }
 
 fn load_config(root: &Path) -> Result<RawConfig, String> {
@@ -454,6 +482,8 @@ fn current_license_status(root: &Path, auth: &AuthStatus) -> Result<LicenseStatu
         });
     };
     verify_envelope(&key, &envelope)?;
+    let now = now_seconds()?;
+    let clock_acceptable = check_and_advance_clock(now)?;
     let account_matches = auth
         .user
         .as_ref()
@@ -462,7 +492,8 @@ fn current_license_status(root: &Path, auth: &AuthStatus) -> Result<LicenseStatu
     let active = account_matches
         && device_matches
         && envelope.claims.mode == "mock"
-        && envelope.claims.expires_at > now_seconds()?;
+        && envelope.claims.expires_at > now
+        && clock_acceptable;
     Ok(LicenseStatus {
         mode: config.mode,
         active,
@@ -470,7 +501,11 @@ fn current_license_status(root: &Path, auth: &AuthStatus) -> Result<LicenseStatu
         expires_at: Some(envelope.claims.expires_at),
         device_id: Some(local_device_id),
         device_limit: config.device_limit,
-        message: (!active).then_some("授权已过期或与当前账号/设备不匹配".into()),
+        message: (!active).then_some(if !clock_acceptable {
+            "检测到系统时钟明显回拨，请联网校验；Mock 环境可重新输入测试企业密钥".into()
+        } else {
+            "授权已过期或与当前账号/设备不匹配".into()
+        }),
     })
 }
 
@@ -602,6 +637,7 @@ pub async fn activate(root: &Path, enterprise_key: String) -> Result<GateStatus,
         },
     )?;
     let serialized = serde_json::to_string(&envelope).map_err(|_| "无法保存本地授权")?;
+    reset_clock_checkpoint(issued_at)?;
     write_credential(ENTITLEMENT_CREDENTIAL, &serialized)?;
     status(root).await
 }
@@ -657,5 +693,13 @@ mod tests {
     fn mock_activation_code_requires_exact_match() {
         assert!(activation_code_matches("KARIOS-MOCK", " KARIOS-MOCK "));
         assert!(!activation_code_matches("KARIOS-MOCK", "KARIOS-MOCK-OTHER"));
+    }
+
+    #[test]
+    fn clock_rollback_beyond_tolerance_requires_validation() {
+        assert!(clock_is_acceptable(1_000, None));
+        assert!(clock_is_acceptable(1_000, Some(1_300)));
+        assert!(!clock_is_acceptable(1_000, Some(1_301)));
+        assert!(clock_is_acceptable(2_000, Some(1_000)));
     }
 }
