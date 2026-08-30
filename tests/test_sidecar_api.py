@@ -205,3 +205,35 @@ def test_project_archive_api_exports_and_imports_without_overwriting(tmp_path: P
             "name"
         ] == "陈老师"
         assert len(api.get("/v1/projects", headers=headers()).json()["projects"]) == 2
+
+
+def test_save_as_api_opens_independent_copy(tmp_path: Path) -> None:
+    with client(tmp_path) as api:
+        created = api.post("/v1/projects", headers=headers(), json={"name": "原项目"})
+        source_id = created.json()["project"]["id"]
+        api.put(
+            "/v1/data/teacher",
+            headers=headers(),
+            json={"expected_revision": 0, "data": {"name": "周老师"}},
+        )
+
+        cloned = api.post(
+            "/v1/projects/current/clone",
+            headers=headers(),
+            json={"name": "原项目 - 独立副本"},
+        )
+
+        assert cloned.status_code == 201
+        payload = cloned.json()
+        assert payload["project"]["id"] != source_id
+        assert payload["project"]["name"] == "原项目 - 独立副本"
+        assert payload["revision"] == 1
+        assert payload["cloned"]["sourceProjectId"] == source_id
+        assert api.get("/v1/projects/current", headers=headers()).json()["project"][
+            "id"
+        ] == payload["project"]["id"]
+        projects = api.get("/v1/projects", headers=headers()).json()["projects"]
+        assert {item["project_id"] for item in projects} == {
+            source_id,
+            payload["project"]["id"],
+        }

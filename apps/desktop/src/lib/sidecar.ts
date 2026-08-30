@@ -291,6 +291,16 @@ export const localApi = {
       path: "/v1/project-archives/export",
       body: { destination_path: destinationPath, overwrite },
     }),
+  cloneCurrentProject: (name: string) =>
+    sidecarRequest<{
+      cloned: Record<string, unknown>;
+      project: ProjectInfo;
+      revision: number;
+    }>({
+      method: "POST",
+      path: "/v1/projects/current/clone",
+      body: { name },
+    }),
   importProjectArchive: (data: Record<string, unknown>) =>
     sidecarRequest<{
       imported: Record<string, unknown>;

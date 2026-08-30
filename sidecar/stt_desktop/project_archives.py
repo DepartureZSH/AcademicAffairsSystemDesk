@@ -101,6 +101,33 @@ class ProjectArchiveService:
                 staging, self.workspace.temp_directory, "project-export-"
             )
 
+    def clone_project(self, new_name: str) -> dict[str, Any]:
+        """Create a verified editable copy inside the same workspace."""
+        name = new_name.strip()
+        if not name or len(name) > 200:
+            raise ProjectError("另存后的项目名称必须为 1 到 200 个字符")
+        operation_id = uuid7()
+        archive = (
+            self.workspace.temp_directory / f"project-save-as-{operation_id}.sttproj"
+        ).resolve()
+        if archive.parent != self.workspace.temp_directory:
+            raise ProjectError("项目另存临时路径越界")
+        try:
+            package = self.export_project(str(archive))
+            imported = self.import_project(
+                self.workspace,
+                archive,
+                imported_name=name,
+            )
+            return {
+                **imported,
+                "verifiedPackageId": package["packageId"],
+                "sourceRevision": package["sourceRevision"],
+            }
+        finally:
+            if archive.parent == self.workspace.temp_directory:
+                archive.unlink(missing_ok=True)
+
     @classmethod
     def import_project(
         cls,

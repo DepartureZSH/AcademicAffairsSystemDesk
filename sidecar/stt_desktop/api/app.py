@@ -116,6 +116,11 @@ class ProjectArchiveImportRequest(BaseModel):
     confirmed: bool
 
 
+class ProjectCloneRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=200)
+
+
 class ImportPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source_path: str = Field(min_length=1, max_length=32_767)
@@ -606,6 +611,22 @@ def create_app(
             request.destination_path, overwrite=request.overwrite
         )
         return {"package": package, "revision": project.revision}
+
+    @app.post("/v1/projects/current/clone", status_code=201)
+    async def clone_current_project(request: ProjectCloneRequest) -> dict[str, Any]:
+        if scheduling_jobs.has_active_job():
+            raise ProjectError("排课轮次运行期间不能另存项目，请先取消或等待完成")
+        project = state.require_project()
+        cloned = ProjectArchiveService(project, workspace).clone_project(request.name)
+        with state.lock:
+            state.close_current()
+            state.current_project = workspace.open_project(cloned["projectId"])
+            SchedulingService(state.current_project).recover_interrupted_rounds()
+            return {
+                "cloned": cloned,
+                "project": state.current_project.project_info(),
+                "revision": state.current_project.revision,
+            }
 
     @app.post("/v1/project-archives/import", status_code=201)
     async def import_project_archive(

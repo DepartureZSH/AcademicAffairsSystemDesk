@@ -55,6 +55,7 @@ const currentProject = ref<ProjectInfo | null>(null);
 const projectRevision = ref(0);
 const activeView = ref("workspace");
 const projectName = ref("");
+const saveAsName = ref("");
 const workspaceBusy = ref(false);
 const workspaceError = ref("");
 const workspaceNotice = ref("");
@@ -327,6 +328,28 @@ async function exportProjectArchive() {
   }
 }
 
+async function saveProjectAs() {
+  const name = saveAsName.value.trim();
+  if (!currentProject.value || !name) return;
+  workspaceBusy.value = true;
+  workspaceError.value = "";
+  workspaceNotice.value = "";
+  try {
+    const sourceName = currentProject.value.name;
+    const result = await localApi.cloneCurrentProject(name);
+    currentProject.value = result.project;
+    projectRevision.value = result.revision;
+    saveAsName.value = "";
+    await refreshProjects();
+    health.value = await localApi.health();
+    workspaceNotice.value = `已将“${sourceName}”另存为独立项目“${result.project.name}”，原项目保持不变`;
+  } catch (error) {
+    workspaceError.value = formatLocalError(error);
+  } finally {
+    workspaceBusy.value = false;
+  }
+}
+
 async function importProjectArchive() {
   const path = await open({
     multiple: false,
@@ -559,6 +582,13 @@ onMounted(bootstrapGate);
               <p class="eyebrow">可移植项目包</p>
               <button class="secondary-button" :disabled="workspaceBusy" @click="importProjectArchive">导入 .sttproj</button>
               <button class="secondary-button" :disabled="workspaceBusy || !currentProject" @click="exportProjectArchive">导出当前项目</button>
+              <template v-if="currentProject">
+                <hr class="soft-divider" />
+                <p class="eyebrow">另存为本地项目</p>
+                <label for="save-as-name">副本名称</label>
+                <input id="save-as-name" v-model="saveAsName" maxlength="200" :placeholder="`${currentProject.name} - 副本`" @keyup.enter="saveProjectAs" />
+                <button class="secondary-button" :disabled="workspaceBusy || !saveAsName.trim()" @click="saveProjectAs">校验并另存副本</button>
+              </template>
             </article>
             <article class="panel projects-panel">
               <div class="panel-heading"><div><p class="eyebrow">最近项目</p><h2>本机项目</h2></div><span>{{ projects.length }} 个</span></div>

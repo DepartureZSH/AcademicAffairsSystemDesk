@@ -62,6 +62,34 @@ def test_project_archive_round_trip_creates_a_new_verified_project(tmp_path: Pat
         project.close()
 
 
+def test_save_as_creates_verified_editable_copy_and_removes_temporary_package(
+    tmp_path: Path,
+) -> None:
+    workspace, project = project_fixture(tmp_path)
+    source_id = project.project_info()["id"]
+    try:
+        cloned = ProjectArchiveService(project, workspace).clone_project("2026 秋季排课副本")
+        assert cloned["projectId"] != source_id
+        assert cloned["sourceProjectId"] == source_id
+        assert cloned["verifiedPackageId"] == cloned["sourcePackageId"]
+        assert not list(workspace.temp_directory.glob("project-save-as-*.sttproj"))
+        copy = workspace.open_project(cloned["projectId"])
+        try:
+            assert copy.project_info()["name"] == "2026 秋季排课副本"
+            assert copy.list_entities("teacher")[0]["name"] == "张老师"
+            copy.save_entity(
+                "teacher",
+                {"employee_no": "T002", "name": "李老师"},
+                copy.revision,
+            )
+            assert len(copy.list_entities("teacher")) == 2
+            assert len(project.list_entities("teacher")) == 1
+        finally:
+            copy.close()
+    finally:
+        project.close()
+
+
 def test_project_archive_refuses_overwrite_and_invalid_extension(tmp_path: Path) -> None:
     workspace, project = project_fixture(tmp_path)
     destination = tmp_path / "已有项目.sttproj"
