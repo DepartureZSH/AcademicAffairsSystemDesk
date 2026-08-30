@@ -51,6 +51,7 @@ watch(compareCandidateId, () => { void loadComparison(); });
 watch(candidateId, () => { if (compareCandidateId.value) void loadComparison(); });
 
 const selectedCandidate = computed(() => candidates.value.find((item) => item.id === candidateId.value) ?? null);
+const selectedCandidateIsValid = computed(() => selectedCandidate.value?.status === "valid");
 const filterOptions = computed(() => filterType.value === "teacher" ? teachers.value : filterType.value === "homeroom" ? homerooms.value : filterType.value === "room" ? rooms.value : filterType.value === "grade" ? grades.value : []);
 const compareCandidate = computed(() => candidates.value.find((item) => item.id === compareCandidateId.value) ?? null);
 const comparison = computed(() => {
@@ -162,6 +163,7 @@ async function loadTimetable() {
 }
 
 function selectEntry(item: TimetableEntry) {
+  if (!selectedCandidateIsValid.value) return;
   selectedEntry.value = item;
   targetWeekday.value = item.weekday;
   targetStartSlot.value = item.start_slot;
@@ -223,7 +225,7 @@ const exportOptions: Record<string, { label: string; extension: string }> = {
 };
 
 async function exportCandidate() {
-  if (!candidateId.value) return;
+  if (!candidateId.value || !selectedCandidateIsValid.value) return;
   const option = exportOptions[exportType.value];
   const destination = await save({
     defaultPath: `时奕课表-${candidateId.value.slice(0, 8)}.${option.extension}`,
@@ -269,10 +271,11 @@ onMounted(loadBase);
   <section class="module-view timetable-view">
     <div class="module-heading"><div><p class="eyebrow">TIMETABLE</p><h2>课表查看与手工调整</h2><p>按班级、教师或教室查看候选；手工移动会先预检，再生成不可变子候选。</p></div><span>Revision {{ revision }}</span></div>
     <div v-if="basedOnOldData" class="invariant-banner stale-banner"><strong>旧数据候选</strong><span>该候选基于较早的项目 Revision，仍可查看；建议在最新数据上重新运行自动排课。</span></div>
+    <div v-if="selectedCandidate && !selectedCandidateIsValid" class="invariant-banner stale-banner"><strong>只读历史候选</strong><span>该候选含 {{ selectedCandidate.hard_violations }} 个硬约束违例或已被替代，仅用于查看和比较，不能手工调整、导出或继续优化。</span></div>
     <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>
 
     <article class="panel timetable-toolbar">
-      <label>候选方案<select v-model="candidateId" @change="loadTimetable"><option v-for="item in candidates" :key="item.id" :value="item.id">得分 {{ item.total_score }} · {{ item.entry_count }} 课次 · {{ item.name }}</option></select></label>
+      <label>候选方案<select v-model="candidateId" @change="loadTimetable"><option v-for="item in candidates" :key="item.id" :value="item.id">{{ item.status === 'valid' ? '可用' : '只读' }} · 得分 {{ item.total_score }} · {{ item.entry_count }} 课次 · {{ item.name }}</option></select></label>
       <label>查看维度<select v-model="filterType" @change="filterId = ''"><option value="">全部课表</option><option value="grade">年级课表</option><option value="homeroom">班级课表</option><option value="teacher">教师课表</option><option value="room">教室课表</option></select></label>
       <label v-if="filterType">对象<select v-model="filterId"><option value="">全部</option><option v-for="item in filterOptions" :key="item.id" :value="item.id">{{ filterLabel(item) }}</option></select></label>
       <button v-if="selectedCandidate?.parent_candidate_id" class="secondary-button" @click="undoToParent">回到父候选（撤销）</button>
@@ -290,7 +293,7 @@ onMounted(loadBase);
       <select v-model="weekMode" :disabled="isRawXmlExport"><option value="all">全部周次</option><option value="odd">仅单周</option><option value="even">仅双周</option></select>
       <select v-model="exportLayout" :disabled="isRawXmlExport"><option value="landscape">横向</option><option value="portrait">纵向</option></select>
       <select v-model="colorMode" :disabled="isRawXmlExport"><option value="color">彩色</option><option value="grayscale">黑白</option></select>
-      <button class="primary-button" :disabled="busy" @click="exportCandidate">{{ busy ? "处理中…" : "选择位置并导出" }}</button>
+      <button class="primary-button" :disabled="busy || !selectedCandidateIsValid" @click="exportCandidate">{{ busy ? "处理中…" : "选择位置并导出" }}</button>
       <span v-if="exportNotice" class="export-notice">{{ exportNotice }}</span>
       <small v-else-if="isRawXmlExport">XML 始终导出候选绑定的原始算法制品，不应用展示筛选。</small>
       <small v-else>预览：{{ exportPreviewCount }} 条 · {{ filterId ? '当前筛选范围' : '全部范围' }} · {{ weekMode === 'odd' ? '单周' : weekMode === 'even' ? '双周' : '全部周次' }} · {{ exportLayout === 'landscape' ? '横向' : '纵向' }} · {{ colorMode === 'color' ? '彩色' : '黑白' }}</small>
@@ -304,7 +307,7 @@ onMounted(loadBase);
           <template v-for="[startSlot, label] in gridRows" :key="startSlot">
             <div class="grid-time"><strong>{{ label }}</strong><small>Slot {{ startSlot }}</small></div>
             <div v-for="day in weekdays" :key="`${day}-${startSlot}`" class="grid-cell">
-              <button v-for="item in cellEntries(day, startSlot)" :key="item.id" class="lesson-chip" :class="{ selected: selectedEntry?.id === item.id }" @click="selectEntry(item)">
+              <button v-for="item in cellEntries(day, startSlot)" :key="item.id" class="lesson-chip" :disabled="!selectedCandidateIsValid" :class="{ selected: selectedEntry?.id === item.id }" @click="selectEntry(item)">
                 <strong>{{ item.subject_name || "未命名课程" }}</strong><span>{{ item.homeroom_name }} · {{ item.teacher_name }}</span><small>{{ item.room_name || "无指定教室" }} · {{ item.duration_slots }} 课时</small>
               </button>
             </div>
@@ -314,7 +317,8 @@ onMounted(loadBase);
 
       <aside class="panel manual-panel">
         <p class="eyebrow">MANUAL MOVE</p><h3>手工移动课次</h3>
-        <p v-if="!selectedEntry" class="empty-copy">在课表中选择一个课次开始调整。</p>
+        <p v-if="!selectedCandidateIsValid" class="empty-copy">当前候选为只读历史记录，不能用于手工调整。</p>
+        <p v-else-if="!selectedEntry" class="empty-copy">在课表中选择一个课次开始调整。</p>
         <form v-else class="compact-form" @submit.prevent="validateMove">
           <div class="selected-lesson"><strong>{{ selectedEntry.subject_name }}</strong><span>{{ selectedEntry.homeroom_name }} · {{ selectedEntry.teacher_name }}</span></div>
           <label>目标星期<select v-model.number="targetWeekday" @change="targetStartSlot = Number(visibleStartSlots[0]?.start_slot ?? 0); preview = null"><option v-for="day in weekdays" :key="day" :value="day">星期 {{ day }}</option></select></label>

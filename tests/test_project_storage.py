@@ -179,6 +179,29 @@ def test_bulk_import_is_one_revision_and_rolls_back_as_a_unit(tmp_path: Path) ->
         assert project.revision == 1
 
 
+def test_bulk_import_finalize_hook_is_in_same_transaction(tmp_path: Path) -> None:
+    workspace = ProjectWorkspace(tmp_path / "workspace")
+    with workspace.create_project("事务内收尾") as project:
+        def fail_after_insert(connection: sqlite3.Connection, _: str, revision: int):
+            assert revision == 1
+            connection.execute(
+                "INSERT INTO validation_issues(id, scope_type, severity, code, message, created_at) VALUES ('issue-1', 'import', 'warning', 'TEST', 'test', 'now')"
+            )
+            raise RuntimeError("finalize failed")
+
+        with pytest.raises(RuntimeError, match="finalize failed"):
+            project.bulk_insert_entities(
+                {"teacher": [{"id": "teacher-hook", "name": "事务教师"}]},
+                expected_revision=0,
+                after_insert=fail_after_insert,
+            )
+        assert project.get_entity("teacher", "teacher-hook") is None
+        assert project.connection.execute(
+            "SELECT COUNT(*) FROM validation_issues"
+        ).fetchone()[0] == 0
+        assert project.revision == 0
+
+
 def test_teaching_task_and_lessons_are_saved_as_one_revision(tmp_path: Path) -> None:
     workspace = ProjectWorkspace(tmp_path / "workspace")
     with workspace.create_project("教学任务") as project:

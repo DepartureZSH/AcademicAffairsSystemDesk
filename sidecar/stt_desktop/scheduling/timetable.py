@@ -21,7 +21,7 @@ class TimetableService:
         entity_type: str | None = None,
         entity_id: str | None = None,
     ) -> dict[str, Any]:
-        candidate = self._candidate(candidate_id)
+        candidate = self._candidate(candidate_id, require_valid=False)
         filters = {
             "teacher": "e.teacher_id",
             "homeroom": "e.homeroom_id",
@@ -244,12 +244,18 @@ class TimetableService:
             raise
         return SchedulingService(self.project).get_round(round_id)
 
-    def _candidate(self, candidate_id: str) -> dict[str, Any]:
+    def _candidate(
+        self, candidate_id: str, *, require_valid: bool = True
+    ) -> dict[str, Any]:
+        status_filter = "AND status = 'valid'" if require_valid else ""
         row = self.project.connection.execute(
-            "SELECT * FROM candidates WHERE id = ? AND status = 'valid'", (candidate_id,)
+            f"SELECT * FROM candidates WHERE id = ? {status_filter}",  # noqa: S608 - fixed predicate
+            (candidate_id,),
         ).fetchone()
         if not row:
-            raise ProjectError("候选不存在或不可用于课表操作")
+            if require_valid:
+                raise ProjectError("候选不存在、含硬约束违例或不可用于课表操作")
+            raise ProjectError("候选不存在")
         return dict(row)
 
     def _snapshot(self, snapshot_id: str) -> dict[str, Any]:

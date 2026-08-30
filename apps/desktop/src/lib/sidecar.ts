@@ -46,6 +46,8 @@ export interface SchedulingCandidate extends Record<string, unknown> {
   id: string;
   round_id: string;
   session_id: string;
+  status: "valid" | "invalid" | "superseded";
+  hard_violations: number;
   parent_candidate_id: string | null;
   total_score: number;
   entry_count: number;

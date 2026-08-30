@@ -11,6 +11,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$sttPreviousDatabaseUrl = $env:STT_LEGACY_DATABASE_URL
+$sttPreviousPythonUtf8 = $env:PYTHONUTF8
 $sttLegacyRoot = (Resolve-Path -LiteralPath $LegacyRepository).Path
 $sttStatus = supabase --workdir $sttLegacyRoot status -o env
 if ($LASTEXITCODE -ne 0) {
@@ -23,6 +25,7 @@ if (-not $sttDbLine) {
 
 try {
     $env:STT_LEGACY_DATABASE_URL = ($sttDbLine -replace '^DB_URL=', '').Trim('"')
+    $env:PYTHONUTF8 = '1'
     if ($ProjectId) {
         uv run stt-desktop legacy import --project-id $ProjectId --workspace $Workspace
     }
@@ -34,5 +37,6 @@ try {
     }
 }
 finally {
-    $env:STT_LEGACY_DATABASE_URL = $null
+    $env:STT_LEGACY_DATABASE_URL = $sttPreviousDatabaseUrl
+    $env:PYTHONUTF8 = $sttPreviousPythonUtf8
 }

@@ -68,6 +68,7 @@ def main() -> int:
                 "project_id": result.project_id,
                 "revision": result.revision,
                 "counts": result.counts,
+                "warnings": result.warnings,
                 "integrity": repository.integrity_check(),
             }
             print(json.dumps(payload, ensure_ascii=False, indent=2))

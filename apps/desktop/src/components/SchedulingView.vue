@@ -27,6 +27,7 @@ watch(() => props.revision, (value) => { revision.value = value; });
 const selectedCandidate = computed(() =>
   candidates.value.find((item) => item.id === selectedCandidateId.value) ?? null,
 );
+const selectedCandidateIsValid = computed(() => selectedCandidate.value?.status === "valid");
 const selectedMetrics = computed(() => selectedCandidate.value?.metrics ?? {});
 const scoreComponents = computed(() => [
   { key: "time_penalty", label: "时间偏好", value: selectedMetrics.value.time_penalty ?? 0 },
@@ -105,7 +106,7 @@ async function runRound() {
   errorMessage.value = "";
   latestRound.value = null;
   try {
-    const parent = selectedCandidate.value;
+    const parent = selectedCandidateIsValid.value ? selectedCandidate.value : null;
     const result = await localApi.runSchedulingRound({
       timeBudgetSeconds: timeBudgetSeconds.value,
       randomSeed: randomSeed.value,
@@ -163,19 +164,20 @@ onBeforeUnmount(() => {
 
     <div class="directory-layout planning-layout">
       <article class="panel data-panel">
-        <p class="eyebrow">OPTIMIZATION ROUND</p><h3>{{ selectedCandidate ? "基于候选继续优化" : "开始新的优化会话" }}</h3>
+        <p class="eyebrow">OPTIMIZATION ROUND</p><h3>{{ selectedCandidateIsValid ? "基于候选继续优化" : "开始新的优化会话" }}</h3>
         <form class="compact-form" @submit.prevent="runRound">
-          <label v-if="!selectedCandidate">会话名称<input v-model="sessionName" maxlength="200" required /></label>
-          <label v-else>Warm start 候选<input :value="`${selectedCandidate.id.slice(0, 8)} · 得分 ${selectedCandidate.total_score}`" disabled /></label>
+          <label v-if="!selectedCandidateIsValid">会话名称<input v-model="sessionName" maxlength="200" required /></label>
+          <label v-else>Warm start 候选<input :value="`${selectedCandidate?.id.slice(0, 8)} · 得分 ${selectedCandidate?.total_score}`" disabled /></label>
+          <p v-if="selectedCandidate && !selectedCandidateIsValid" class="form-copy">所选历史候选含硬约束违例或已被替代，不能作为 Warm start；本轮将创建新会话。</p>
           <div class="inline-fields">
             <label>本轮时长（秒）<input v-model.number="timeBudgetSeconds" type="number" min="10" max="1800" /></label>
             <label>随机种子<input v-model.number="randomSeed" type="number" min="0" max="2147483647" /></label>
           </div>
           <button class="primary-button" :disabled="busy || Boolean(activeRound)">
-            {{ busy ? "正在启动…" : activeRound ? "本机算法进程运行中" : selectedCandidate ? "以上一候选继续优化" : "生成第一轮候选" }}
+            {{ busy ? "正在启动…" : activeRound ? "本机算法进程运行中" : selectedCandidateIsValid ? "以上一候选继续优化" : "生成第一轮候选" }}
           </button>
           <button v-if="activeRound" type="button" class="secondary-button" :disabled="busy" @click="cancelRound">取消当前轮次</button>
-          <button v-else-if="selectedCandidate" type="button" class="text-button" :disabled="busy" @click="selectedCandidateId = ''">改为新建会话</button>
+          <button v-else-if="selectedCandidateIsValid" type="button" class="text-button" :disabled="busy" @click="selectedCandidateId = ''">改为新建会话</button>
         </form>
         <div v-if="activeRound" class="solver-progress" role="progressbar" :aria-valuenow="progressPercent" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${progressPercent}%` }"></span></div>
         <p class="form-copy">默认 60 秒。算法在独立本机进程运行；界面保持可用，取消不会保存半成品候选。</p>
@@ -192,7 +194,7 @@ onBeforeUnmount(() => {
             :class="{ selected: selectedCandidateId === item.id }"
             @click="selectedCandidateId = item.id"
           >
-            <span><strong>得分 {{ item.total_score }} · {{ item.entry_count }} 课次</strong><small>{{ new Date(item.created_at).toLocaleString('zh-CN') }} · {{ item.parent_candidate_id ? '续轮优化' : '首轮' }}</small></span>
+            <span><strong>{{ item.status === 'valid' ? '可用' : '只读' }} · 得分 {{ item.total_score }} · {{ item.entry_count }} 课次</strong><small>{{ new Date(item.created_at).toLocaleString('zh-CN') }} · {{ item.parent_candidate_id ? '续轮优化' : '首轮' }}</small></span>
             <b>{{ selectedCandidateId === item.id ? "已选" : "选择" }}</b>
           </button>
         </div>

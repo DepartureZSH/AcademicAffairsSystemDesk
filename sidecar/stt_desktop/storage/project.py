@@ -10,7 +10,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, Mapping
 
 from .schema import MIGRATIONS, SCHEMA_V1, SCHEMA_VERSION
@@ -530,6 +530,9 @@ class ProjectRepository:
         self,
         batches: Mapping[str, Sequence[Mapping[str, Any]]],
         expected_revision: int,
+        *,
+        after_insert: Callable[[sqlite3.Connection, str, int], Mapping[str, int] | None]
+        | None = None,
     ) -> tuple[dict[str, int], int]:
         """Insert a dependency-ordered import as one revision and one transaction."""
         prepared: list[tuple[EntitySpec, str, dict[str, Any]]] = []
@@ -550,6 +553,7 @@ class ProjectRepository:
                     raise ProjectError(f"批量导入包含重复 ID: {entity_id}")
                 seen_ids.add(entity_id)
                 values = {key: payload[key] for key in payload if key in spec.fields}
+                values = self._normalize_entity_values(entity_type, values)
                 prepared.append((spec, entity_id, values))
 
         now = utc_now()
@@ -563,6 +567,12 @@ class ProjectRepository:
                     f"INSERT INTO {spec.table} ({', '.join(columns)}) VALUES ({placeholders})",  # noqa: S608
                     parameters,
                 )
+            if after_insert:
+                extra_counts = after_insert(self.connection, now, expected_revision + 1)
+                for key, value in (extra_counts or {}).items():
+                    if key in counts:
+                        raise ProjectError(f"批量导入统计键重复: {key}")
+                    counts[key] = int(value)
             revision = self._commit_write(now)
         except Exception:
             self.connection.execute("ROLLBACK")
