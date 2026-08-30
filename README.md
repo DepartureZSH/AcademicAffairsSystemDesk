@@ -37,6 +37,18 @@ npm ci
 npm run tauri:dev
 ```
 
+如果本机网页版仓库的 `.env` 已配置 `SUPABASE_PUBLISHABLE_KEY`，可从桌面仓库根目录使用安全启动脚本；脚本只把 publishable key 注入当前子进程，不打印或复制到仓库：
+
+```powershell
+.\scripts\start-desktop-dev.ps1
+```
+
+也可以显式传入环境文件路径：
+
+```powershell
+.\scripts\start-desktop-dev.ps1 -SupabaseEnvFile 'D:\path\to\supabase.env'
+```
+
 前端静态检查和 Rust 桌面层检查：
 
 ```powershell
@@ -49,6 +61,8 @@ cargo test --locked
 ```
 
 桌面壳当前实现范围、进程身份校验和端到端验证记录见 [`docs/desktop/11-Tauri桌面壳实现.md`](./docs/desktop/11-Tauri桌面壳实现.md)。
+
+Supabase 登录、Windows Credential Manager、设备 Ed25519 密钥和 YAML Mock 许可证门禁见 [`docs/desktop/12-身份与许可证门禁实现.md`](./docs/desktop/12-身份与许可证门禁实现.md)。开发环境的 Mock 激活码为 `KARIOS-MOCK-LOCAL-2026`，仅用于本地测试，不是生产企业密钥。
 
 ## 开源许可证
 

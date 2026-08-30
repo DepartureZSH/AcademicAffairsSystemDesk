@@ -36,6 +36,7 @@ def test_repository_development_profile_is_valid() -> None:
     assert config.service("identity").endpoint == "http://127.0.0.1:55421"
     assert config.service("license").mode == "mock"
     assert config.service("license").mock["device_limit"] == 3
+    assert config.service("license").mock["activation_code"] == "KARIOS-MOCK-LOCAL-2026"
 
 
 def test_production_rejects_mock_services(tmp_path: Path) -> None:

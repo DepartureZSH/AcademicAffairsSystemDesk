@@ -20,6 +20,7 @@ services:
     provider: deterministic-local-license
     mode: mock
     mock:
+      activation_code: KARIOS-MOCK-LOCAL-2026
       account_id: mock-account-local
       status: active
       expires_in_seconds: 604800

@@ -68,3 +68,5 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-08-31 | identity | 未配置 | real | development | 本机 Supabase 容器和数据表只读核验 | 待本模块提交 |
 | 2026-08-31 | license/payment/smtp/updates | 未配置 | mock | development | 配置加载与安全拒绝测试 | 待本模块提交 |
+| 2026-08-31 | identity | real | real | development | 桌面端经 Rust 可信层完成本机 Supabase 密码登录 | 切换 Sealos 时只更换 HTTPS endpoint 与 publishable key |
+| 2026-08-31 | license | mock | mock | development | 企业密钥、设备 Ed25519 签名、7 天凭证、Sidecar 门禁和退出清理已实测 | 真实激活/续签 Edge Function、服务端 JWS 与撤销接口完成后切换 |

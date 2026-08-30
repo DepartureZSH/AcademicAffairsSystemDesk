@@ -1,3 +1,5 @@
+mod access_gate;
+
 use hmac::{Hmac, Mac};
 use parking_lot::Mutex;
 use rand::RngCore;
@@ -176,6 +178,7 @@ fn start_sidecar(
     }
 
     let root = repository_root();
+    access_gate::ensure_sidecar_allowed(&root)?;
     let launch = sidecar_launch(&root)?;
     let services_config = root.join("config/services.yaml");
     if !services_config.is_file() {
@@ -261,6 +264,36 @@ fn start_sidecar(
         workspace_path: workspace,
     });
     Ok(status_from_runtime(manager.runtime.as_ref()))
+}
+
+#[tauri::command]
+async fn access_gate_status() -> Result<access_gate::GateStatus, String> {
+    access_gate::status(&repository_root()).await
+}
+
+#[tauri::command]
+async fn auth_sign_in(email: String, password: String) -> Result<access_gate::GateStatus, String> {
+    access_gate::sign_in(&repository_root(), email, password).await
+}
+
+#[tauri::command]
+async fn auth_sign_up(email: String, password: String) -> Result<access_gate::AuthStatus, String> {
+    access_gate::sign_up(&repository_root(), email, password).await
+}
+
+#[tauri::command]
+async fn auth_request_password_reset(email: String) -> Result<String, String> {
+    access_gate::request_password_reset(&repository_root(), email).await
+}
+
+#[tauri::command]
+async fn auth_sign_out() -> Result<access_gate::GateStatus, String> {
+    access_gate::sign_out(&repository_root()).await
+}
+
+#[tauri::command]
+async fn license_activate(enterprise_key: String) -> Result<access_gate::GateStatus, String> {
+    access_gate::activate(&repository_root(), enterprise_key).await
 }
 
 impl Drop for SidecarRuntime {
@@ -359,6 +392,12 @@ pub fn run() {
         .manage(Mutex::new(SidecarManager::default()))
         .invoke_handler(tauri::generate_handler![
             runtime_status,
+            access_gate_status,
+            auth_sign_in,
+            auth_sign_up,
+            auth_request_password_reset,
+            auth_sign_out,
+            license_activate,
             start_sidecar,
             sidecar_request,
             stop_sidecar
