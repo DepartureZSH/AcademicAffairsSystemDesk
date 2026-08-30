@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   formatLocalError,
   localApi,
+  type PreflightValidation,
   type SchedulingCandidate,
   type SchedulingRound,
 } from "../lib/sidecar";
@@ -20,9 +21,13 @@ const sessionName = ref("本地优化会话");
 const busy = ref(false);
 const errorMessage = ref("");
 const latestRound = ref<SchedulingRound | null>(null);
+const preflight = ref<PreflightValidation | null>(null);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-watch(() => props.revision, (value) => { revision.value = value; });
+watch(() => props.revision, (value) => {
+  if (revision.value !== value) preflight.value = null;
+  revision.value = value;
+});
 
 const selectedCandidate = computed(() =>
   candidates.value.find((item) => item.id === selectedCandidateId.value) ?? null,
@@ -106,6 +111,11 @@ async function runRound() {
   errorMessage.value = "";
   latestRound.value = null;
   try {
+    preflight.value = await localApi.validateProject();
+    if (!preflight.value.ready) {
+      errorMessage.value = `数据预检发现 ${preflight.value.summary.errorCount} 个阻断问题，请先修复后再运行。`;
+      return;
+    }
     const parent = selectedCandidateIsValid.value ? selectedCandidate.value : null;
     const result = await localApi.runSchedulingRound({
       timeBudgetSeconds: timeBudgetSeconds.value,
@@ -120,6 +130,18 @@ async function runRound() {
     await loadRuns();
     if (["queued", "preparing", "solving", "validating"].includes(result.round.status)) ensurePolling();
     else if (result.round.candidate_id) selectedCandidateId.value = result.round.candidate_id;
+  } catch (error) {
+    errorMessage.value = formatLocalError(error);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function runPreflight() {
+  busy.value = true;
+  errorMessage.value = "";
+  try {
+    preflight.value = await localApi.validateProject();
   } catch (error) {
     errorMessage.value = formatLocalError(error);
   } finally {
@@ -161,6 +183,16 @@ onBeforeUnmount(() => {
 
     <div class="invariant-banner"><strong>本地算法门禁</strong><span>只有完整满足硬约束的结果才会保存为候选；无解轮次只留下可定位诊断。</span></div>
     <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>
+
+    <article class="panel run-result-panel" :class="{ 'error-panel': preflight && !preflight.ready }">
+      <div class="panel-heading"><div><p class="eyebrow">DATA PREFLIGHT</p><h3>运行前数据预检</h3></div><button class="secondary-button" :disabled="busy || Boolean(activeRound)" @click="runPreflight">{{ busy ? "检查中…" : "立即检查" }}</button></div>
+      <p v-if="!preflight">只读编译当前项目，检查课时平衡、教师与教室引用、可用课节和约束编译；不会创建轮次或修改 Revision。</p>
+      <template v-else>
+        <p>{{ preflight.ready ? "预检通过，可以启动本地排课。" : `发现 ${preflight.summary.errorCount} 个阻断问题。` }} 活跃任务 {{ preflight.summary.activeTaskCount }} 个、课次 {{ preflight.summary.activeLessonCount }} 个、可选位置 {{ preflight.summary.optionCount }} 个。</p>
+        <ul v-if="preflight.errors.length" class="diagnostic-list"><li v-for="(item, index) in preflight.errors.slice(0, 12)" :key="`error-${index}`">{{ item.message || item.code }}</li></ul>
+        <ul v-if="preflight.warnings.length" class="diagnostic-list"><li v-for="(item, index) in preflight.warnings.slice(0, 8)" :key="`warning-${index}`">警告：{{ item.message || item.code }}</li></ul>
+      </template>
+    </article>
 
     <div class="directory-layout planning-layout">
       <article class="panel data-panel">

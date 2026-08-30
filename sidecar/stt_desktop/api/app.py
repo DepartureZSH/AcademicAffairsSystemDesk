@@ -443,6 +443,11 @@ def create_app(
         revision = project.delete_entity(entity_type, entity_id, expected_revision)
         return {"deletedId": entity_id, "revision": revision}
 
+    @app.post("/v1/validation/preflight")
+    async def validate_project_before_scheduling() -> dict[str, Any]:
+        project = state.require_project()
+        return SchedulingService(project).validate_current_project()
+
     @app.post("/v1/scheduling/rounds", status_code=201)
     async def run_scheduling_round(request: SchedulingRoundRequest) -> dict[str, Any]:
         project = state.require_project()

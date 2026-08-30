@@ -190,6 +190,26 @@ def test_scheduling_endpoint_returns_infeasible_diagnostics_without_candidate(
         assert candidates.json()["items"] == []
 
 
+def test_preflight_endpoint_is_read_only_and_reports_blockers(tmp_path: Path) -> None:
+    with client(tmp_path) as api:
+        created = api.post("/v1/projects", headers=headers(), json={"name": "预检 API"})
+        assert created.json()["revision"] == 0
+
+        response = api.post("/v1/validation/preflight", headers=headers())
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ready"] is False
+        assert payload["revision"] == 0
+        assert payload["summary"]["errorCount"] >= 2
+        assert {item["code"] for item in payload["errors"]} >= {
+            "NO_ACTIVE_LESSONS",
+            "NO_BELL_SCHEDULE",
+        }
+        assert api.get("/v1/projects/current", headers=headers()).json()["revision"] == 0
+        assert api.get("/v1/scheduling/rounds", headers=headers()).json()["items"] == []
+
+
 def test_project_archive_api_exports_and_imports_without_overwriting(tmp_path: Path) -> None:
     archive = tmp_path / "API 项目.sttproj"
     with client(tmp_path) as api:

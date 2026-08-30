@@ -75,6 +75,24 @@ export interface ManualMovePreview {
   preview: Record<string, unknown> | null;
 }
 
+export interface PreflightValidation {
+  ready: boolean;
+  revision: number;
+  inputHash: string;
+  checkedAt: string;
+  summary: {
+    activeTaskCount: number;
+    activeLessonCount: number;
+    optionCount: number;
+    compiledLimitCount: number;
+    assignedScheduleCount: number;
+    errorCount: number;
+    warningCount: number;
+  };
+  errors: Array<Record<string, unknown>>;
+  warnings: Array<Record<string, unknown>>;
+}
+
 export interface BackupRecord extends Record<string, unknown> {
   id: string;
   reason: string;
@@ -187,6 +205,11 @@ export const localApi = {
       method: "PUT",
       path: "/v1/planning/tasks",
       body: { data, expected_revision: expectedRevision },
+    }),
+  validateProject: () =>
+    sidecarRequest<PreflightValidation>({
+      method: "POST",
+      path: "/v1/validation/preflight",
     }),
   runSchedulingRound: (options: {
     timeBudgetSeconds: number;

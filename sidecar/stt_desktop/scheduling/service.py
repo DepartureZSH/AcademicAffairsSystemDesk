@@ -96,6 +96,157 @@ class SchedulingService:
     def __init__(self, project: ProjectRepository) -> None:
         self.project = project
 
+    def validate_current_project(self) -> dict[str, Any]:
+        """Compile current inputs and report obvious blockers without writing project state."""
+        snapshot = {
+            "project": self.project.project_info(),
+            "revision": self.project.revision,
+            "tables": {table: _rows(self.project, table) for table in SNAPSHOT_TABLES},
+        }
+        encoded = _canonical_json(snapshot)
+        _, compile_diagnostics = self._build_problem(snapshot)
+        errors = [dict(item) for item in compile_diagnostics["errors"]]
+        warnings = [dict(item) for item in compile_diagnostics["warnings"]]
+        tables = snapshot["tables"]
+        teachers = {str(item["id"]): item for item in tables["teachers"]}
+        rooms = {str(item["id"]): item for item in tables["rooms"]}
+        active_rooms = [item for item in tables["rooms"] if item["status"] == "active"]
+        lessons_by_task: dict[str, list[dict[str, Any]]] = {}
+        for lesson in tables["task_lessons"]:
+            lessons_by_task.setdefault(str(lesson["teaching_task_id"]), []).append(lesson)
+        active_tasks = [
+            item for item in tables["teaching_tasks"] if item["status"] == "active"
+        ]
+        active_tasks_by_plan: dict[str, list[dict[str, Any]]] = {}
+
+        for task in active_tasks:
+            task_id = str(task["id"])
+            teacher_id = str(task.get("primary_teacher_id") or "")
+            teacher = teachers.get(teacher_id)
+            if not teacher_id:
+                errors.append(
+                    {
+                        "code": "TASK_MISSING_PRIMARY_TEACHER",
+                        "message": "教学任务尚未分配主讲教师",
+                        "entityType": "teaching_task",
+                        "entityId": task_id,
+                    }
+                )
+            elif not teacher or teacher.get("status") != "active":
+                errors.append(
+                    {
+                        "code": "TASK_TEACHER_UNAVAILABLE",
+                        "message": "教学任务引用的教师不存在或已停用",
+                        "entityType": "teaching_task",
+                        "entityId": task_id,
+                        "teacherId": teacher_id,
+                    }
+                )
+
+            enabled_lessons = [
+                item for item in lessons_by_task.get(task_id, []) if item["enabled"]
+            ]
+            expanded_slots = sum(int(item["duration_slots"]) for item in enabled_lessons)
+            weekly_slots = int(task["weekly_slots"])
+            if expanded_slots != weekly_slots:
+                errors.append(
+                    {
+                        "code": "TASK_LESSON_SLOTS_MISMATCH",
+                        "message": f"教学任务周课时为 {weekly_slots}，启用课次合计为 {expanded_slots}",
+                        "entityType": "teaching_task",
+                        "entityId": task_id,
+                        "expectedSlots": weekly_slots,
+                        "actualSlots": expanded_slots,
+                    }
+                )
+
+            fixed_room_id = str(task.get("fixed_room_id") or "")
+            required_room_type = str(task.get("required_room_type") or "")
+            fixed_room = rooms.get(fixed_room_id) if fixed_room_id else None
+            if fixed_room_id and (not fixed_room or fixed_room.get("status") != "active"):
+                errors.append(
+                    {
+                        "code": "TASK_FIXED_ROOM_UNAVAILABLE",
+                        "message": "教学任务指定的固定教室不存在或已停用",
+                        "entityType": "teaching_task",
+                        "entityId": task_id,
+                        "roomId": fixed_room_id,
+                    }
+                )
+            elif (
+                fixed_room
+                and required_room_type
+                and str(fixed_room.get("room_type_id") or "") != required_room_type
+            ):
+                errors.append(
+                    {
+                        "code": "TASK_FIXED_ROOM_TYPE_MISMATCH",
+                        "message": "固定教室不满足教学任务要求的教室类型",
+                        "entityType": "teaching_task",
+                        "entityId": task_id,
+                        "roomId": fixed_room_id,
+                        "requiredRoomTypeId": required_room_type,
+                    }
+                )
+            elif required_room_type not in {"", "__no_room__"} and not any(
+                str(room.get("room_type_id") or "") == required_room_type
+                for room in active_rooms
+            ):
+                errors.append(
+                    {
+                        "code": "TASK_ROOM_TYPE_UNAVAILABLE",
+                        "message": "没有启用中的教室满足教学任务要求的教室类型",
+                        "entityType": "teaching_task",
+                        "entityId": task_id,
+                        "requiredRoomTypeId": required_room_type,
+                    }
+                )
+
+            plan_id = str(task.get("course_plan_id") or "")
+            if plan_id:
+                active_tasks_by_plan.setdefault(plan_id, []).append(task)
+
+        course_plans = _rows(self.project, "course_plans")
+        for plan in course_plans:
+            planned_slots = int(plan["weekly_slots"])
+            if planned_slots == 0:
+                continue
+            plan_tasks = active_tasks_by_plan.get(str(plan["id"]), [])
+            assigned_slots = sum(int(item["weekly_slots"]) for item in plan_tasks)
+            if assigned_slots != planned_slots:
+                errors.append(
+                    {
+                        "code": "COURSE_PLAN_TASK_SLOTS_MISMATCH",
+                        "message": f"课程计划周课时为 {planned_slots}，启用教学任务合计为 {assigned_slots}",
+                        "entityType": "course_plan",
+                        "entityId": str(plan["id"]),
+                        "expectedSlots": planned_slots,
+                        "actualSlots": assigned_slots,
+                    }
+                )
+
+        return {
+            "ready": not errors,
+            "revision": self.project.revision,
+            "inputHash": _sha256_text(encoded),
+            "checkedAt": utc_now(),
+            "summary": {
+                "activeTaskCount": len(active_tasks),
+                "activeLessonCount": int(compile_diagnostics["lesson_count"]),
+                "optionCount": int(compile_diagnostics["option_count"]),
+                "compiledLimitCount": int(
+                    compile_diagnostics["compiled_limit_count"]
+                ),
+                "assignedScheduleCount": int(
+                    compile_diagnostics["assigned_schedule_count"]
+                ),
+                "errorCount": len(errors),
+                "warningCount": len(warnings),
+            },
+            "errors": errors,
+            "warnings": warnings,
+        }
+
     def run_round(
         self,
         *,
@@ -497,12 +648,20 @@ class SchedulingService:
         schedules = tables["bell_schedules"]
         task_terms = {item["term_id"] for item in tasks if item.get("term_id")}
         eligible = [item for item in schedules if not task_terms or item.get("term_id") in task_terms]
-        default_schedule = next((item for item in eligible if item["is_default"]), eligible[0] if eligible else None)
         schedule_by_id = {str(item["id"]): item for item in schedules}
         slots_by_schedule: dict[str, list[dict[str, Any]]] = {}
         for slot in tables["time_slots"]:
             if slot["active"]:
                 slots_by_schedule.setdefault(str(slot["bell_schedule_id"]), []).append(slot)
+        eligible_with_slots = [
+            item for item in eligible if slots_by_schedule.get(str(item["id"]))
+        ]
+        default_schedule = next(
+            (item for item in eligible_with_slots if item["is_default"]),
+            eligible_with_slots[0]
+            if eligible_with_slots
+            else (eligible[0] if eligible else None),
+        )
         assignment_ids = {
             (str(item["entity_type"]), str(item.get("entity_id") or "")): str(item["bell_schedule_id"])
             for item in tables["timetable_template_assignments"]
@@ -514,6 +673,8 @@ class SchedulingService:
             diagnostics["errors"].append({"code": "NO_BELL_SCHEDULE", "message": "没有与教学任务学期匹配的作息表"})
         if default_schedule and not slots_by_schedule.get(str(default_schedule["id"])):
             diagnostics["errors"].append({"code": "NO_ACTIVE_TIME_SLOTS", "message": "当前作息表没有启用课节"})
+
+        unusable_assignment_tasks: set[str] = set()
 
         def schedule_for_task(task: dict[str, Any]) -> dict[str, Any] | None:
             schedule_id = ""
@@ -528,9 +689,20 @@ class SchedulingService:
                     schedule_id = candidate
                     break
             selected = schedule_by_id.get(schedule_id) if schedule_id else default_schedule
-            if schedule_id and selected is not None:
+            if schedule_id and selected is not None and slots_by_schedule.get(schedule_id):
                 diagnostics["assigned_schedule_count"] += 1
-            return selected
+                return selected
+            if schedule_id and str(task["id"]) not in unusable_assignment_tasks:
+                diagnostics["warnings"].append(
+                    {
+                        "code": "ASSIGNED_SCHEDULE_HAS_NO_ACTIVE_SLOTS",
+                        "taskId": str(task["id"]),
+                        "scheduleId": schedule_id,
+                        "message": "教学任务分配的作息表没有启用课节，已回退到可用默认作息",
+                    }
+                )
+                unusable_assignment_tasks.add(str(task["id"]))
+            return default_schedule
 
         rooms = [item for item in tables["rooms"] if item["status"] == "active"]
         room_by_id = {item["id"]: item for item in rooms}

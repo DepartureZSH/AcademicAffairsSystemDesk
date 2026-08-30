@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -98,6 +98,20 @@ def _json_array(value: Any) -> list[Any]:
 def _timestamp(value: Any, fallback: str) -> str:
     serialized = _serializable(value)
     return str(serialized) if serialized else fallback
+
+
+def _positive_mode(values: Iterable[Any], default: int = 1) -> int:
+    normalized = [int(value) for value in values if value is not None and int(value) > 0]
+    if not normalized:
+        return default
+    counts = Counter(normalized)
+    return min(counts, key=lambda value: (-counts[value], value))
+
+
+def _desktop_duration(value: Any, source_units_per_period: int) -> int:
+    raw = max(1, int(value or 1))
+    units = max(1, int(source_units_per_period))
+    return max(1, (raw + units - 1) // units)
 
 
 class LegacySupabaseImporter:
@@ -377,6 +391,78 @@ class LegacySupabaseImporter:
         teaching_tasks = snapshot.get("teaching_tasks", [])
         task_lessons = snapshot.get("task_lessons", [])
 
+        default_source_units = _positive_mode(
+            row.get("length_slots") for row in periods
+        )
+        units_by_template: dict[str, int] = {}
+        for template in templates:
+            template_id = str(template["id"])
+            units_by_template[template_id] = _positive_mode(
+                (
+                    row.get("length_slots")
+                    for row in periods
+                    if str(row.get("template_id")) == template_id
+                ),
+                default=default_source_units,
+            )
+        assignment_schedule = {
+            (str(row.get("entity_type") or ""), str(row.get("entity_id") or "")): str(
+                row.get("template_id") or ""
+            )
+            for row in snapshot.get("assignments", [])
+        }
+        default_templates_by_term: dict[str, str] = {}
+        fallback_template_id = str(templates[0]["id"]) if templates else ""
+        for template in templates:
+            template_id = str(template["id"])
+            term_key = str(template.get("term_id") or "")
+            if term_key not in default_templates_by_term or template.get("is_default"):
+                default_templates_by_term[term_key] = template_id
+
+        def source_template_for_task(task: Mapping[str, Any]) -> str:
+            for entity_type, entity_id in (
+                ("homeroom", task.get("homeroom_id")),
+                ("teacher", task.get("primary_teacher_id")),
+                ("subject", task.get("subject_id")),
+                ("all", None),
+            ):
+                selected = assignment_schedule.get((entity_type, str(entity_id or "")))
+                if selected:
+                    return selected
+            return default_templates_by_term.get(
+                str(task.get("term_id") or ""), fallback_template_id
+            )
+
+        task_source_units = {
+            str(task["id"]): units_by_template.get(
+                source_template_for_task(task), default_source_units
+            )
+            for task in teaching_tasks
+        }
+        tasks_by_plan: dict[str, list[Mapping[str, Any]]] = {}
+        for task in teaching_tasks:
+            if task.get("course_plan_id"):
+                tasks_by_plan.setdefault(str(task["course_plan_id"]), []).append(task)
+        plan_source_units = {
+            plan_id: task_source_units.get(
+                str(plan_tasks[0]["id"]), default_source_units
+            )
+            for plan_id, plan_tasks in tasks_by_plan.items()
+        }
+        normalized_time_grid = any(
+            int(row.get("length_slots") or 1) != 1
+            or int(row.get("start_slot") or 0) != int(row.get("period_index") or 0)
+            for row in periods
+        )
+        if normalized_time_grid:
+            warnings.append(
+                {
+                    "code": "LEGACY_TIME_GRID_NORMALIZED",
+                    "message": "网页版底层时间刻度已换算为桌面课节单位",
+                    "sourceUnitsPerPeriod": default_source_units,
+                }
+            )
+
         grade_names = sorted({str(row.get("group_name") or "未分组") for row in homerooms})
         grade_ids = {name: uuid7() for name in grade_names}
         batches: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
@@ -398,7 +484,8 @@ class LegacySupabaseImporter:
                 "term_id": _mapped(ids["term"], row.get("term_id")),
                 "name": row["name"],
                 "day_count": row["day_count"],
-                "slot_duration_minutes": row["slot_duration_minutes"],
+                "slot_duration_minutes": int(row["slot_duration_minutes"])
+                * units_by_template.get(str(row["id"]), default_source_units),
                 "is_default": row.get("is_default", False),
                 "display_config": _serializable(row.get("display_config") or {}),
             }
@@ -411,8 +498,8 @@ class LegacySupabaseImporter:
                 "weekday": row["weekday"],
                 "period_index": row["period_index"],
                 "label": row["label"],
-                "start_slot": row["start_slot"],
-                "length_slots": row["length_slots"],
+                "start_slot": row["period_index"],
+                "length_slots": 1,
                 "start_time_minutes": row["start_time_minutes"],
                 "end_time_minutes": row["end_time_minutes"],
                 "active": row.get("active", True),
@@ -486,7 +573,10 @@ class LegacySupabaseImporter:
                 "homeroom_id": ids["homeroom"][str(row["homeroom_id"])],
                 "subject_id": ids["subject"][str(row["subject_id"])],
                 "weekly_slots": row["weekly_slots"],
-                "duration_slots": row["duration_slots"],
+                "duration_slots": _desktop_duration(
+                    row["duration_slots"],
+                    plan_source_units.get(str(row["id"]), default_source_units),
+                ),
                 "allow_double_period": row.get("allow_double_period", False),
                 "priority": row.get("priority", 0),
                 "week_bits": row["week_bits"],
@@ -503,7 +593,10 @@ class LegacySupabaseImporter:
                 "subject_id": ids["subject"][str(row["subject_id"])],
                 "primary_teacher_id": _mapped(ids["teacher"], row.get("primary_teacher_id")),
                 "weekly_slots": row["weekly_slots"],
-                "duration_slots": row["duration_slots"],
+                "duration_slots": _desktop_duration(
+                    row["duration_slots"],
+                    task_source_units.get(str(row["id"]), default_source_units),
+                ),
                 "required_room_type": row.get("required_room_type"),
                 "fixed_room_id": _mapped(ids["room"], row.get("fixed_room_id")),
                 "status": row.get("status", "active"),
@@ -517,7 +610,12 @@ class LegacySupabaseImporter:
                 "id": ids["task_lesson"][str(row["id"])],
                 "teaching_task_id": ids["teaching_task"][str(row["teaching_task_id"])],
                 "lesson_index": row["lesson_index"],
-                "duration_slots": row["duration_slots"],
+                "duration_slots": _desktop_duration(
+                    row["duration_slots"],
+                    task_source_units.get(
+                        str(row["teaching_task_id"]), default_source_units
+                    ),
+                ),
                 "source_id": row.get("xml_class_id"),
                 "week_bits": row["week_bits"],
                 "day_bits": row["day_bits"],
@@ -832,6 +930,13 @@ class LegacySupabaseImporter:
             for row in snapshot.get("task_lessons", [])
             if row.get("xml_class_id")
         }
+        period_index_by_time: dict[tuple[int, int], int] = {}
+        source_units_per_period = _positive_mode(
+            period.get("length_slots") for period in snapshot.get("periods", [])
+        )
+        for period in snapshot.get("periods", []):
+            key = (int(period["weekday"]), int(period["start_slot"]))
+            period_index_by_time.setdefault(key, int(period["period_index"]))
         imported_entry_count = 0
         missing_lesson_count = 0
         for row in entries:
@@ -862,8 +967,17 @@ class LegacySupabaseImporter:
                     _mapped(ids["teacher"], row.get("teacher_id")),
                     _mapped(ids["room"], row.get("room_id")),
                     int(row["weekday"]),
-                    int(row["start_slot"]),
-                    max(1, int(row.get("length_slots") or row.get("duration_slots") or 1)),
+                    period_index_by_time.get(
+                        (int(row["weekday"]), int(row["start_slot"])),
+                        int(row["start_slot"]),
+                    ),
+                    max(
+                        1,
+                        int(row.get("duration_slots") or 0)
+                        or _desktop_duration(
+                            row.get("length_slots"), source_units_per_period
+                        ),
+                    ),
                     str(row.get("week_bits") or "1"),
                     row.get("source_xml_class_id"),
                     now,

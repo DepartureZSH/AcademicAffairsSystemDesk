@@ -33,7 +33,9 @@
 
 207条约束由118条硬 `DifferentDays`、88条硬 `NotOverlap` 和1条软 `NotOverlap` 组成。6个候选全部含硬约束违例，合计83个，因此全部按只读 `invalid` 状态迁移。
 
-源库有65条模板分配，目标迁移64条。唯一跳过项是源库中引用已不存在教师的悬空记录，已通过 `LEGACY_ASSIGNMENT_SKIPPED` 明确记录。另有 `LEGACY_INVALID_CANDIDATES_IMPORTED` 和 `LEGACY_ENTRY_LESSON_UNRESOLVED` 两类汇总告警。
+源库有65条模板分配，目标迁移64条。唯一跳过项是源库中引用已不存在教师的悬空记录，已通过 `LEGACY_ASSIGNMENT_SKIPPED` 明确记录。另有 `LEGACY_TIME_GRID_NORMALIZED`、`LEGACY_INVALID_CANDIDATES_IMPORTED` 和 `LEGACY_ENTRY_LESSON_UNRESOLVED` 三类汇总告警。
+
+二次兼容验收确认网页版使用8个底层刻度表达一节课。换算后，239个任务和488个课次可编译为17,160个候选位置，运行前预检为0个阻断问题；4个指向无课节作息表的任务安全回退到可用默认作息并给出警告。隔离副本执行10秒本地求解后返回 `infeasible` 且没有伪造候选，与源库6个候选全部含硬约束违例的现状一致。
 
 迁移后重新读取源数据库，模板分配、约束、候选和课表项仍分别为65、207、6和2,859，确认迁移没有回写源库。
 

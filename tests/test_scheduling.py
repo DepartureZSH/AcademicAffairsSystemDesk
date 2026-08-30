@@ -127,6 +127,61 @@ def test_local_round_persists_snapshot_candidate_and_warm_start(tmp_path: Path) 
         project.close()
 
 
+def test_preflight_is_read_only_and_reports_project_summary(tmp_path: Path) -> None:
+    project, _, lessons = seed_project(tmp_path, slot_count=2)
+    try:
+        revision = project.revision
+        result = SchedulingService(project).validate_current_project()
+
+        assert result["ready"] is True
+        assert result["revision"] == revision
+        assert result["summary"]["activeTaskCount"] == 1
+        assert result["summary"]["activeLessonCount"] == len(lessons)
+        assert result["summary"]["optionCount"] == 4
+        assert project.revision == revision
+        assert project.connection.execute("SELECT count(*) FROM data_snapshots").fetchone()[0] == 0
+        assert project.connection.execute("SELECT count(*) FROM scheduling_rounds").fetchone()[0] == 0
+    finally:
+        project.close()
+
+
+def test_preflight_reports_missing_teacher_and_course_plan_slot_mismatch(
+    tmp_path: Path,
+) -> None:
+    project, task, _ = seed_project(tmp_path, slot_count=2)
+    try:
+        plan, _ = project.save_entity(
+            "course_plan",
+            {
+                "term_id": "term-1",
+                "homeroom_id": "homeroom-1",
+                "subject_id": "subject-1",
+                "weekly_slots": 3,
+                "duration_slots": 1,
+                "week_bits": "1" * 20,
+                "day_bits": "11111",
+            },
+            project.revision,
+        )
+        project.save_entity(
+            "teaching_task",
+            {
+                "id": task["id"],
+                "course_plan_id": plan["id"],
+                "primary_teacher_id": None,
+            },
+            project.revision,
+        )
+
+        result = SchedulingService(project).validate_current_project()
+        codes = {item["code"] for item in result["errors"]}
+        assert result["ready"] is False
+        assert "TASK_MISSING_PRIMARY_TEACHER" in codes
+        assert "COURSE_PLAN_TASK_SLOTS_MISMATCH" in codes
+    finally:
+        project.close()
+
+
 def test_hard_infeasible_round_has_diagnostics_but_no_candidate(tmp_path: Path) -> None:
     project, _, _ = seed_project(tmp_path, slot_count=1)
     try:

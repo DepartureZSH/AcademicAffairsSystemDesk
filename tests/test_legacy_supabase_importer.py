@@ -329,3 +329,53 @@ def test_failed_history_import_rolls_back_database_and_removes_snapshot_file(
         assert project.list_entities("teacher") == []
         assert project.connection.execute("SELECT count(*) FROM candidates").fetchone()[0] == 0
         assert list((project.project_directory / "artifacts" / "problem").iterdir()) == []
+
+
+def test_legacy_time_grid_is_normalized_to_desktop_period_units(tmp_path: Path) -> None:
+    snapshot = complete_snapshot()
+    snapshot["templates"][0]["slot_duration_minutes"] = 5
+    snapshot["periods"][0].update(
+        {"period_index": 1, "start_slot": 96, "length_slots": 8}
+    )
+    snapshot["course_plans"][0]["duration_slots"] = 8
+    snapshot["teaching_tasks"][0]["duration_slots"] = 8
+    snapshot["task_lessons"][0]["duration_slots"] = 8
+    snapshot["timetable_entries"][0].update(
+        {"start_slot": 96, "duration_slots": 1, "length_slots": 8}
+    )
+    ids = LegacySupabaseImporter._build_id_maps(snapshot)
+    warnings: list[dict[str, object]] = []
+    batches = LegacySupabaseImporter._build_batches(snapshot, ids=ids, warnings=warnings)
+
+    assert batches["bell_schedule"][0]["slot_duration_minutes"] == 40
+    assert batches["time_slot"][0]["start_slot"] == 1
+    assert batches["time_slot"][0]["length_slots"] == 1
+    assert batches["course_plan"][0]["duration_slots"] == 1
+    assert batches["teaching_task"][0]["duration_slots"] == 1
+    assert batches["task_lesson"][0]["duration_slots"] == 1
+    assert warnings == [
+        {
+            "code": "LEGACY_TIME_GRID_NORMALIZED",
+            "message": "网页版底层时间刻度已换算为桌面课节单位",
+            "sourceUnitsPerPeriod": 8,
+        }
+    ]
+
+    workspace = ProjectWorkspace(tmp_path / "workspace")
+    with workspace.create_project("时间刻度迁移") as project:
+        project.bulk_insert_entities(
+            batches,
+            expected_revision=0,
+            after_insert=lambda connection, now, target_revision: LegacySupabaseImporter._import_history(
+                project,
+                snapshot,
+                ids,
+                warnings,
+                [],
+                now=now,
+                target_revision=target_revision,
+            ),
+        )
+        entry = project.connection.execute("SELECT * FROM timetable_entries").fetchone()
+        assert entry["start_slot"] == 1
+        assert entry["duration_slots"] == 1
