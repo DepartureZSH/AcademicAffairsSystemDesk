@@ -1,0 +1,215 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from "vue";
+import {
+  formatLocalError,
+  localApi,
+  type EntityRecord,
+  type ManualMovePreview,
+  type SchedulingCandidate,
+  type TimetableEntry,
+} from "../lib/sidecar";
+
+const props = defineProps<{ revision: number }>();
+const emit = defineEmits<{ revision: [value: number] }>();
+
+const revision = ref(props.revision);
+const candidates = ref<SchedulingCandidate[]>([]);
+const candidateId = ref("");
+const entries = ref<TimetableEntry[]>([]);
+const slots = ref<EntityRecord[]>([]);
+const rooms = ref<EntityRecord[]>([]);
+const teachers = ref<EntityRecord[]>([]);
+const homerooms = ref<EntityRecord[]>([]);
+const filterType = ref("");
+const filterId = ref("");
+const basedOnOldData = ref(false);
+const selectedEntry = ref<TimetableEntry | null>(null);
+const targetWeekday = ref(1);
+const targetStartSlot = ref(0);
+const targetRoomId = ref("");
+const candidateName = ref("手工调整候选");
+const preview = ref<ManualMovePreview | null>(null);
+const busy = ref(false);
+const errorMessage = ref("");
+
+watch(() => props.revision, (value) => { revision.value = value; });
+watch([filterType, filterId], () => { if (candidateId.value) void loadTimetable(); });
+
+const selectedCandidate = computed(() => candidates.value.find((item) => item.id === candidateId.value) ?? null);
+const filterOptions = computed(() => filterType.value === "teacher" ? teachers.value : filterType.value === "homeroom" ? homerooms.value : filterType.value === "room" ? rooms.value : []);
+const weekdays = [1, 2, 3, 4, 5, 6, 7];
+const visibleStartSlots = computed(() => {
+  const values = slots.value.filter((item) => Number(item.weekday) === targetWeekday.value);
+  return values.sort((a, b) => Number(a.period_index) - Number(b.period_index));
+});
+const gridRows = computed(() => {
+  const values = new Map<number, string>();
+  for (const item of slots.value) values.set(Number(item.start_slot), String(item.label));
+  return [...values.entries()].sort((a, b) => a[0] - b[0]);
+});
+
+function cellEntries(weekday: number, startSlot: number) {
+  return entries.value.filter((item) => item.weekday === weekday && item.start_slot === startSlot);
+}
+
+function filterLabel(item: EntityRecord) {
+  return String(item.name ?? item.id);
+}
+
+async function loadBase() {
+  busy.value = true;
+  errorMessage.value = "";
+  try {
+    const [candidateResult, slotResult, roomResult, teacherResult, homeroomResult] = await Promise.all([
+      localApi.listSchedulingCandidates(),
+      localApi.listEntities("time_slot"),
+      localApi.listEntities("room"),
+      localApi.listEntities("teacher"),
+      localApi.listEntities("homeroom"),
+    ]);
+    candidates.value = candidateResult.items;
+    slots.value = slotResult.items;
+    rooms.value = roomResult.items;
+    teachers.value = teacherResult.items;
+    homerooms.value = homeroomResult.items;
+    revision.value = Math.max(candidateResult.revision, slotResult.revision, roomResult.revision, teacherResult.revision, homeroomResult.revision);
+    emit("revision", revision.value);
+    if (!candidateId.value && candidates.value.length) candidateId.value = candidates.value[0].id;
+    if (candidateId.value) await loadTimetable();
+  } catch (error) {
+    errorMessage.value = formatLocalError(error);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function loadTimetable() {
+  if (!candidateId.value) return;
+  errorMessage.value = "";
+  selectedEntry.value = null;
+  preview.value = null;
+  try {
+    const result = await localApi.getTimetable(candidateId.value, filterType.value || undefined, filterId.value || undefined);
+    entries.value = result.items;
+    basedOnOldData.value = result.basedOnOldData;
+    revision.value = result.revision;
+    emit("revision", revision.value);
+  } catch (error) {
+    errorMessage.value = formatLocalError(error);
+  }
+}
+
+function selectEntry(item: TimetableEntry) {
+  selectedEntry.value = item;
+  targetWeekday.value = item.weekday;
+  targetStartSlot.value = item.start_slot;
+  targetRoomId.value = item.room_id ? String(item.room_id) : "";
+  preview.value = null;
+}
+
+function movePayload() {
+  if (!selectedEntry.value) return null;
+  return {
+    candidate_id: candidateId.value,
+    task_lesson_id: selectedEntry.value.task_lesson_id,
+    weekday: targetWeekday.value,
+    start_slot: targetStartSlot.value,
+    room_id: targetRoomId.value || null,
+    name: candidateName.value.trim(),
+  };
+}
+
+async function validateMove() {
+  const payload = movePayload();
+  if (!payload) return;
+  busy.value = true;
+  errorMessage.value = "";
+  try {
+    preview.value = await localApi.validateManualMove(payload);
+  } catch (error) {
+    errorMessage.value = formatLocalError(error);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function applyMove() {
+  const payload = movePayload();
+  if (!payload || !preview.value?.valid) return;
+  busy.value = true;
+  errorMessage.value = "";
+  try {
+    const result = await localApi.applyManualMove(payload);
+    const newCandidateId = String(result.round.candidate_id);
+    candidateId.value = newCandidateId;
+    selectedEntry.value = null;
+    preview.value = null;
+    await loadBase();
+  } catch (error) {
+    errorMessage.value = formatLocalError(error);
+  } finally {
+    busy.value = false;
+  }
+}
+
+function undoToParent() {
+  const parentId = selectedCandidate.value?.parent_candidate_id;
+  if (parentId && candidates.value.some((item) => item.id === parentId)) {
+    candidateId.value = parentId;
+    void loadTimetable();
+  }
+}
+
+onMounted(loadBase);
+</script>
+
+<template>
+  <section class="module-view timetable-view">
+    <div class="module-heading"><div><p class="eyebrow">TIMETABLE</p><h2>课表查看与手工调整</h2><p>按班级、教师或教室查看候选；手工移动会先预检，再生成不可变子候选。</p></div><span>Revision {{ revision }}</span></div>
+    <div v-if="basedOnOldData" class="invariant-banner stale-banner"><strong>旧数据候选</strong><span>该候选基于较早的项目 Revision，仍可查看；建议在最新数据上重新运行自动排课。</span></div>
+    <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>
+
+    <article class="panel timetable-toolbar">
+      <label>候选方案<select v-model="candidateId" @change="loadTimetable"><option v-for="item in candidates" :key="item.id" :value="item.id">得分 {{ item.total_score }} · {{ item.entry_count }} 课次 · {{ item.name }}</option></select></label>
+      <label>查看维度<select v-model="filterType" @change="filterId = ''"><option value="">全部课表</option><option value="homeroom">班级课表</option><option value="teacher">教师课表</option><option value="room">教室课表</option></select></label>
+      <label v-if="filterType">对象<select v-model="filterId"><option value="">全部</option><option v-for="item in filterOptions" :key="item.id" :value="item.id">{{ filterLabel(item) }}</option></select></label>
+      <button v-if="selectedCandidate?.parent_candidate_id" class="secondary-button" @click="undoToParent">回到父候选（撤销）</button>
+    </article>
+
+    <div v-if="!candidates.length" class="state-panel compact-state"><h2>尚无可查看候选</h2><p>先在“排课运行”生成完整可行候选。</p></div>
+    <div v-else class="timetable-layout">
+      <article class="panel timetable-grid-panel">
+        <div class="timetable-grid" :style="{ gridTemplateColumns: `92px repeat(7, minmax(128px, 1fr))` }">
+          <div class="grid-head">课节</div><div v-for="day in weekdays" :key="`head-${day}`" class="grid-head">周{{ day }}</div>
+          <template v-for="[startSlot, label] in gridRows" :key="startSlot">
+            <div class="grid-time"><strong>{{ label }}</strong><small>Slot {{ startSlot }}</small></div>
+            <div v-for="day in weekdays" :key="`${day}-${startSlot}`" class="grid-cell">
+              <button v-for="item in cellEntries(day, startSlot)" :key="item.id" class="lesson-chip" :class="{ selected: selectedEntry?.id === item.id }" @click="selectEntry(item)">
+                <strong>{{ item.subject_name || "未命名课程" }}</strong><span>{{ item.homeroom_name }} · {{ item.teacher_name }}</span><small>{{ item.room_name || "无指定教室" }} · {{ item.duration_slots }} 课时</small>
+              </button>
+            </div>
+          </template>
+        </div>
+      </article>
+
+      <aside class="panel manual-panel">
+        <p class="eyebrow">MANUAL MOVE</p><h3>手工移动课次</h3>
+        <p v-if="!selectedEntry" class="empty-copy">在课表中选择一个课次开始调整。</p>
+        <form v-else class="compact-form" @submit.prevent="validateMove">
+          <div class="selected-lesson"><strong>{{ selectedEntry.subject_name }}</strong><span>{{ selectedEntry.homeroom_name }} · {{ selectedEntry.teacher_name }}</span></div>
+          <label>目标星期<select v-model.number="targetWeekday" @change="targetStartSlot = Number(visibleStartSlots[0]?.start_slot ?? 0); preview = null"><option v-for="day in weekdays" :key="day" :value="day">星期 {{ day }}</option></select></label>
+          <label>目标课节<select v-model.number="targetStartSlot" @change="preview = null"><option v-for="item in visibleStartSlots" :key="item.id" :value="Number(item.start_slot)">{{ item.label }}</option></select></label>
+          <label>目标教室<select v-model="targetRoomId" @change="preview = null"><option value="">无指定教室</option><option v-for="item in rooms" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
+          <label>新候选名称<input v-model="candidateName" maxlength="200" /></label>
+          <button class="secondary-button" :disabled="busy">{{ busy ? "校验中…" : "即时冲突检查" }}</button>
+          <div v-if="preview" class="move-preview" :class="{ valid: preview.valid, invalid: !preview.valid }">
+            <strong>{{ preview.valid ? "可移动" : "存在硬冲突" }}</strong>
+            <span v-if="preview.score">预估得分 {{ preview.score.total_score }}</span>
+            <ul v-if="preview.conflicts.length"><li v-for="(item, index) in preview.conflicts" :key="index">{{ item.message || item.code }}</li></ul>
+          </div>
+          <button type="button" class="primary-button" :disabled="busy || !preview?.valid" @click="applyMove">生成手工调整子候选</button>
+        </form>
+      </aside>
+    </div>
+  </section>
+</template>

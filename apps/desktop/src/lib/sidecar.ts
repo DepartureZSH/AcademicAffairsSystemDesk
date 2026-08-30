@@ -50,6 +50,26 @@ export interface SchedulingCandidate extends Record<string, unknown> {
   created_at: string;
 }
 
+export interface TimetableEntry extends EntityRecord {
+  candidate_id: string;
+  task_lesson_id: string;
+  weekday: number;
+  start_slot: number;
+  duration_slots: number;
+  week_bits: string;
+  teacher_name: string | null;
+  homeroom_name: string | null;
+  subject_name: string | null;
+  room_name: string | null;
+}
+
+export interface ManualMovePreview {
+  valid: boolean;
+  conflicts: Array<Record<string, unknown>>;
+  score: Record<string, number> | null;
+  preview: Record<string, unknown> | null;
+}
+
 interface SidecarRequest {
   method: "GET" | "POST" | "PUT" | "DELETE";
   path: string;
@@ -159,5 +179,30 @@ export const localApi = {
     sidecarRequest<{ items: SchedulingCandidate[]; revision: number }>({
       method: "GET",
       path: "/v1/scheduling/candidates",
+    }),
+  getTimetable: (candidateId: string, entityType?: string, entityId?: string) => {
+    const query = entityType && entityId
+      ? `?entity_type=${encodeURIComponent(entityType)}&entity_id=${encodeURIComponent(entityId)}`
+      : "";
+    return sidecarRequest<{
+      candidate: SchedulingCandidate;
+      items: TimetableEntry[];
+      snapshotRevision: number;
+      currentRevision: number;
+      basedOnOldData: boolean;
+      revision: number;
+    }>({ method: "GET", path: `/v1/timetables/${encodeURIComponent(candidateId)}${query}` });
+  },
+  validateManualMove: (data: Record<string, unknown>) =>
+    sidecarRequest<ManualMovePreview>({
+      method: "POST",
+      path: "/v1/timetables/validate-move",
+      body: data,
+    }),
+  applyManualMove: (data: Record<string, unknown>) =>
+    sidecarRequest<{ round: SchedulingRound; revision: number }>({
+      method: "POST",
+      path: "/v1/timetables/manual-fork",
+      body: data,
     }),
 };

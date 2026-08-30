@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from stt_desktop.scheduling import SchedulingService
+import pytest
+
+from stt_desktop.scheduling import ManualConflictError, SchedulingService, TimetableService
 from stt_desktop.storage import ProjectWorkspace
 
 
@@ -213,5 +215,72 @@ def test_room_availability_removes_only_blocked_room_time_pair(tmp_path: Path) -
         ).fetchall()
         assert {entry["room_id"] for entry in entries} == {"room-1"}
         assert all(entry["start_slot"] != 0 for entry in entries)
+    finally:
+        project.close()
+
+
+def test_manual_move_previews_conflict_and_creates_immutable_child(tmp_path: Path) -> None:
+    project, _, _ = seed_project(tmp_path, slot_count=3)
+    try:
+        first = SchedulingService(project).run_round(time_budget_seconds=10)
+        timetable = TimetableService(project)
+        before = timetable.list_entries(first["candidate_id"])
+        assert len(before["items"]) == 2
+        moving, blocker = before["items"]
+
+        conflict = timetable.validate_move(
+            candidate_id=first["candidate_id"],
+            task_lesson_id=moving["task_lesson_id"],
+            weekday=blocker["weekday"],
+            start_slot=blocker["start_slot"],
+            room_id=moving["room_id"],
+        )
+        assert not conflict["valid"]
+        assert any(item["code"].startswith("HARD_") for item in conflict["conflicts"])
+        with pytest.raises(ManualConflictError):
+            timetable.fork_with_move(
+                candidate_id=first["candidate_id"],
+                task_lesson_id=moving["task_lesson_id"],
+                weekday=blocker["weekday"],
+                start_slot=blocker["start_slot"],
+                room_id=moving["room_id"],
+            )
+
+        free_start = next(value for value in range(3) if value not in {item["start_slot"] for item in before["items"]})
+        preview = timetable.validate_move(
+            candidate_id=first["candidate_id"],
+            task_lesson_id=moving["task_lesson_id"],
+            weekday=1,
+            start_slot=free_start,
+            room_id=moving["room_id"],
+        )
+        assert preview["valid"]
+        child_round = timetable.fork_with_move(
+            candidate_id=first["candidate_id"],
+            task_lesson_id=moving["task_lesson_id"],
+            weekday=1,
+            start_slot=free_start,
+            room_id=moving["room_id"],
+            name="手工调整一",
+        )
+        assert child_round["status"] == "succeeded"
+        child = SchedulingService(project).list_candidates()[0]
+        assert child["parent_candidate_id"] == first["candidate_id"]
+        assert child["name"] == "手工调整一"
+        assert timetable.list_entries(first["candidate_id"])["items"] == before["items"]
+        moved = timetable.list_entries(child["id"])["items"]
+        assert next(item for item in moved if item["task_lesson_id"] == moving["task_lesson_id"])["start_slot"] == free_start
+    finally:
+        project.close()
+
+
+def test_timetable_marks_candidate_as_based_on_old_data(tmp_path: Path) -> None:
+    project, _, _ = seed_project(tmp_path, slot_count=2)
+    try:
+        result = SchedulingService(project).run_round(time_budget_seconds=10)
+        service = TimetableService(project)
+        assert not service.list_entries(result["candidate_id"])["basedOnOldData"]
+        project.save_entity("teacher", {"name": "新增教师"}, project.revision)
+        assert service.list_entries(result["candidate_id"])["basedOnOldData"]
     finally:
         project.close()

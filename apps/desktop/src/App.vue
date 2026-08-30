@@ -5,6 +5,7 @@ import ConstraintsView from "./components/ConstraintsView.vue";
 import PlanningView from "./components/PlanningView.vue";
 import SchoolDataView from "./components/SchoolDataView.vue";
 import SchedulingView from "./components/SchedulingView.vue";
+import TimetableView from "./components/TimetableView.vue";
 import { accessGate, type GateStatus } from "./lib/accessGate";
 import {
   localApi,
@@ -26,7 +27,7 @@ const navItems: NavItem[] = [
   { key: "planning", label: "课程计划", enabled: true },
   { key: "constraints", label: "约束配置", enabled: true },
   { key: "scheduling", label: "排课运行", enabled: true },
-  { key: "timetables", label: "课表与导出", enabled: false },
+  { key: "timetables", label: "课表与导出", enabled: true },
   { key: "backups", label: "备份恢复", enabled: false },
 ];
 
@@ -71,6 +72,7 @@ const pageTitle = computed(() => {
   if (activeView.value === "planning") return "课程计划";
   if (activeView.value === "constraints") return "约束配置";
   if (activeView.value === "scheduling") return "排课运行与候选方案";
+  if (activeView.value === "timetables") return "课表查看与手工调整";
   return currentProject.value?.name ?? "项目工作台";
 });
 
@@ -316,6 +318,7 @@ onMounted(bootstrapGate);
       <PlanningView v-else-if="activeView === 'planning' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
       <ConstraintsView v-else-if="activeView === 'constraints' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
       <SchedulingView v-else-if="activeView === 'scheduling' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
+      <TimetableView v-else-if="activeView === 'timetables' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
       <template v-else>
         <div v-if="workspaceBusy && !runtime" class="state-panel">
           <div class="spinner"></div><h2>正在启动安全本地服务</h2><p>校验随机端口、一次性令牌和项目工作目录…</p>

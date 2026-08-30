@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from stt_desktop.scheduling import SchedulingService
+from stt_desktop.scheduling import ManualConflictError, SchedulingService, TimetableService
 from stt_desktop.service_config import AppServiceConfig
 from stt_desktop.storage import (
     ProjectError,
@@ -48,6 +48,16 @@ class SchedulingRoundRequest(BaseModel):
     random_seed: int = Field(default=0, ge=0, le=2_147_483_647)
     session_id: str | None = None
     parent_candidate_id: str | None = None
+    name: str | None = Field(default=None, max_length=200)
+
+
+class ManualMoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    candidate_id: str
+    task_lesson_id: str
+    weekday: int = Field(ge=1, le=7)
+    start_slot: int = Field(ge=0)
+    room_id: str | None = None
     name: str | None = Field(default=None, max_length=200)
 
 
@@ -173,6 +183,16 @@ def create_app(
     @app.exception_handler(ProjectError)
     async def project_error(request: Request, error: ProjectError):
         return _error_response(400, "PROJECT_ERROR", str(error), request.state.correlation_id)
+
+    @app.exception_handler(ManualConflictError)
+    async def manual_conflict(request: Request, error: ManualConflictError):
+        return _error_response(
+            409,
+            "MANUAL_MOVE_CONFLICT",
+            str(error),
+            request.state.correlation_id,
+            {"conflicts": error.conflicts},
+        )
 
     @app.exception_handler(sqlite3.IntegrityError)
     async def data_integrity_error(request: Request, _: sqlite3.IntegrityError):
@@ -339,5 +359,43 @@ def create_app(
     async def list_scheduling_candidates() -> dict[str, Any]:
         project = state.require_project()
         return {"items": SchedulingService(project).list_candidates(), "revision": project.revision}
+
+    @app.get("/v1/timetables/{candidate_id}")
+    async def get_timetable(
+        candidate_id: str,
+        entity_type: str | None = None,
+        entity_id: str | None = None,
+    ) -> dict[str, Any]:
+        project = state.require_project()
+        result = TimetableService(project).list_entries(
+            candidate_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+        )
+        return {**result, "revision": project.revision}
+
+    @app.post("/v1/timetables/validate-move")
+    async def validate_manual_move(request: ManualMoveRequest) -> dict[str, Any]:
+        project = state.require_project()
+        return TimetableService(project).validate_move(
+            candidate_id=request.candidate_id,
+            task_lesson_id=request.task_lesson_id,
+            weekday=request.weekday,
+            start_slot=request.start_slot,
+            room_id=request.room_id,
+        )
+
+    @app.post("/v1/timetables/manual-fork", status_code=201)
+    async def apply_manual_move(request: ManualMoveRequest) -> dict[str, Any]:
+        project = state.require_project()
+        result = TimetableService(project).fork_with_move(
+            candidate_id=request.candidate_id,
+            task_lesson_id=request.task_lesson_id,
+            weekday=request.weekday,
+            start_slot=request.start_slot,
+            room_id=request.room_id,
+            name=request.name,
+        )
+        return {"round": result, "revision": project.revision}
 
     return app
