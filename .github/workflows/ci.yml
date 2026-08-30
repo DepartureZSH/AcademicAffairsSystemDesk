@@ -28,3 +28,27 @@ jobs:
       - run: uv sync --frozen --extra dev
       - run: uv run ruff check sidecar tests
       - run: uv run pytest
+
+  desktop-windows:
+    name: Tauri desktop checks (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: npm ci
+        working-directory: apps/desktop
+      - run: npm run build
+        working-directory: apps/desktop
+      - run: cargo fmt --check
+        working-directory: apps/desktop/src-tauri
+      - run: cargo check --locked
+        working-directory: apps/desktop/src-tauri
+      - run: cargo test --locked
+        working-directory: apps/desktop/src-tauri
