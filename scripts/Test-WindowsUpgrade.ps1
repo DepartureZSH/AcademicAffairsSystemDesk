@@ -103,11 +103,17 @@ function Resolve-InstallDirectory {
 }
 
 function Install-Package {
-    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Phase)
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Phase,
+        [switch]$Update
+    )
     if ($InstallerKind -eq 'nsis') {
-        return Start-AndWait -FilePath $Path -ArgumentList @('/S') -Phase $Phase
+        $arguments = if ($Update) { @('/P', '/R') } else { @('/S') }
+        return Start-AndWait -FilePath $Path -ArgumentList $arguments -Phase $Phase
     }
-    return Start-AndWait -FilePath 'msiexec.exe' -ArgumentList @('/i', $Path, '/qn', '/norestart') -Phase $Phase
+    $displayMode = if ($Update) { '/passive' } else { '/qn' }
+    return Start-AndWait -FilePath 'msiexec.exe' -ArgumentList @('/i', $Path, $displayMode, '/norestart') -Phase $Phase
 }
 
 function Uninstall-Product {
@@ -171,7 +177,7 @@ try {
     [System.IO.File]::WriteAllText($sentinelPath, '{"kind":"upgrade-sentinel","containsBusinessData":false}', [System.Text.UTF8Encoding]::new($false))
     $sentinelHash = (Get-FileHash -LiteralPath $sentinelPath -Algorithm SHA256).Hash
 
-    $upgradeExitCode = Install-Package -Path $current.InstallerPath -Phase '升级新版'
+    $upgradeExitCode = Install-Package -Path $current.InstallerPath -Phase '升级新版' -Update
     if ($upgradeExitCode -notin @(0, 3010)) { throw "升级失败，退出码 $upgradeExitCode。" }
     $installedEntry = Assert-InstalledVersion -ExpectedVersion $current.Version
     $installDirectory = Resolve-InstallDirectory -Entry $installedEntry
@@ -182,7 +188,7 @@ try {
     $sidecarHash = (Get-FileHash -LiteralPath $sidecarExecutable.FullName -Algorithm SHA256).Hash
     if ((Get-FileHash -LiteralPath $sentinelPath -Algorithm SHA256).Hash -ne $sentinelHash) { throw '升级修改了用户工作区。' }
 
-    $downgradeExitCode = Install-Package -Path $previous.InstallerPath -Phase '尝试降级旧版'
+    $downgradeExitCode = Install-Package -Path $previous.InstallerPath -Phase '尝试降级旧版' -Update
     Start-Sleep -Seconds 2
     $installedEntry = Assert-InstalledVersion -ExpectedVersion $current.Version
     if ((Get-FileHash -LiteralPath $mainExecutable.FullName -Algorithm SHA256).Hash -ne $mainHash -or
