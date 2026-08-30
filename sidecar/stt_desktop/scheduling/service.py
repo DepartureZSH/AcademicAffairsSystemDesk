@@ -418,8 +418,24 @@ class SchedulingService:
             GROUP BY c.id ORDER BY c.created_at DESC
             """
         ).fetchall()
+        metric_rows = self.project.connection.execute(
+            """
+            SELECT candidate_id, metric_key, metric_value
+            FROM candidate_metrics
+            ORDER BY candidate_id, metric_key
+            """
+        ).fetchall()
+        metrics: dict[str, dict[str, float]] = {}
+        for metric in metric_rows:
+            metrics.setdefault(str(metric["candidate_id"]), {})[
+                str(metric["metric_key"])
+            ] = float(metric["metric_value"])
         return [
-            {**dict(row), "diagnostics": json.loads(row["diagnostics"])}
+            {
+                **dict(row),
+                "diagnostics": json.loads(row["diagnostics"]),
+                "metrics": metrics.get(str(row["id"]), {}),
+            }
             for row in rows
         ]
 

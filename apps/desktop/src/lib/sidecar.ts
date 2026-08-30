@@ -49,6 +49,7 @@ export interface SchedulingCandidate extends Record<string, unknown> {
   total_score: number;
   entry_count: number;
   created_at: string;
+  metrics: Record<string, number>;
 }
 
 export interface TimetableEntry extends EntityRecord {

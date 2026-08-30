@@ -27,6 +27,13 @@ watch(() => props.revision, (value) => { revision.value = value; });
 const selectedCandidate = computed(() =>
   candidates.value.find((item) => item.id === selectedCandidateId.value) ?? null,
 );
+const selectedMetrics = computed(() => selectedCandidate.value?.metrics ?? {});
+const scoreComponents = computed(() => [
+  { key: "time_penalty", label: "时间偏好", value: selectedMetrics.value.time_penalty ?? 0 },
+  { key: "room_penalty", label: "教室偏好", value: selectedMetrics.value.room_penalty ?? 0 },
+  { key: "distribution_penalty", label: "分散/负载", value: selectedMetrics.value.distribution_penalty ?? 0 },
+]);
+const scoreComponentsTotal = computed(() => scoreComponents.value.reduce((sum, item) => sum + item.value, 0));
 const activeRound = computed(() => {
   const active = new Set(["queued", "preparing", "solving", "validating"]);
   return rounds.value.find((item) => active.has(item.status)) ??
@@ -191,6 +198,19 @@ onBeforeUnmount(() => {
         </div>
       </article>
     </div>
+
+    <article v-if="selectedCandidate" class="panel score-breakdown-panel">
+      <div class="panel-heading"><div><p class="eyebrow">SCORE EXPLANATION</p><h3>候选评分说明</h3></div><span>总分 {{ selectedCandidate.total_score }}</span></div>
+      <div class="score-breakdown-grid">
+        <div v-for="item in scoreComponents" :key="item.key"><small>{{ item.label }}</small><strong>{{ item.value }}</strong></div>
+        <div><small>硬约束违例</small><strong>{{ Number(selectedCandidate.hard_violations ?? 0) }}</strong></div>
+        <div><small>求解耗时</small><strong>{{ Math.round(Number(selectedMetrics.elapsed_ms ?? 0)) }} ms</strong></div>
+        <div><small>求解器候选数</small><strong>{{ Number(selectedMetrics.candidate_count ?? 0) }}</strong></div>
+      </div>
+      <p :class="scoreComponentsTotal === selectedCandidate.total_score ? 'score-consistent' : 'score-warning'">
+        {{ scoreComponentsTotal === selectedCandidate.total_score ? `总分 = ${scoreComponentsTotal}，由三类软约束罚分相加；越低越优。` : `评分组成 ${scoreComponentsTotal} 与总分 ${selectedCandidate.total_score} 不一致，请保留项目并报告问题。` }}
+      </p>
+    </article>
 
     <article v-if="latestRound" class="panel run-result-panel" :class="{ 'error-panel': latestRound.status !== 'succeeded' }">
       <div class="panel-heading"><div><p class="eyebrow">LATEST ROUND</p><h3>{{ statusLabel(latestRound.status) }}</h3></div><span>{{ latestRound.id.slice(0, 8) }}</span></div>

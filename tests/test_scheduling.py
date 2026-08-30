@@ -99,6 +99,16 @@ def test_local_round_persists_snapshot_candidate_and_warm_start(tmp_path: Path) 
         assert project.connection.execute("SELECT COUNT(*) FROM timetable_entries").fetchone()[0] == len(lessons)
         candidate = service.list_candidates()[0]
         assert candidate["entry_count"] == len(lessons)
+        assert candidate["metrics"]["total_score"] == candidate["total_score"]
+        assert candidate["metrics"]["time_penalty"] >= 0
+        assert candidate["metrics"]["room_penalty"] >= 0
+        assert candidate["metrics"]["distribution_penalty"] >= 0
+        assert (
+            candidate["metrics"]["time_penalty"]
+            + candidate["metrics"]["room_penalty"]
+            + candidate["metrics"]["distribution_penalty"]
+            == candidate["total_score"]
+        )
         solution_path = project.project_directory / candidate["diagnostics"]["solutionPath"]
         assert solution_path.is_file()
         assert (project.project_directory / f"artifacts/problem/{first['id']}.xml").is_file()

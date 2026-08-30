@@ -180,6 +180,11 @@ nav { display: grid; gap: 7px; }
 .comparison-metrics { display: flex; flex-wrap: wrap; gap: 7px; justify-content: flex-end; }
 .comparison-metrics span { border-radius: 8px; background: #f1f5f3; padding: 7px 9px; color: #65786f; font-size: 10px; }
 .comparison-metrics b { color: #234f41; font-size: 12px; }.comparison-metrics .better b { color: #1f7357; }.comparison-metrics .worse b { color: #a04a45; }
+.score-breakdown-panel { display: grid; gap: 16px; margin-top: 18px; }
+.score-breakdown-grid { display: grid; grid-template-columns: repeat(6, minmax(110px, 1fr)); gap: 10px; }
+.score-breakdown-grid div { display: grid; gap: 5px; padding: 13px; border-radius: 10px; background: #f2f7f4; }
+.score-breakdown-grid small { color: #677c74; }.score-breakdown-grid strong { font-size: 19px; }
+.score-consistent, .score-warning { margin: 0; font-size: 13px; }.score-consistent { color: #2d6b57; }.score-warning { color: #a4471e; font-weight: 650; }
 .soft-divider { border: 0; border-top: 1px solid #e5ebe8; margin: 24px 0; }
 .backup-row { align-items: flex-start; }.backup-row > span { flex: 1; overflow: hidden; }.backup-row small { overflow: hidden; text-overflow: ellipsis; }
 .backup-row .row-actions { flex-wrap: wrap; justify-content: flex-end; min-width: 150px; }
@@ -203,5 +208,6 @@ nav { display: grid; gap: 7px; }
   .timetable-layout { grid-template-columns: 1fr; }
   .import-layout { grid-template-columns: 1fr; }
   .comparison-toolbar { grid-template-columns: 1fr; }
+  .score-breakdown-grid { grid-template-columns: repeat(3, 1fr); }
   .manual-panel { position: static; }
 }
