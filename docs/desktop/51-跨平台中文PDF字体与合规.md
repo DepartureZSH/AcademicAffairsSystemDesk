@@ -29,4 +29,4 @@ Windows 开发机和冻结制品能使用微软雅黑生成中文 PDF，但标�
 
 ## 4. 验收
 
-固定变量 TTF 已由 ReportLab 5 实际注册并生成包含“时奕教务排课：一年级数学”的 PDF。Windows Python 85 项、重新冻结 Sidecar 的五种导出全流程、wheel 三项字体资源和 PyInstaller CArchive 三项字体资源均已通过；本模块推送后的 Ubuntu GitHub job 必须从此前 PDF 失败转为全绿，模块才算完成。新 Windows 安装包构建后还要确认 OFL 文件进入安装目录与 SBOM。
+固定变量 TTF 已由 ReportLab 5 实际注册并生成包含“时奕教务排课：一年级数学”的 PDF。Windows Python 88 项、Ubuntu Python 88 项、重新冻结 Sidecar 的五种导出全流程、wheel 三项字体资源和 PyInstaller CArchive 三项字体资源均已通过。`v0.1.5-test.6` 的依赖清单与 CycloneDX SBOM 共记录 656 个包/资产且许可证缺失为 0；干净 Windows NSIS/MSI 安装验证也确认安装包和内层程序可用。本模块已完成，macOS/Linux 原生桌面安装包仍属于后续平台适配范围。

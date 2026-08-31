@@ -19,6 +19,7 @@ build/sidecar/
 build/signing/
 build/compliance/
 build/release/
+build/evidence/
 
 .tmp/
 tmp/

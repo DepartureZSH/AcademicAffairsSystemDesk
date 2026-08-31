@@ -24,13 +24,20 @@ Windows Server 2025 原生 AMD64 Runner 分别对 NSIS、MSI 执行：
 
 ## 3. 触发
 
-发布 `v0.1.1-test.2` 后，在 GitHub Actions 手工触发 **Windows upgrade and downgrade verification**：
+当前默认验证链为：
 
-- `previous_release_tag`: `v0.1.0-test.1`
-- `current_release_tag`: `v0.1.1-test.2`
+- `previous_release_tag`: `v0.1.4-test.5`
+- `current_release_tag`: `v0.1.5-test.6`
 
 两个 matrix job（NSIS、MSI）都必须成功，并保存各自 JSON artifact。工作流对 release 只有读取权限，不能修改标签或资产。
 
 ## 4. 当前状态
 
-PowerShell 脚本已通过 AST 解析，工作流 YAML 已解析并验证 matrix；实际制品测试尚未执行，因为当前标签在本模块提交时尚未发布。新 release 完成前，该门禁保持待验证状态。
+2026-08-31 的 [运行 33352330535](https://github.com/DepartureZSH/AcademicAffairsSystemDesk/actions/runs/33352330535) 两个 matrix job 全部成功：
+
+| 安装器 | 上一版 | 当前版 | 升级退出码 | 旧版降级退出码 | 新版文件保持 | 用户工作区保持 |
+| --- | --- | --- | ---: | ---: | --- | --- |
+| NSIS | 0.1.4 | 0.1.5 | 0 | 10 | 是 | 是 |
+| MSI | 0.1.4 | 0.1.5 | 0 | 1603 | 是 | 是 |
+
+这次运行修复并关闭了历史 `v0.1.2-test.3 → v0.1.3-test.4` 中 NSIS 可被旧安装器覆盖的失败。工作流继续保留手工输入，后续每个公开测试版必须把默认上一版/当前版标签前移并再次运行。
