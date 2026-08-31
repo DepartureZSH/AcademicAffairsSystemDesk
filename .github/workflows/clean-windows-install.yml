@@ -8,7 +8,7 @@ on:
         required: true
         default: v0.1.5-test.6
   push:
-    branches: [codex/desktop-local]
+    branches: [main]
     paths:
       - .github/workflows/clean-windows-install.yml
       - scripts/Test-CleanWindowsInstall.ps1

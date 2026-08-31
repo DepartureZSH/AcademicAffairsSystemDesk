@@ -12,7 +12,7 @@ on:
         required: true
         default: v0.1.5-test.6
   push:
-    branches: [codex/desktop-local]
+    branches: [main]
     paths:
       - .github/workflows/windows-upgrade.yml
       - scripts/Test-WindowsUpgrade.ps1
