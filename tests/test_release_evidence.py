@@ -157,5 +157,5 @@ def test_application_version_is_consistent_across_build_systems() -> None:
         tauri["version"],
     }
 
-    assert versions == {"0.1.2"}
-    assert 'APP_VERSION = "0.1.2"' in project_source
+    assert versions == {"0.1.3"}
+    assert 'APP_VERSION = "0.1.3"' in project_source
