@@ -2,6 +2,8 @@
 
 更新日期：2026-08-31
 
+**English summary:** Academic-affairs data and scheduling inputs/outputs stay in the user-selected local workspace and are not uploaded. The first release contains no analytics, advertising, remote crash reporting or cloud scheduling. Optional remote services are limited to identity, licensing, payment metadata, device-risk records and signed updates as described below; production activation requires an updated notice and legal review.
+
 ## 本地教务数据
 
 学校、年级、班级、教师、科目、教室、教学任务、约束、课表、算法输入输出、导入文件、项目归档和备份只保存在用户选择的本机工作目录。排课算法在本机 Python sidecar 中运行。官方桌面版不会把这些内容上传到 Supabase、支付服务或更新服务。

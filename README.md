@@ -1,8 +1,22 @@
-# 时奕教务排课
+# Karios STT Desktop（时奕教务排课）
+
+[![CI](https://github.com/DepartureZSH/AcademicAffairsSystemDesk/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DepartureZSH/AcademicAffairsSystemDesk/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+
+> A local-first, open-source desktop application for academic timetabling and school scheduling.
 
 时奕教务排课是面向中小学的跨平台本地排课桌面应用。Windows 10/11 x64 为首发平台，桌面壳采用 Tauri 2，排课数据与算法完全保存在本机并在本机运行。
 
-当前仓库已完成本地桌面主体功能闭环，正在刷新 Windows 发布制品并等待外部许可证、支付、SMTP 和正式更新服务。产品范围、架构、授权、测试、签名发布和人工准备要求见 [`docs/desktop`](./docs/desktop/)。
+当前仓库已完成本地桌面主体功能闭环，并发布 Windows 自签名公开测试版。许可证、支付、SMTP 和正式更新服务尚未接入生产环境，相关界面仍明确标记为 Mock。产品范围、架构、授权、测试、签名发布和人工准备要求见 [`docs/desktop`](./docs/desktop/)。
+
+## 项目链接
+
+- [下载 Windows 测试版](https://github.com/DepartureZSH/AcademicAffairsSystemDesk/releases/tag/v0.1.5-test.6)
+- [Code Signing Policy](./CODE_SIGNING_POLICY.md)
+- [Privacy Policy](./PRIVACY.md)
+- [Security Policy](./SECURITY.md)
+- [Governance](./GOVERNANCE.md)
+- [Contributing](./CONTRIBUTING.md)
 
 ## 当前状态
 
@@ -14,7 +28,13 @@
 - 6000 课次基准在当前验收机 25.762 秒生成硬约束 0 的完整候选。
 - `config/services.yaml` 中身份和旧数据迁移源为本机真实 Supabase；许可证、支付、SMTP 和远程更新仍明确为 Mock，不能用于生产发行。
 - 最新需求追踪与未完成发布门槛见 [`docs/desktop/46-需求追踪与发布就绪审计.md`](./docs/desktop/46-需求追踪与发布就绪审计.md)。
-- 首个自签名 Windows 测试版已作为 [v0.1.0-test.1 prerelease](https://github.com/DepartureZSH/AcademicAffairsSystemDesk/releases/tag/v0.1.0-test.1) 发布；使用前必须核对 SHA-256、证书指纹和 Mock 服务限制。
+- 当前自签名 Windows 测试版为 [v0.1.5-test.6 prerelease](https://github.com/DepartureZSH/AcademicAffairsSystemDesk/releases/tag/v0.1.5-test.6)，精确源码、SHA-256、签名和干净 Windows 验收见 [`docs/desktop/56-v0.1.5-test.6发布与验收证据.md`](./docs/desktop/56-v0.1.5-test.6发布与验收证据.md)。使用前必须核对校验和、测试证书指纹和 Mock 服务限制。
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+SignPath Foundation 审核通过前，公开测试版继续使用明确标识的自签名测试证书，不得表示为 Foundation 已签名版本。官方签名范围、团队角色、人工审批、来源验证和事件处理规则见 [Code Signing Policy](./CODE_SIGNING_POLICY.md)。
 
 ## 开发基线
 
@@ -75,4 +95,4 @@ Supabase 登录、Windows Credential Manager、设备 Ed25519 密钥和 YAML Moc
 
 ## 开源许可证
 
-源代码采用 [Apache License 2.0](./LICENSE)。项目名称、图标、官方发布渠道和代码签名身份不随该许可证授权；第三方构建不得冒充官方发行版。
+源代码采用 [Apache License 2.0](./LICENSE)，不使用商业双重许可证。项目名称、图标、官方发布渠道和代码签名身份不随该许可证授权；第三方构建不得冒充官方发行版。依赖与随包资产的许可证记录在每个发布版附带的依赖清单和 CycloneDX SBOM 中。
