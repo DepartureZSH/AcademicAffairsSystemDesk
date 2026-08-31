@@ -34,7 +34,7 @@ jobs:
       CURRENT_RELEASE_TAG: ${{ inputs.current_release_tag || 'v0.1.5-test.6' }}
       EXPECTED_TEST_THUMBPRINT: BAC371BF3F9AA7F75F28B0E9BB77DC6AF921FFD5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Download immutable previous and current releases
         shell: pwsh
@@ -63,7 +63,7 @@ jobs:
             -ExpectedThumbprint $env:EXPECTED_TEST_THUMBPRINT `
             -EvidencePath ".\test-results\windows-upgrade-${{ matrix.installer }}.json"
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()
         with:
           name: windows-upgrade-${{ matrix.installer }}
