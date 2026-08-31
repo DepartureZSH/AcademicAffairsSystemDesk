@@ -1,6 +1,6 @@
 [package]
 name = "karios-stt-desktop"
-version = "0.1.4"
+version = "0.1.5"
 description = "时奕教务排课桌面版"
 authors = ["杭州格若时科技有限公司"]
 edition = "2021"
