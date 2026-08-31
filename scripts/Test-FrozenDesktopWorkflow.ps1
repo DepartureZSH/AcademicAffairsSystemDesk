@@ -310,10 +310,13 @@ try {
     $null = Invoke-SidecarApi -Method POST -Path '/v1/projects/current/close'
     $shutdown = Invoke-SidecarApi -Method POST -Path '/v1/runtime/shutdown'
     if ($shutdown.status -ne 'shutting_down') { throw 'Sidecar 拒绝授权关闭。' }
-    Wait-Process -Id $process.Id -Timeout 15 -ErrorAction Stop
-    Start-Sleep -Milliseconds 300
-    $launcherAlive = [bool](Get-Process -Id $process.Id -ErrorAction SilentlyContinue)
-    $workerAlive = [bool](Get-Process -Id ([int]$ready.workerPid) -ErrorAction SilentlyContinue)
+    $shutdownDeadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $launcherAlive = [bool](Get-Process -Id $process.Id -ErrorAction SilentlyContinue)
+        $workerAlive = [bool](Get-Process -Id ([int]$ready.workerPid) -ErrorAction SilentlyContinue)
+        if (-not $launcherAlive -and -not $workerAlive) { break }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $shutdownDeadline)
     if ($launcherAlive -or $workerAlive) { throw '授权关闭后仍有 Sidecar 进程。' }
     Write-Output 'PASS 授权关闭与 launcher/worker 零残留'
 
@@ -334,6 +337,7 @@ try {
 finally {
     if ($process) { Stop-ExactSidecarProcess $process.Id }
     if ($ready) { Stop-ExactSidecarProcess ([int]$ready.workerPid) }
+    Start-Sleep -Milliseconds 300
     if (Test-Path -LiteralPath $testRoot -PathType Container) {
         $resolvedTestRoot = (Resolve-Path -LiteralPath $testRoot).Path
         if (
@@ -342,6 +346,18 @@ finally {
         ) {
             throw "拒绝清理未验证的冻结全流程临时目录：$resolvedTestRoot"
         }
-        Remove-Item -LiteralPath $resolvedTestRoot -Recurse -Force
+        $cleanupError = $null
+        foreach ($attempt in 1..10) {
+            try {
+                Remove-Item -LiteralPath $resolvedTestRoot -Recurse -Force -ErrorAction Stop
+                $cleanupError = $null
+                break
+            }
+            catch {
+                $cleanupError = $_
+                Start-Sleep -Milliseconds 200
+            }
+        }
+        if ($cleanupError) { throw $cleanupError }
     }
 }

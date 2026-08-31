@@ -420,15 +420,19 @@ impl SidecarRuntime {
 
     fn shutdown_and_wait(&mut self) {
         if matches!(self.child.try_wait(), Ok(Some(_))) {
+            self.kill_worker_if_matching();
             return;
         }
         self.request_shutdown_blocking();
-        if self.wait_for_exit(Duration::from_secs(5)) {
-            return;
-        }
+        let launcher_exited = self.wait_for_exit(Duration::from_secs(5));
+        // The PyInstaller launcher and its worker are distinct processes.  A
+        // launcher may exit before a stuck worker, so worker cleanup must not
+        // be skipped merely because the direct child has already exited.
         self.kill_worker_if_matching();
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if !launcher_exited {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
     }
 }
 

@@ -87,6 +87,15 @@ def main() -> int:
         name="sidecar-shutdown-watcher",
     ).start()
     server.run(sockets=[listener])
+    listener.close()
+    # PyInstaller one-file workers can retain non-daemon runtime threads after
+    # Uvicorn has completed its graceful lifespan shutdown.  At this point all
+    # application cleanup has already run, so terminate the frozen worker
+    # explicitly and allow the bootloader launcher to reap it.
+    if bool(getattr(sys, "frozen", False)):
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0)
     return 0
 
 
