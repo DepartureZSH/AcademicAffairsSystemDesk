@@ -6,11 +6,11 @@ on:
       previous_release_tag:
         description: Immutable previous prerelease tag
         required: true
-        default: v0.1.0-test.1
+        default: v0.1.1-test.2
       current_release_tag:
         description: Immutable current prerelease tag
         required: true
-        default: v0.1.1-test.2
+        default: v0.1.2-test.3
   push:
     branches: [codex/desktop-local]
     paths:
@@ -30,8 +30,8 @@ jobs:
         installer: [nsis, msi]
     env:
       GH_TOKEN: ${{ github.token }}
-      PREVIOUS_RELEASE_TAG: ${{ inputs.previous_release_tag || 'v0.1.0-test.1' }}
-      CURRENT_RELEASE_TAG: ${{ inputs.current_release_tag || 'v0.1.1-test.2' }}
+      PREVIOUS_RELEASE_TAG: ${{ inputs.previous_release_tag || 'v0.1.1-test.2' }}
+      CURRENT_RELEASE_TAG: ${{ inputs.current_release_tag || 'v0.1.2-test.3' }}
       EXPECTED_TEST_THUMBPRINT: BAC371BF3F9AA7F75F28B0E9BB77DC6AF921FFD5
     steps:
       - uses: actions/checkout@v6

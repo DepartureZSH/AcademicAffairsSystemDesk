@@ -136,12 +136,16 @@ function Uninstall-Product {
 }
 
 function Assert-InstalledVersion {
-    param([Parameter(Mandatory)][version]$ExpectedVersion)
+    param(
+        [Parameter(Mandatory)][version]$ExpectedVersion,
+        [Parameter(Mandatory)][string]$Context
+    )
     $entries = @(Get-ProductEntry)
-    if ($entries.Count -ne 1) { throw "期望一个产品注册表项，实际 $($entries.Count) 个。" }
+    if ($entries.Count -ne 1) { throw "$Context：期望一个产品注册表项，实际 $($entries.Count) 个。" }
     if ([version]$entries[0].DisplayVersion -ne $ExpectedVersion) {
-        throw "安装版本错误：期望 $ExpectedVersion，实际 $($entries[0].DisplayVersion)。"
+        throw "$Context：期望版本 $ExpectedVersion，实际 $($entries[0].DisplayVersion)。"
     }
+    Write-Host "PASS $Context：$ExpectedVersion"
     return $entries[0]
 }
 
@@ -171,7 +175,7 @@ try {
 
     $oldExitCode = Install-Package -Path $previous.InstallerPath -Phase '安装旧版'
     if ($oldExitCode -notin @(0, 3010)) { throw "旧版安装失败，退出码 $oldExitCode。" }
-    $installedEntry = Assert-InstalledVersion -ExpectedVersion $previous.Version
+    $installedEntry = Assert-InstalledVersion -ExpectedVersion $previous.Version -Context '旧版安装后检查'
 
     New-Item -ItemType Directory -Path $sentinelRoot -Force | Out-Null
     [System.IO.File]::WriteAllText($sentinelPath, '{"kind":"upgrade-sentinel","containsBusinessData":false}', [System.Text.UTF8Encoding]::new($false))
@@ -179,7 +183,7 @@ try {
 
     $upgradeExitCode = Install-Package -Path $current.InstallerPath -Phase '升级新版' -Update
     if ($upgradeExitCode -notin @(0, 3010)) { throw "升级失败，退出码 $upgradeExitCode。" }
-    $installedEntry = Assert-InstalledVersion -ExpectedVersion $current.Version
+    $installedEntry = Assert-InstalledVersion -ExpectedVersion $current.Version -Context '升级后检查'
     $installDirectory = Resolve-InstallDirectory -Entry $installedEntry
     $mainExecutable = Get-ChildItem -LiteralPath $installDirectory -Filter 'karios-stt-desktop.exe' -File -Recurse | Select-Object -First 1
     $sidecarExecutable = Get-ChildItem -LiteralPath $installDirectory -Filter 'stt-sidecar.exe' -File -Recurse | Select-Object -First 1
@@ -190,7 +194,7 @@ try {
 
     $downgradeExitCode = Install-Package -Path $previous.InstallerPath -Phase '尝试降级旧版' -Update
     Start-Sleep -Seconds 2
-    $installedEntry = Assert-InstalledVersion -ExpectedVersion $current.Version
+    $installedEntry = Assert-InstalledVersion -ExpectedVersion $current.Version -Context '降级尝试后检查'
     if ((Get-FileHash -LiteralPath $mainExecutable.FullName -Algorithm SHA256).Hash -ne $mainHash -or
         (Get-FileHash -LiteralPath $sidecarExecutable.FullName -Algorithm SHA256).Hash -ne $sidecarHash) {
         throw '降级尝试覆盖了新版应用文件。'
