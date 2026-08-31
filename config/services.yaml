@@ -1,0 +1,51 @@
+version: 1
+environment: development
+allow_mock_services: true
+
+services:
+  identity:
+    provider: supabase
+    mode: real
+    endpoint: http://127.0.0.1:55421
+    env:
+      publishable_key: STT_SUPABASE_PUBLISHABLE_KEY
+
+  legacy_data:
+    provider: direct-postgres-readonly
+    mode: real
+    env:
+      database_url: STT_LEGACY_DATABASE_URL
+
+  license:
+    provider: deterministic-local-license
+    mode: mock
+    mock:
+      activation_code: KARIOS-MOCK-LOCAL-2026
+      account_id: mock-account-local
+      status: active
+      expires_in_seconds: 604800
+      device_limit: 3
+      revoked: false
+
+  payment:
+    provider: deterministic-native-payment
+    mode: mock
+    mock:
+      product_code: STT_DESKTOP_YEARLY_TEST
+      amount_fen: 1
+      result: success
+      completion_delay_ms: 800
+
+  smtp:
+    provider: local-outbox
+    mode: mock
+    mock:
+      output_directory: .local/mock-mail
+      accepted: true
+
+  updates:
+    provider: static-update-manifest
+    mode: mock
+    mock:
+      update_available: false
+      manifest_path: fixtures/mock/update-manifest.json

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>时奕教务排课 · Mock 购买页</title>
+    <style>
+      :root { color-scheme: light; font-family: "Microsoft YaHei UI", system-ui, sans-serif; }
+      body { margin: 0; background: #f4f8f6; color: #173f34; }
+      main { max-width: 680px; margin: 10vh auto; padding: 42px; background: white; border: 1px solid #dce6e1; border-radius: 18px; box-shadow: 0 18px 50px #173f3414; }
+      small { color: #9a6a00; font-weight: 700; letter-spacing: .08em; }
+      h1 { margin: 10px 0 18px; }
+      p { color: #536c63; line-height: 1.75; }
+      dl { display: grid; grid-template-columns: auto 1fr; gap: 10px 18px; padding: 18px; background: #f2f7f4; border-radius: 12px; }
+      dt { font-weight: 700; } dd { margin: 0; }
+      strong { color: #a4471e; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <small>LOCAL MOCK · NO PAYMENT</small>
+      <h1>购买流程模拟页</h1>
+      <p>这是随开发版安装的本地静态页面，用于验证桌面应用确实通过系统默认浏览器打开购买流程。它不会连接微信支付、Supabase、SMTP 或任何远程服务。</p>
+      <dl>
+        <dt>测试产品</dt><dd>STT_DESKTOP_YEARLY_TEST</dd>
+        <dt>显示金额</dt><dd>¥0.01（仅展示，不会扣款）</dd>
+        <dt>激活码</dt><dd>返回桌面应用使用开发 Mock 激活码</dd>
+      </dl>
+      <p><strong>此页面不能生成订单、许可证或付款凭证。</strong>生产模式必须先由已登录桌面端取得 5 分钟单次购买会话，再打开受信任的 HTTPS 页面。</p>
+    </main>
+  </body>
+</html>

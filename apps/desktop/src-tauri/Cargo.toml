@@ -1,0 +1,37 @@
+[package]
+name = "karios-stt-desktop"
+version = "0.1.5"
+description = "时奕教务排课桌面版"
+authors = ["杭州格若时科技有限公司"]
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "karios_stt_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3", features = [] }
+
+[dependencies]
+base64 = "=0.22.1"
+ed25519-dalek = "=3.0.0"
+hex = "=0.4.3"
+hmac = "=0.12.1"
+keyring = "=4.2.0"
+parking_lot = "=0.12.5"
+rand = "=0.9.2"
+reqwest = { version = "=0.13.4", default-features = false, features = ["json", "rustls", "blocking"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+serde_yaml = "=0.9.34"
+sha2 = "=0.10.9"
+subtle = "=2.6.1"
+sysinfo = { version = "=0.39.6", default-features = false, features = ["system"] }
+tauri = { version = "=2.11.5", features = [] }
+tauri-plugin-dialog = "=2.7.2"
+tauri-plugin-opener = "=2.5.4"
+tauri-plugin-updater = "=2.10.1"
+
+[dev-dependencies]
+minisign-verify = "=0.2.5"

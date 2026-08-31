@@ -61,38 +61,18 @@ Get-Command signtool.exe
 
 ### 4.2 生成
 
-在隔离的 Windows 签名账户中运行；先创建受限目录并确认路径：
+当前仓库提供更安全的测试默认值：私钥直接生成在 `CurrentUser\My`，并标记为不可导出；仓库外只导出公开 CER。运行：
 
 ```powershell
-$sttCertDir = 'C:\SecureBuild\stt-signing'
-New-Item -ItemType Directory -Path $sttCertDir -Force
-
-$sttCert = New-SelfSignedCertificate `
-  -Type CodeSigningCert `
-  -Subject 'CN=杭州格若时科技有限公司, O=杭州格若时科技有限公司, C=CN' `
-  -CertStoreLocation 'Cert:\CurrentUser\My' `
-  -KeyAlgorithm RSA `
-  -KeyLength 3072 `
-  -HashAlgorithm SHA256 `
-  -KeyExportPolicy Exportable `
-  -NotAfter (Get-Date).AddYears(2)
-
-$sttPfxPassword = Read-Host '输入新的 PFX 强密码' -AsSecureString
-Export-PfxCertificate `
-  -Cert $sttCert `
-  -FilePath (Join-Path $sttCertDir 'stt-test-codesign.pfx') `
-  -Password $sttPfxPassword
-
-Export-Certificate `
-  -Cert $sttCert `
-  -FilePath (Join-Path $sttCertDir 'stt-test-codesign.cer')
+.\scripts\New-TestCodeSigningCertificate.ps1
 ```
 
 操作后：
 
-- 将 PFX 移入访问受控且有加密备份的位置。
+- 测试私钥不可导出，不产生 PFX，也不进入仓库或普通文件系统。
+- 公开 CER 生成在被 Git 忽略的 `build\signing\Karios-Desktop-TEST-ONLY.cer`。
 - 记录证书 thumbprint、有效期、保管人和撤销/轮换日期。
-- `.cer` 可以公开给测试者；PFX、密码和导出后的私钥严禁进入 Git、网盘公开链接或聊天。
+- `.cer` 可以公开给测试者；证书库私钥严禁复制到共享构建账户。
 
 ### 4.3 测试机信任
 
@@ -101,33 +81,26 @@ Export-Certificate `
 ### 4.4 签署和验证
 
 ```powershell
-$sttArtifact = 'C:\Build\ShiYi-Scheduler_0.1.0_windows-x86_64-setup.exe'
-$sttPfx = 'C:\SecureBuild\stt-signing\stt-test-codesign.pfx'
-$sttPfxPassword = Read-Host '输入 PFX 密码' -AsSecureString
+$sttThumbprint = (Get-ChildItem Cert:\CurrentUser\My |
+  Where-Object FriendlyName -eq 'Karios Desktop TEST ONLY Code Signing').Thumbprint
 
-signtool.exe sign `
-  /fd SHA256 `
-  /f $sttPfx `
-  /p ([System.Net.NetworkCredential]::new('', $sttPfxPassword).Password) `
-  /tr 'http://timestamp.digicert.com' `
-  /td SHA256 `
-  $sttArtifact
-
-signtool.exe verify /pa /all /v $sttArtifact
-Get-FileHash -Algorithm SHA256 $sttArtifact
+.\scripts\build-windows.ps1 `
+  -CertificateThumbprint $sttThumbprint `
+  -UpdaterPrivateKeyPath "$env:USERPROFILE\.karios-signing\karios-stt-updater.key" `
+  -UpdaterPasswordCredentialPath "$env:USERPROFILE\.karios-signing\karios-stt-updater.password.clixml"
 ```
 
-命令行密码可能被进程审计工具观察；正式自动化应使用受保护证书存储或签名服务，而不是 `/p`。自签名流程只作为临时测试方案。
+Tauri 在打包过程中签署 sidecar、主程序、安装器内部插件和最终安装包，并使用 RFC3161 时间戳。`Test-WindowsRelease.ps1` 会解包安装器，逐一验证内外层 Authenticode、证书指纹、时间戳和 updater Ed25519 签名。自签名流程只作为临时测试方案。
 
 ## 5. Tauri updater 签名
 
-1. 在离线或受控环境生成 updater 密钥对。
+1. 在离线或受控环境运行 `.\scripts\New-TauriUpdaterSigningKey.ps1` 生成 updater 密钥对；脚本拒绝静默覆盖已有密钥。
 2. 公钥写入应用配置；私钥和密码写入 GitHub Actions secret，不写仓库。
 3. Authenticode 签名完成后，再对最终 `.exe/.msi` 运行 Tauri signer。
 4. manifest 中记录最终 URL、版本、发布日期和最终签名。
 5. 在断网、篡改、错误 key、降级和镜像缺失场景测试。
 
-密钥生成和签名命令以项目锁定的 Tauri 2 CLI 版本官方输出为准；执行前运行 `tauri signer --help`，不要从旧文档复制参数。Tauri updater 签名是强制安全机制：<https://v2.tauri.app/plugin/updater/>。
+当前私钥位于仓库外 `%USERPROFILE%\.karios-signing`，随机密码凭据由 Windows DPAPI 保护；仍必须制作加密离线备份。密钥生成和签名命令以项目锁定的 Tauri 2 CLI 版本官方输出为准。Tauri updater 签名是强制安全机制：<https://v2.tauri.app/plugin/updater/>。
 
 ## 6. 自签名测试发布流程
 
