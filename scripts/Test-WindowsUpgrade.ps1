@@ -109,10 +109,10 @@ function Install-Package {
         [switch]$Update
     )
     if ($InstallerKind -eq 'nsis') {
-        $arguments = if ($Update) { @('/P', '/R') } else { @('/S') }
+        $arguments = if ($Update) { @('/S', '/R') } else { @('/S') }
         return Start-AndWait -FilePath $Path -ArgumentList $arguments -Phase $Phase
     }
-    $displayMode = if ($Update) { '/passive' } else { '/qn' }
+    $displayMode = if ($Update) { '/quiet' } else { '/qn' }
     return Start-AndWait -FilePath 'msiexec.exe' -ArgumentList @('/i', $Path, $displayMode, '/norestart') -Phase $Phase
 }
 

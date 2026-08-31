@@ -128,6 +128,7 @@ def test_windows_installers_block_downgrades_and_keep_stable_upgrade_identity() 
 
     assert windows["allowDowngrades"] is False
     assert windows["wix"]["upgradeCode"] == "450405c0-85b9-5bc5-a05c-de2bbb1e5805"
+    assert config["plugins"]["updater"]["windows"]["installMode"] == "quiet"
 
 
 def test_application_version_is_consistent_across_build_systems() -> None:

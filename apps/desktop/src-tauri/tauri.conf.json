@@ -33,7 +33,7 @@
         "https://updates.karios.tech/{{target}}/{{arch}}/{{current_version}}"
       ],
       "windows": {
-        "installMode": "passive"
+        "installMode": "quiet"
       }
     }
   },
