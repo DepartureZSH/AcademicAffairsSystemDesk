@@ -13,6 +13,7 @@ $distDirectory = Join-Path $repositoryRoot 'build\sidecar\dist'
 $fontDirectory = Join-Path $repositoryRoot 'sidecar\stt_desktop\assets\fonts'
 $fontPath = Join-Path $fontDirectory 'NotoSansSC-VF.ttf'
 $fontLicensePath = Join-Path $fontDirectory 'OFL-1.1.txt'
+$versionInfoPath = Join-Path $repositoryRoot 'build\sidecar\version-info.txt'
 
 $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
 $rustc = Join-Path $cargoBin 'rustc.exe'
@@ -42,6 +43,8 @@ $binaryName = "stt-sidecar-$targetTriple"
 $fontData = "$fontDirectory$([IO.Path]::PathSeparator)stt_desktop/assets/fonts"
 Push-Location $repositoryRoot
 try {
+    & uv run python scripts/generate_windows_version_info.py --output $versionInfoPath
+    if ($LASTEXITCODE -ne 0) { throw 'Sidecar Windows 版本元数据生成失败。' }
     & uv run --extra build --extra dev pyinstaller `
         --noconfirm `
         --clean `
@@ -51,6 +54,7 @@ try {
         --paths (Join-Path $repositoryRoot 'sidecar') `
         --add-data $fontData `
         --collect-all ortools `
+        --version-file $versionInfoPath `
         --workpath $workDirectory `
         --specpath $specDirectory `
         --distpath $distDirectory `

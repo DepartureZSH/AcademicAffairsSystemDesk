@@ -27,6 +27,16 @@ assert INVENTORY_SPEC and INVENTORY_SPEC.loader
 INVENTORY_MODULE = importlib.util.module_from_spec(INVENTORY_SPEC)
 INVENTORY_SPEC.loader.exec_module(INVENTORY_MODULE)
 
+VERSION_INFO_SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "generate_windows_version_info.py"
+)
+VERSION_INFO_SPEC = importlib.util.spec_from_file_location(
+    "generate_windows_version_info", VERSION_INFO_SCRIPT_PATH
+)
+assert VERSION_INFO_SPEC and VERSION_INFO_SPEC.loader
+VERSION_INFO_MODULE = importlib.util.module_from_spec(VERSION_INFO_SPEC)
+VERSION_INFO_SPEC.loader.exec_module(VERSION_INFO_MODULE)
+
 
 def test_release_artifact_record_requires_installer_and_updater_signature(
     tmp_path: Path,
@@ -173,3 +183,25 @@ def test_application_version_is_consistent_across_build_systems() -> None:
 
     assert versions == {"0.1.5"}
     assert 'APP_VERSION = "0.1.5"' in project_source
+
+
+def test_frozen_sidecar_windows_metadata_matches_tauri_product() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads(
+        (root / "apps" / "desktop" / "src-tauri" / "tauri.conf.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    rendered = VERSION_INFO_MODULE.render_version_info(config)
+
+    assert "filevers=(0, 1, 5, 0)" in rendered
+    assert "prodvers=(0, 1, 5, 0)" in rendered
+    assert "StringStruct('ProductName', '时奕教务排课')" in rendered
+    assert "StringStruct('ProductVersion', '0.1.5')" in rendered
+    assert "StringStruct('CompanyName', '杭州格若时科技有限公司')" in rendered
+    assert "StringStruct('OriginalFilename', 'stt-sidecar.exe')" in rendered
+
+    build_script = (root / "scripts" / "build-sidecar.ps1").read_text(encoding="utf-8")
+    assert "generate_windows_version_info.py" in build_script
+    assert "--version-file $versionInfoPath" in build_script
