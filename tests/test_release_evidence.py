@@ -129,6 +129,20 @@ def test_windows_installers_block_downgrades_and_keep_stable_upgrade_identity() 
     assert windows["allowDowngrades"] is False
     assert windows["wix"]["upgradeCode"] == "450405c0-85b9-5bc5-a05c-de2bbb1e5805"
     assert config["plugins"]["updater"]["windows"]["installMode"] == "quiet"
+    assert windows["nsis"]["template"] == "nsis/installer.nsi"
+
+    template = (
+        root / "apps" / "desktop" / "src-tauri" / "nsis" / "installer.nsi"
+    ).read_text(encoding="utf-8")
+    assert "tauri-v2.11.5" in template
+    assert "d372e3c391770cf231db974422a1e4f8adaac3a6" in template
+    assert "Function KariosAbortDowngrade" in template
+    assert 'nsis_tauri_utils::SemverCompare "${VERSION}" $R8' in template
+    assert "SetErrorLevel 10" in template
+    assert "Call KariosAbortDowngrade" in template
+    on_init = template.index("Function .onInit")
+    guard_call = template.index("Call KariosAbortDowngrade")
+    assert on_init < guard_call < template.index("FunctionEnd", on_init)
 
 
 def test_application_version_is_consistent_across_build_systems() -> None:
@@ -157,5 +171,5 @@ def test_application_version_is_consistent_across_build_systems() -> None:
         tauri["version"],
     }
 
-    assert versions == {"0.1.3"}
-    assert 'APP_VERSION = "0.1.3"' in project_source
+    assert versions == {"0.1.4"}
+    assert 'APP_VERSION = "0.1.4"' in project_source
