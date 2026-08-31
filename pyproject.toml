@@ -8,7 +8,7 @@ dependencies = [
   "ortools==9.15.6755",
   "openpyxl==3.1.5",
   "psycopg[binary]==3.2.9",
-  "PyYAML==6.0.2",
+  "PyYAML==6.0.3",
   "reportlab==5.0.1",
   "uvicorn==0.35.0",
 ]
