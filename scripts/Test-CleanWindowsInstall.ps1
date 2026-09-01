@@ -274,6 +274,7 @@ try {
     $mainExecutable = Get-ChildItem -LiteralPath $installDirectory -Filter 'karios-stt-desktop.exe' -File -Recurse | Select-Object -First 1
     $sidecarExecutable = Get-ChildItem -LiteralPath $installDirectory -Filter 'stt-sidecar.exe' -File -Recurse | Select-Object -First 1
     if ($null -eq $mainExecutable -or $null -eq $sidecarExecutable) { throw '安装目录缺少桌面主程序或 Sidecar。' }
+    & (Join-Path $PSScriptRoot 'Test-WindowsGuiExecutable.ps1') -Path $mainExecutable.FullName | Out-Null
     $null = Assert-SignedFile -Path $mainExecutable.FullName -ExpectedThumbprint $expectedThumbprint -RequireTrusted $true
     $null = Assert-SignedFile -Path $sidecarExecutable.FullName -ExpectedThumbprint $expectedThumbprint -RequireTrusted $true
     Write-Output 'PHASE 安装注册表、版本与内层双签名验证通过'

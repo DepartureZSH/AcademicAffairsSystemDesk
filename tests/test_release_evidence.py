@@ -181,8 +181,33 @@ def test_application_version_is_consistent_across_build_systems() -> None:
         tauri["version"],
     }
 
-    assert versions == {"0.1.5"}
-    assert 'APP_VERSION = "0.1.5"' in project_source
+    assert versions == {"0.1.6"}
+    assert 'APP_VERSION = "0.1.6"' in project_source
+
+
+def test_release_desktop_uses_windows_gui_subsystem() -> None:
+    root = Path(__file__).resolve().parents[1]
+    main_source = (
+        root / "apps" / "desktop" / "src-tauri" / "src" / "main.rs"
+    ).read_text(encoding="utf-8")
+    build_script = (root / "scripts" / "build-windows.ps1").read_text(
+        encoding="utf-8"
+    )
+    release_check = (root / "scripts" / "Test-WindowsRelease.ps1").read_text(
+        encoding="utf-8"
+    )
+    clean_install_check = (
+        root / "scripts" / "Test-CleanWindowsInstall.ps1"
+    ).read_text(encoding="utf-8")
+    subsystem_check = (
+        root / "scripts" / "Test-WindowsGuiExecutable.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert '#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]' in main_source
+    assert "Test-WindowsGuiExecutable.ps1" in build_script
+    assert "Test-WindowsGuiExecutable.ps1" in release_check
+    assert "Test-WindowsGuiExecutable.ps1" in clean_install_check
+    assert "$subsystem -ne 2" in subsystem_check
 
 
 def test_frozen_sidecar_windows_metadata_matches_tauri_product() -> None:
@@ -195,10 +220,10 @@ def test_frozen_sidecar_windows_metadata_matches_tauri_product() -> None:
 
     rendered = VERSION_INFO_MODULE.render_version_info(config)
 
-    assert "filevers=(0, 1, 5, 0)" in rendered
-    assert "prodvers=(0, 1, 5, 0)" in rendered
+    assert "filevers=(0, 1, 6, 0)" in rendered
+    assert "prodvers=(0, 1, 6, 0)" in rendered
     assert "StringStruct('ProductName', '时奕教务排课')" in rendered
-    assert "StringStruct('ProductVersion', '0.1.5')" in rendered
+    assert "StringStruct('ProductVersion', '0.1.6')" in rendered
     assert "StringStruct('CompanyName', '杭州格若时科技有限公司')" in rendered
     assert "StringStruct('OriginalFilename', 'stt-sidecar.exe')" in rendered
 

@@ -61,6 +61,8 @@ if ([IO.Path]::GetExtension($resolvedInstaller) -in @('.exe', '.msi')) {
             # 7-Zip 会透明展开 MSI 内嵌的 app.cab。
             $innerNames = @('Path', 'Bin_stt_sidecar.exe')
         }
+        $desktopExecutable = Join-Path $extractDirectory $innerNames[0]
+        & (Join-Path $PSScriptRoot 'Test-WindowsGuiExecutable.ps1') -Path $desktopExecutable | Out-Null
         foreach ($name in $innerNames) {
             $path = Join-Path $extractDirectory $name
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
