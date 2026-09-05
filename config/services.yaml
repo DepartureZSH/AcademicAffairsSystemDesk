@@ -6,7 +6,7 @@ services:
   identity:
     provider: supabase
     mode: real
-    endpoint: http://127.0.0.1:55421
+    endpoint: https://supabase.karios.tech
     env:
       publishable_key: STT_SUPABASE_PUBLISHABLE_KEY
 
@@ -17,24 +17,14 @@ services:
       database_url: STT_LEGACY_DATABASE_URL
 
   license:
-    provider: deterministic-local-license
-    mode: mock
-    mock:
-      activation_code: KARIOS-MOCK-LOCAL-2026
-      account_id: mock-account-local
-      status: active
-      expires_in_seconds: 604800
-      device_limit: 3
-      revoked: false
+    provider: stt-account-membership
+    mode: real
+    endpoint: https://fjozndbjkinl.sealosbja.site
 
   payment:
-    provider: deterministic-native-payment
-    mode: mock
-    mock:
-      product_code: STT_DESKTOP_YEARLY_TEST
-      amount_fen: 1
-      result: success
-      completion_delay_ms: 800
+    provider: stt-web-membership
+    mode: real
+    endpoint: https://dean.karios.site/login
 
   smtp:
     provider: local-outbox

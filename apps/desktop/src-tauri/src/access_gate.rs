@@ -1,3 +1,4 @@
+use crate::account_access;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use keyring::{Entry, Error as KeyringError};
@@ -46,6 +47,7 @@ struct IdentityConfig {
 #[derive(Clone, Debug)]
 struct LicenseConfig {
     mode: String,
+    endpoint: Option<String>,
     activation_code: Option<String>,
     expires_in_seconds: i64,
     device_limit: u32,
@@ -204,10 +206,31 @@ fn identity_config(root: &Path) -> Result<IdentityConfig, String> {
     if publishable_key.trim().is_empty() {
         return Err(format!("环境变量 {variable} 为空"));
     }
+    validate_client_api_key(&publishable_key)?;
     Ok(IdentityConfig {
         endpoint: endpoint.trim_end_matches('/').into(),
         publishable_key,
     })
+}
+
+fn validate_client_api_key(key: &str) -> Result<(), String> {
+    if key.starts_with("sb_publishable_") {
+        return Ok(());
+    }
+    let parts: Vec<_> = key.split('.').collect();
+    if parts.len() == 3 {
+        if let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]) {
+            if let Ok(payload) = serde_json::from_slice::<Value>(&bytes) {
+                if payload.get("role").and_then(Value::as_str) == Some("anon") {
+                    return Ok(());
+                }
+            }
+        }
+    }
+    Err(
+        "桌面端只能配置 Supabase publishable 或 Legacy anon key，禁止使用 secret/service_role 密钥"
+            .into(),
+    )
 }
 
 fn license_config(root: &Path) -> Result<LicenseConfig, String> {
@@ -235,6 +258,7 @@ fn license_config(root: &Path) -> Result<LicenseConfig, String> {
         .map(str::to_owned);
     Ok(LicenseConfig {
         mode: license.mode.clone(),
+        endpoint: license.endpoint.clone(),
         activation_code,
         expires_in_seconds,
         device_limit,
@@ -424,7 +448,7 @@ async fn current_auth_status(root: &Path) -> Result<AuthStatus, String> {
         Err(_) => Ok(auth_status_for(
             Some(&session),
             true,
-            Some("当前离线，将使用尚未到期的设备授权".into()),
+            Some("暂时无法刷新登录会话，请检查网络或重新登录".into()),
         )),
     }
 }
@@ -500,6 +524,25 @@ fn current_license_status(root: &Path, auth: &AuthStatus) -> Result<LicenseStatu
             message: Some("请先登录 Supabase 账号".into()),
         });
     }
+    if config.mode == "real" {
+        let endpoint = config.endpoint.as_deref().ok_or("尚未配置会员服务地址")?;
+        account_access::validate_endpoint(endpoint)?;
+        let expires_at = auth
+            .user
+            .as_ref()
+            .and_then(|user| account_access::cached_expiry(endpoint, &user.id));
+        return Ok(LicenseStatus {
+            mode: config.mode,
+            active: expires_at.is_some(),
+            needs_activation: expires_at.is_none(),
+            expires_at,
+            device_id: None,
+            device_limit: 0,
+            message: expires_at
+                .is_none()
+                .then(|| "请联网检查当前账号的会员权益".into()),
+        });
+    }
     if config.mode != "mock" {
         return Ok(LicenseStatus {
             mode: config.mode,
@@ -565,7 +608,29 @@ fn current_license_status(root: &Path, auth: &AuthStatus) -> Result<LicenseStatu
 
 pub async fn status(root: &Path) -> Result<GateStatus, String> {
     let auth = current_auth_status(root).await?;
-    let license = current_license_status(root, &auth)?;
+    let config = license_config(root)?;
+    let mut online_error = None;
+    if config.mode == "real" && auth.authenticated {
+        if let (Some(user), Some(session)) = (auth.user.as_ref(), load_session()?) {
+            if session.user.id == user.id {
+                let endpoint = config.endpoint.as_deref().ok_or("尚未配置会员服务地址")?;
+                online_error = account_access::check(endpoint, &user.id, &session.access_token)
+                    .await
+                    .err();
+            } else {
+                account_access::clear();
+            }
+        } else {
+            account_access::clear();
+        }
+    } else if !auth.authenticated {
+        account_access::clear();
+    }
+    let mut license = current_license_status(root, &auth)?;
+    if let Some(message) = online_error {
+        license.active = false;
+        license.message = Some(message);
+    }
     Ok(GateStatus {
         can_start_sidecar: auth.authenticated && license.active,
         auth,
@@ -574,6 +639,7 @@ pub async fn status(root: &Path) -> Result<GateStatus, String> {
 }
 
 pub async fn sign_in(root: &Path, email: String, password: String) -> Result<GateStatus, String> {
+    account_access::clear();
     let config = identity_config(root)?;
     let response = supabase_headers(
         identity_client()?.post(format!(
@@ -700,12 +766,14 @@ pub async fn complete_password_reset(
     )
     .send()
     .await;
+    account_access::clear();
     delete_credential(SESSION_CREDENTIAL)?;
     delete_credential(ENTITLEMENT_CREDENTIAL)?;
     Ok("密码已更新，请使用新密码登录".into())
 }
 
 pub async fn sign_out(root: &Path) -> Result<GateStatus, String> {
+    account_access::clear();
     if let (Ok(config), Some(session)) = (identity_config(root), load_session()?) {
         let _ = supabase_headers(
             identity_client()?
@@ -770,6 +838,20 @@ pub fn ensure_sidecar_allowed(root: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn client_config_rejects_server_keys() {
+        assert!(validate_client_api_key("sb_publishable_test").is_ok());
+        assert!(validate_client_api_key("sb_secret_test").is_err());
+        for (role, accepted) in [("anon", true), ("service_role", false)] {
+            let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(format!("{{\"role\":\"{role}\"}}"));
+            assert_eq!(
+                validate_client_api_key(&format!("header.{payload}.signature")).is_ok(),
+                accepted
+            );
+        }
+    }
 
     fn signing_key() -> SigningKey {
         SigningKey::from_bytes(&[7_u8; 32])

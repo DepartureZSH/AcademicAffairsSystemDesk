@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { confirm, open, save } from "@tauri-apps/plugin-dialog";
 import CalendarView from "./components/CalendarView.vue";
 import ConstraintsView from "./components/ConstraintsView.vue";
@@ -47,7 +47,6 @@ const password = ref("");
 const recoveryLink = ref("");
 const newPassword = ref("");
 const confirmNewPassword = ref("");
-const enterpriseKey = ref("");
 const gateError = ref("");
 const gateNotice = ref("");
 
@@ -78,7 +77,7 @@ const mockServices = computed(() => {
 
 const licenseExpiry = computed(() => {
   const expiresAt = gate.value?.license.expiresAt;
-  return expiresAt ? new Date(expiresAt * 1000).toLocaleString("zh-CN") : "尚未激活";
+  return expiresAt ? new Date(expiresAt * 1000).toLocaleString("zh-CN") : "尚未取得会员授权";
 });
 
 const pageTitle = computed(() => {
@@ -163,22 +162,6 @@ async function submitAuth() {
   }
 }
 
-async function activateLicense() {
-  if (!enterpriseKey.value.trim()) return;
-  gateBusy.value = true;
-  gateError.value = "";
-  try {
-    gate.value = await accessGate.activateLicense(enterpriseKey.value);
-    enterpriseKey.value = "";
-    gateNotice.value = "当前设备已激活，授权凭证已进入系统凭据库";
-    if (gate.value.canStartSidecar) await bootstrapWorkspace();
-  } catch (error) {
-    gateError.value = String(error);
-  } finally {
-    gateBusy.value = false;
-  }
-}
-
 async function openPurchasePage() {
   gateBusy.value = true;
   gateError.value = "";
@@ -202,7 +185,7 @@ async function signOut() {
     currentProject.value = null;
     activeView.value = "workspace";
     gate.value = await accessGate.signOut();
-    gateNotice.value = "已退出并清除本地登录会话与授权；设备私钥已保留";
+    gateNotice.value = "已退出并清除本地登录会话与会员校验状态";
   } catch (error) {
     gateError.value = String(error);
   } finally {
@@ -463,7 +446,35 @@ function applyRestoredProject(project: ProjectInfo, revision: number) {
   void refreshProjects();
 }
 
-onMounted(bootstrapGate);
+let membershipTimer: ReturnType<typeof setInterval> | undefined;
+let membershipChecking = false;
+async function checkRunningMembership() {
+  if (gateBusy.value || membershipChecking || !gate.value?.auth.authenticated) return;
+  membershipChecking = true;
+  try {
+    const next = await accessGate.status();
+    // Login/logout may have completed while the check was in flight.
+    if (gateBusy.value || gate.value?.auth.user?.id !== next.auth.user?.id) return;
+    gate.value = next;
+    if (!next.canStartSidecar) {
+      runtime.value = null;
+      health.value = null;
+      gateNotice.value = next.license.message ?? next.auth.message ?? "请重新检查会员权益";
+    }
+  } catch (error) {
+    if (!gateBusy.value && gate.value) {
+      gate.value = { ...gate.value, canStartSidecar: false, license: { ...gate.value.license, active: false } };
+      runtime.value = null;
+      health.value = null;
+      gateError.value = String(error);
+    }
+  } finally { membershipChecking = false; }
+}
+onMounted(() => {
+  void bootstrapGate();
+  membershipTimer = setInterval(() => { void checkRunningMembership(); }, 20_000);
+});
+onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
 </script>
 
 <template>
@@ -533,7 +544,7 @@ onMounted(bootstrapGate);
         <article class="auth-card">
           <p class="eyebrow">SUPABASE AUTH</p>
           <h2>{{ authMode === "signin" ? "登录时奕桌面版" : authMode === "signup" ? "注册账号" : authMode === "reset" ? "申请重置密码" : "设置新密码" }}</h2>
-          <p class="form-copy">邮箱密码用于确认账号身份；激活设备时还需要企业密钥。</p>
+          <p class="form-copy">使用网页版的同一账号登录，会员权益自动核验。</p>
           <form @submit.prevent="submitAuth">
             <template v-if="authMode !== 'recover'">
               <label for="auth-email">邮箱</label>
@@ -565,30 +576,27 @@ onMounted(bootstrapGate);
         </article>
         <aside class="security-card">
           <p class="eyebrow">PRIVACY BOUNDARY</p><h2>身份联网，教务离线</h2>
-          <ul><li>Supabase 仅接收账号认证与许可证请求。</li><li>学校、教师、班级、课程和课表不上传。</li><li>登录令牌和设备私钥不进入 WebView。</li></ul>
+          <ul><li>Supabase 验证账号，项目 API 核验会员权益。</li><li>学校、教师、班级、课程和课表不上传。</li><li>登录令牌保存在系统凭据库，不进入 WebView。</li></ul>
         </aside>
       </section>
 
       <section v-else-if="!gate.license.active" class="auth-layout">
         <article class="auth-card">
-          <p class="eyebrow">DEVICE ACTIVATION</p><h2>激活当前设备</h2>
-          <p class="form-copy">已登录 {{ gate.auth.user?.email }}。请输入该购买账号收到的企业密钥。</p>
-          <form @submit.prevent="activateLicense">
-            <label for="enterprise-key">企业密钥</label>
-            <input id="enterprise-key" v-model="enterpriseKey" type="password" autocomplete="off" required />
-            <p v-if="gate.license.deviceId" class="device-copy">设备指纹：{{ gate.license.deviceId }}</p>
+          <p class="eyebrow">ACCOUNT MEMBERSHIP</p><h2>账号会员权益</h2>
+          <p class="form-copy">已登录 {{ gate.auth.user?.email }}。</p>
+          <form @submit.prevent="bootstrapGate">
             <p v-if="gateError" class="form-message error-copy">{{ gateError }}</p>
             <p v-else-if="gate.license.message" class="form-message notice-copy">{{ gate.license.message }}</p>
-            <button class="primary-button full-button" :disabled="gateBusy || !enterpriseKey.trim()">{{ gateBusy ? "正在验证…" : "验证并激活" }}</button>
+            <button class="primary-button full-button" :disabled="gateBusy">{{ gateBusy ? "正在核验…" : "重新检查会员权益" }}</button>
           </form>
           <div class="auth-actions purchase-actions">
-            <span>尚未购买年度许可证？</span>
+            <span>尚未开通会员？</span>
             <button class="link-button" :disabled="gateBusy" @click="openPurchasePage">在系统浏览器购买</button>
           </div>
         </article>
         <aside class="security-card">
-          <p class="eyebrow">LICENSE POLICY</p><h2>年度授权 · 最多 {{ gate.license.deviceLimit }} 台设备</h2>
-          <ul><li>企业密钥只在首次激活时提交。</li><li>设备私钥保存在 Windows Credential Manager。</li><li>Mock 授权有效期 7 天，正式服务由 Ed25519 JWS 签发。</li></ul>
+          <p class="eyebrow">ACCOUNT POLICY</p><h2>同一账号，共享会员权益</h2>
+          <ul><li>无需激活码或单独购买桌面许可证。</li><li>账号邮箱须已验证，会员须在有效期内。</li><li>当前版本需要联网核验会员，不支持离线授权。</li></ul>
         </aside>
       </section>
 

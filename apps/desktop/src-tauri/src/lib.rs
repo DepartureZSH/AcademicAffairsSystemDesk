@@ -1,4 +1,5 @@
 mod access_gate;
+mod account_access;
 mod app_updates;
 mod purchase;
 
@@ -208,6 +209,8 @@ fn start_sidecar(
     state: State<'_, Mutex<SidecarManager>>,
     workspace_path: Option<String>,
 ) -> Result<RuntimeStatus, String> {
+    let root = runtime_root(&app)?;
+    access_gate::ensure_sidecar_allowed(&root)?;
     let mut manager = state.lock();
     if let Some(runtime) = manager.runtime.as_mut() {
         if matches!(runtime.child.try_wait(), Ok(None)) {
@@ -216,8 +219,6 @@ fn start_sidecar(
         manager.runtime = None;
     }
 
-    let root = runtime_root(&app)?;
-    access_gate::ensure_sidecar_allowed(&root)?;
     let launch = sidecar_launch(&root)?;
     let services_config = root.join("config/services.yaml");
     if !services_config.is_file() {
@@ -314,7 +315,11 @@ fn start_sidecar(
 
 #[tauri::command]
 async fn access_gate_status(app: AppHandle) -> Result<access_gate::GateStatus, String> {
-    access_gate::status(&runtime_root(&app)?).await
+    let result = access_gate::status(&runtime_root(&app)?).await;
+    if !result.as_ref().is_ok_and(|gate| gate.can_start_sidecar) {
+        terminate_managed_sidecar(&app);
+    }
+    result
 }
 
 #[tauri::command]
@@ -462,10 +467,15 @@ fn validate_proxy_request(request: &ProxyRequest) -> Result<Method, String> {
 
 #[tauri::command]
 async fn sidecar_request(
+    app: AppHandle,
     state: State<'_, Mutex<SidecarManager>>,
     request: ProxyRequest,
 ) -> Result<Value, String> {
     let method = validate_proxy_request(&request)?;
+    if let Err(error) = access_gate::ensure_sidecar_allowed(&runtime_root(&app)?) {
+        terminate_managed_sidecar(&app);
+        return Err(error);
+    }
     let (url, token) = {
         let manager = state.lock();
         let runtime = manager.runtime.as_ref().ok_or("本地服务尚未启动")?;
