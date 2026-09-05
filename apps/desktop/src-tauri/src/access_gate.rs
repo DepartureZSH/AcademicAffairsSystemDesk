@@ -201,16 +201,42 @@ fn identity_config(root: &Path) -> Result<IdentityConfig, String> {
         .env
         .get("publishable_key")
         .ok_or("Supabase 身份服务缺少 publishable_key 环境变量引用")?;
-    let publishable_key =
-        std::env::var(variable).map_err(|_| format!("尚未配置环境变量 {variable}"))?;
-    if publishable_key.trim().is_empty() {
-        return Err(format!("环境变量 {variable} 为空"));
-    }
-    validate_client_api_key(&publishable_key)?;
+    let runtime_key = match std::env::var(variable) {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(_) => return Err(format!("环境变量 {variable} 编码无效")),
+    };
+    let embedded_key = if variable == "STT_SUPABASE_PUBLISHABLE_KEY" {
+        option_env!("STT_SUPABASE_PUBLISHABLE_KEY")
+    } else {
+        None
+    };
+    let publishable_key = resolve_client_api_key(runtime_key, embedded_key, &endpoint)?;
     Ok(IdentityConfig {
         endpoint: endpoint.trim_end_matches('/').into(),
         publishable_key,
     })
+}
+
+fn resolve_client_api_key(
+    runtime_key: Option<String>,
+    embedded_key: Option<&str>,
+    endpoint: &str,
+) -> Result<String, String> {
+    // The bundled public key belongs only to the production Supabase instance.
+    let key = runtime_key.or_else(|| {
+        (endpoint.trim_end_matches('/') == "https://supabase.karios.tech")
+            .then_some(embedded_key)
+            .flatten()
+            .map(str::to_owned)
+    });
+    let key = key.ok_or("未配置 Supabase 客户端 Key，请安装完整发行版或配置开发环境变量")?;
+    let key = key.trim();
+    if key.is_empty() {
+        return Err("Supabase 客户端 Key 为空".into());
+    }
+    validate_client_api_key(key)?;
+    Ok(key.to_owned())
 }
 
 fn validate_client_api_key(key: &str) -> Result<(), String> {
@@ -838,6 +864,37 @@ pub fn ensure_sidecar_allowed(root: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bundled_public_key_is_used_without_runtime_configuration() {
+        let endpoint = "https://supabase.karios.tech/";
+        assert_eq!(
+            resolve_client_api_key(None, Some("sb_publishable_bundled"), endpoint).unwrap(),
+            "sb_publishable_bundled"
+        );
+        assert_eq!(
+            resolve_client_api_key(
+                Some("sb_publishable_local".into()),
+                Some("sb_publishable_bundled"),
+                endpoint
+            )
+            .unwrap(),
+            "sb_publishable_local"
+        );
+        for endpoint in ["http://127.0.0.1:55421", "https://another.example.com"] {
+            assert!(
+                resolve_client_api_key(None, Some("sb_publishable_bundled"), endpoint).is_err()
+            );
+        }
+        assert!(resolve_client_api_key(None, None, endpoint).is_err());
+        assert!(resolve_client_api_key(None, Some("sb_secret_invalid"), endpoint).is_err());
+        assert!(resolve_client_api_key(
+            Some(String::new()),
+            Some("sb_publishable_bundled"),
+            endpoint
+        )
+        .is_err());
+    }
 
     #[test]
     fn client_config_rejects_server_keys() {
