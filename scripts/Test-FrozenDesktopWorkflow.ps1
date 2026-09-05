@@ -166,7 +166,7 @@ try {
     if ($health.status -ne 'ok' -or $health.protocolVersion -ne '1') {
         throw '冻结 Sidecar 健康或协议版本检查失败。'
     }
-    if ($health.serviceModes.identity -ne 'real' -or $health.serviceModes.license -ne 'mock') {
+    if ($health.serviceModes.identity -ne 'real' -or $health.serviceModes.license -ne 'real') {
         throw '冻结 Sidecar 未加载预期的服务模式配置。'
     }
     Write-Output 'PASS 冻结 Sidecar 启动、鉴权与服务模式'

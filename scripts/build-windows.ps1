@@ -97,6 +97,10 @@ try {
 }
 finally { Pop-Location }
 
+$desktopExecutable = Join-Path $desktopDirectory 'src-tauri\target\release\karios-stt-desktop.exe'
+& (Join-Path $PSScriptRoot 'Test-WindowsGuiExecutable.ps1') -Path $desktopExecutable
+if ($LASTEXITCODE -ne 0) { throw '桌面主程序 Windows GUI 子系统验证失败。' }
+
 $bundleDirectory = Join-Path $desktopDirectory 'src-tauri\target\release\bundle'
 $selectedDirectories = if ($Bundle -eq 'all') {
     @('nsis', 'msi')
