@@ -31,7 +31,7 @@ sysinfo = { version = "=0.39.6", default-features = false, features = ["system"]
 tauri = { version = "=2.11.5", features = [] }
 tauri-plugin-dialog = "=2.7.2"
 tauri-plugin-opener = "=2.5.4"
-tauri-plugin-updater = "=2.10.1"
+tauri-plugin-updater = "=2.11.0"
 
 [dev-dependencies]
 minisign-verify = "=0.2.5"
