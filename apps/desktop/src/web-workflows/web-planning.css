@@ -1171,13 +1171,14 @@ section.web-planning { padding: 20px; }
 
 /* Desktop reading density: keep the web flow, with readable text and real card gutters. */
 section.web-planning.planning-guided-page { padding: 24px; background: #fff; border: 1px solid #dfe7e2; border-radius: 12px; font-size: 14px; line-height: 1.6; }
-.web-planning.planning-guided-page .planning-class-workbench { gap: 20px; }
+.web-planning.planning-guided-page .planning-class-workbench { gap: 20px; border: 0; border-radius: 0; box-shadow: none; }
 .web-planning.planning-guided-page .official-class-flow { padding: 20px; gap: 16px; border-radius: 10px; }
 .web-planning .official-class-flow h3 { margin: 10px 0 6px; font-size: 18px; line-height: 1.5; font-weight: 600; }
 .web-planning .official-class-flow p { font-size: 14px; line-height: 1.7; color: #52665d; }
 .web-planning .official-flow-badge { font-size: 12px; line-height: 1.6; padding: 4px 10px; font-weight: 600; }
-.web-planning .official-flow-steps { gap: 10px; }
-.web-planning .official-flow-steps > div { padding: 12px; gap: 10px; }
+.web-planning.planning-guided-page .official-flow-steps { gap: 10px; border: 0; background: transparent; box-shadow: none; }
+.web-planning.planning-guided-page .official-flow-steps > div { padding: 12px; gap: 10px; border: 0; background: transparent; box-shadow: none; }
+.web-planning.planning-guided-page .official-flow-steps > div.active { border: 0; background: #fff4e2; box-shadow: none; }
 .web-planning .official-flow-steps strong { font-size: 14px; line-height: 1.5; font-weight: 600; }
 .web-planning .official-flow-steps small { font-size: 12px; line-height: 1.6; margin-top: 3px; }
 .web-planning .class-flow-progress { min-width: 120px; padding: 12px; background: #f5f8f6; border-radius: 8px; }
@@ -1185,6 +1186,9 @@ section.web-planning.planning-guided-page { padding: 24px; background: #fff; bor
 .web-planning .class-flow-progress span { font-size: 12px; line-height: 1.6; }
 .web-planning .planning-filter-bar { padding: 16px 20px; border-radius: 10px; }
 .web-planning .planning-filter-heading strong { font-size: 15px; font-weight: 600; }
+/* Toolbar actions must not inherit the global form-submit top margin. */
+.web-planning .planning-filter-actions > button,
+.web-planning .class-overview-filters > button { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: 40px; min-height: 40px; margin: 0; padding: 0 14px; gap: 6px; line-height: 20px; white-space: nowrap; }
 .web-planning.planning-guided-page .planning-class-panel { padding: 20px; border: 1px solid #dfe7e2; border-radius: 10px; background: #fff; }
 .web-planning .table-title h3 { margin: 0 0 6px; font-size: 17px; line-height: 1.5; font-weight: 600; }
 .web-planning .table-title span { font-size: 13px; line-height: 1.6; }

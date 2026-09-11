@@ -2634,6 +2634,12 @@
 /* The current editor uses a drawer, not a duplicate inline inspector. */
 .web-timetable .preview-inspector.inline-inspector { display: none; }
 
+/* No sidebar remains in this editor; override the legacy two-column layout. */
+.web-timetable .timetable-settings-layout {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
 /* Do not inherit the legacy template form's 10px label font in text inputs. */
 .web-timetable .template-form > label:first-child {
   font-size: 13px;

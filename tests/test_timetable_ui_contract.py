@@ -36,3 +36,10 @@ def test_planning_choices_remain_mutually_exclusive_and_disable_reuse() -> None:
     assert component.count('type="radio"') == 2
     assert component.count('name="template-planning-mode"') == 2
     assert ':disabled="disabled || !canReuse"' in component
+
+
+def test_timetable_editor_uses_full_content_width() -> None:
+    authored = (ROOT / "scripts/web-timetable-ui-overrides.css").read_text(encoding="utf-8")
+    rule = authored.split('.web-timetable .timetable-settings-layout {', 1)[1].split('}', 1)[0]
+    assert 'grid-template-columns: minmax(0, 1fr);' in rule
+    assert 'min-width: 0;' in rule
