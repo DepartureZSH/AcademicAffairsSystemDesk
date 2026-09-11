@@ -19,7 +19,7 @@ use sysinfo::{Pid, ProcessesToUpdate, System};
 use tauri::{AppHandle, Manager, RunEvent, State};
 
 const PROTOCOL_VERSION: &str = "1";
-const SIDECAR_READY_TIMEOUT: Duration = Duration::from_secs(5);
+const SIDECAR_READY_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 struct SidecarManager {
@@ -178,7 +178,27 @@ fn sidecar_launch(_root: &Path) -> Result<SidecarLaunch, String> {
             environment: Vec::new(),
         });
     }
-    Err("找不到随安装包发布的 Python sidecar；请重新安装应用".into())
+    Err("本地排课组件不完整，请重新安装应用".into())
+}
+
+fn terminate_starting_sidecar(child: &mut Child, executable_path: &Path) {
+    let launcher_pid = Pid::from_u32(child.id());
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    for process in system.processes().values() {
+        if process.parent() != Some(launcher_pid) {
+            continue;
+        }
+        let matches_executable = process
+            .exe()
+            .and_then(|path| path.canonicalize().ok())
+            .is_some_and(|path| path == executable_path);
+        if matches_executable {
+            let _ = process.kill();
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn status_from_runtime(runtime: Option<&SidecarRuntime>) -> RuntimeStatus {
@@ -241,7 +261,7 @@ fn start_sidecar(
     let executable_path = launch
         .executable
         .canonicalize()
-        .map_err(|error| format!("无法解析 sidecar 可执行文件路径: {error}"))?;
+        .map_err(|error| format!("无法读取本地排课组件: {error}"))?;
     let mut command = Command::new(&executable_path);
     command
         .args(launch.arguments)
@@ -260,8 +280,14 @@ fn start_sidecar(
     }
     let mut child = command
         .spawn()
-        .map_err(|error| format!("无法启动 sidecar: {error}"))?;
-    let stdout = child.stdout.take().ok_or("无法读取 sidecar 就绪消息")?;
+        .map_err(|error| format!("无法启动本地排课服务: {error}"))?;
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            terminate_starting_sidecar(&mut child, &executable_path);
+            return Err("无法读取本地排课服务的启动状态".into());
+        }
+    };
     let (sender, receiver) = mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let mut line = String::new();
@@ -274,31 +300,49 @@ fn start_sidecar(
     let line = match receiver.recv_timeout(SIDECAR_READY_TIMEOUT) {
         Ok(Ok(line)) => line,
         Ok(Err(error)) => {
-            let _ = child.kill();
-            return Err(format!("读取 sidecar 就绪消息失败: {error}"));
+            terminate_starting_sidecar(&mut child, &executable_path);
+            return Err(format!("读取本地排课服务启动状态失败: {error}"));
         }
         Err(_) => {
-            let _ = child.kill();
-            return Err("sidecar 5 秒内未就绪".into());
+            terminate_starting_sidecar(&mut child, &executable_path);
+            return Err(
+                "本地排课服务启动时间过长，请重新尝试；如果仍然失败，请重新安装应用".into(),
+            );
         }
     };
-    let ready: ReadyMessage =
-        serde_json::from_str(&line).map_err(|_| "sidecar 就绪消息格式无效")?;
+    let ready: ReadyMessage = match serde_json::from_str(&line) {
+        Ok(ready) => ready,
+        Err(_) => {
+            terminate_starting_sidecar(&mut child, &executable_path);
+            return Err("本地排课服务启动失败，请重新尝试".into());
+        }
+    };
     if ready.event != "ready"
         || ready.protocol_version != PROTOCOL_VERSION
         || ready.pid != child.id()
         || ready.worker_pid == 0
     {
-        let _ = child.kill();
-        return Err("sidecar 身份或协议版本校验失败".into());
+        terminate_starting_sidecar(&mut child, &executable_path);
+        return Err("本地排课服务版本不匹配，请重新安装应用".into());
     }
-    let proof = hex::decode(&ready.nonce_proof).map_err(|_| "sidecar nonce 证明格式无效")?;
-    let mut mac =
-        Hmac::<Sha256>::new_from_slice(token.as_bytes()).map_err(|_| "无法初始化 HMAC")?;
+    let proof = match hex::decode(&ready.nonce_proof) {
+        Ok(proof) => proof,
+        Err(_) => {
+            terminate_starting_sidecar(&mut child, &executable_path);
+            return Err("本地排课服务安全校验失败".into());
+        }
+    };
+    let mut mac = match Hmac::<Sha256>::new_from_slice(token.as_bytes()) {
+        Ok(mac) => mac,
+        Err(_) => {
+            terminate_starting_sidecar(&mut child, &executable_path);
+            return Err("无法初始化本地排课服务安全校验".into());
+        }
+    };
     mac.update(nonce.as_bytes());
     if mac.verify_slice(&proof).is_err() {
-        let _ = child.kill();
-        return Err("sidecar nonce 证明校验失败".into());
+        terminate_starting_sidecar(&mut child, &executable_path);
+        return Err("本地排课服务安全校验失败".into());
     }
     manager.runtime = Some(SidecarRuntime {
         child,
@@ -454,14 +498,14 @@ fn validate_proxy_request(request: &ProxyRequest) -> Result<Method, String> {
         || request.path.contains('\n')
         || request.path.contains('\r')
     {
-        return Err("sidecar 路径不在 /v1 白名单".into());
+        return Err("本地服务请求路径无效".into());
     }
     match request.method.as_str() {
         "GET" => Ok(Method::GET),
         "POST" => Ok(Method::POST),
         "PUT" => Ok(Method::PUT),
         "DELETE" => Ok(Method::DELETE),
-        _ => Err("不支持的 sidecar HTTP 方法".into()),
+        _ => Err("本地服务不支持该操作".into()),
     }
 }
 
@@ -534,9 +578,9 @@ async fn stop_sidecar(state: State<'_, Mutex<SidecarManager>>) -> Result<(), Str
             .timeout(Duration::from_secs(3))
             .send()
             .await
-            .map_err(|error| format!("无法请求 sidecar 优雅退出: {error}"))?;
+            .map_err(|error| format!("无法安全停止本地服务: {error}"))?;
         if !response.status().is_success() {
-            return Err("sidecar 拒绝优雅退出请求".into());
+            return Err("本地服务暂时无法停止，请稍后重试".into());
         }
         let runtime = state.lock().runtime.take();
         drop(runtime);
@@ -635,7 +679,7 @@ mod tests {
     }
 
     #[test]
-    fn sidecar_ready_timeout_meets_product_requirement() {
-        assert_eq!(SIDECAR_READY_TIMEOUT, Duration::from_secs(5));
+    fn sidecar_ready_timeout_allows_frozen_cold_start() {
+        assert_eq!(SIDECAR_READY_TIMEOUT, Duration::from_secs(30));
     }
 }

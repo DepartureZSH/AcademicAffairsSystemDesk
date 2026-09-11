@@ -99,7 +99,7 @@ async function toggleRetained(item: BackupRecord) {
 
 async function restore(source: { backup_id?: string; archive_path?: string }, displayPath: string) {
   const accepted = await confirm(
-    `将从以下备份恢复为一个新的本地项目副本，不覆盖当前项目：\n\n${displayPath}\n\n恢复前会重新校验 ZIP 路径、文件哈希、SQLite 完整性和数据结构版本。是否继续？`,
+    `将从以下备份恢复为一个新的本地项目副本，不覆盖当前项目：\n\n${displayPath}\n\n恢复前会检查备份完整性和兼容性。是否继续？`,
     { title: "确认恢复备份", kind: "warning" },
   );
   if (!accepted) return;

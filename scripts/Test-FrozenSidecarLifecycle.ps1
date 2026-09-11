@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$SidecarPath = 'apps/desktop/src-tauri/binaries/stt-sidecar-x86_64-pc-windows-msvc.exe'
+    [string]$SidecarPath = 'apps/desktop/src-tauri/binaries/stt-sidecar-x86_64-pc-windows-msvc.exe',
+    [int]$StartupTimeoutSeconds = 30
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,7 +61,7 @@ try {
         }
     }
 
-    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    $deadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     while ([DateTime]::UtcNow -lt $deadline) {
         if (Test-Path -LiteralPath $stdout -PathType Leaf) {
             $line = Get-Content -LiteralPath $stdout -TotalCount 1 -ErrorAction SilentlyContinue
@@ -74,7 +75,7 @@ try {
     }
     if (-not $ready) {
         $errorText = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue
-        throw "冻结 sidecar 未在 5 秒内就绪: $errorText"
+        throw "冻结 sidecar 未在 $StartupTimeoutSeconds 秒内就绪: $errorText"
     }
     if ([int]$ready.pid -ne $process.Id) {
         throw "启动器 PID 不匹配: expected=$($process.Id), actual=$($ready.pid)"

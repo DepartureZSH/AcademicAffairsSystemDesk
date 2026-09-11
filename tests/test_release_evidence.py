@@ -181,8 +181,19 @@ def test_application_version_is_consistent_across_build_systems() -> None:
         tauri["version"],
     }
 
-    assert versions == {"0.1.6"}
-    assert 'APP_VERSION = "0.1.6"' in project_source
+    assert versions == {"0.1.7"}
+    assert 'APP_VERSION = "0.1.7"' in project_source
+
+
+def test_end_user_login_view_avoids_implementation_jargon() -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "apps" / "desktop" / "src" / "App.vue").read_text(encoding="utf-8")
+
+    assert "Supabase" not in source
+    assert "WebView" not in source
+    assert "STT_SUPABASE_PUBLISHABLE_KEY" not in source
+    assert "账号联网，教务数据留在本机" in source
+    assert "登录状态由系统安全保存" in source
 
 
 def test_release_desktop_uses_windows_gui_subsystem() -> None:
@@ -220,10 +231,10 @@ def test_frozen_sidecar_windows_metadata_matches_tauri_product() -> None:
 
     rendered = VERSION_INFO_MODULE.render_version_info(config)
 
-    assert "filevers=(0, 1, 6, 0)" in rendered
-    assert "prodvers=(0, 1, 6, 0)" in rendered
+    assert "filevers=(0, 1, 7, 0)" in rendered
+    assert "prodvers=(0, 1, 7, 0)" in rendered
     assert "StringStruct('ProductName', '时奕教务排课')" in rendered
-    assert "StringStruct('ProductVersion', '0.1.6')" in rendered
+    assert "StringStruct('ProductVersion', '0.1.7')" in rendered
     assert "StringStruct('CompanyName', '杭州格若时科技有限公司')" in rendered
     assert "StringStruct('OriginalFilename', 'stt-sidecar.exe')" in rendered
 

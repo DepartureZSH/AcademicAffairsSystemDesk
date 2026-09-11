@@ -16,7 +16,7 @@ from typing import Any, Mapping
 from .schema import MIGRATIONS, SCHEMA_V1, SCHEMA_VERSION
 
 FORMAT_VERSION = 1
-APP_VERSION = "0.1.6"
+APP_VERSION = "0.1.7"
 ALGORITHM_PROTOCOL_VERSION = "1"
 
 

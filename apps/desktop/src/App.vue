@@ -65,16 +65,6 @@ const updateBusy = ref(false);
 const availableUpdate = ref<UpdateStatus | null>(null);
 const preferredWorkspacePath = ref(savedWorkspacePath() ?? "");
 
-const mockServices = computed(() => {
-  const serviceModes = health.value?.serviceModes;
-  if (serviceModes) {
-    return Object.entries(serviceModes)
-      .filter(([, mode]) => mode === "mock")
-      .map(([name]) => name);
-  }
-  return gate.value?.license.mode === "mock" ? ["license"] : [];
-});
-
 const licenseExpiry = computed(() => {
   const expiresAt = gate.value?.license.expiresAt;
   return expiresAt ? new Date(expiresAt * 1000).toLocaleString("zh-CN") : "尚未取得会员授权";
@@ -502,8 +492,7 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
         <span class="status-dot" :class="runtime?.running ? 'online' : 'offline'"></span>
         <div>
           <strong>{{ runtime?.running ? "本地服务已连接" : "本地服务未启动" }}</strong>
-          <small v-if="runtime?.port">随机端口 · {{ runtime.port }}</small>
-          <small v-else>{{ gate?.license.active ? "等待本地服务" : "等待身份与授权" }}</small>
+          <small>{{ runtime?.running ? "可开始使用" : gate?.license.active ? "正在准备" : "等待登录" }}</small>
         </div>
       </div>
     </aside>
@@ -511,12 +500,11 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
     <section class="content">
       <header class="topbar">
         <div>
-          <p class="eyebrow">LOCAL-FIRST SCHEDULING</p>
+          <p class="eyebrow">本地排课</p>
           <h1>{{ pageTitle }}</h1>
         </div>
         <div class="topbar-badges">
           <span class="badge secure">教务数据仅在本机</span>
-          <span v-if="mockServices.length" class="badge mock">模拟服务：{{ mockServices.join(" / ") }}</span>
           <span v-if="gate?.auth.user" class="badge account">{{ gate.auth.user.email }}</span>
           <button v-if="gate?.canStartSidecar" class="text-button" :disabled="updateBusy" @click="checkForUpdate">{{ updateBusy ? "检查中…" : "检查更新" }}</button>
           <button v-if="availableUpdate?.available" class="text-button" :disabled="updateBusy" @click="installUpdate">安装 {{ availableUpdate.version }}</button>
@@ -525,24 +513,24 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
       </header>
 
       <div v-if="gateBusy && !gate" class="state-panel">
-        <div class="spinner"></div><h2>正在检查身份与设备授权</h2><p>令牌和设备私钥只从系统凭据库读取…</p>
+        <div class="spinner"></div><h2>正在检查登录状态和会员权益</h2><p>请稍候…</p>
       </div>
 
       <AboutView v-else-if="activeView === 'about'" />
 
       <section v-else-if="!gate?.auth.configured" class="auth-layout">
         <article class="auth-card warning-card">
-          <p class="eyebrow">CONFIGURATION REQUIRED</p>
-          <h2>Supabase 身份服务尚未配置</h2>
+          <p class="eyebrow">应用配置异常</p>
+          <h2>登录服务暂时不可用</h2>
           <p>{{ gate?.auth.message ?? gateError }}</p>
-          <p>开发环境请设置 `STT_SUPABASE_PUBLISHABLE_KEY`，密钥值不要写入仓库或日志。</p>
+          <p>请确认安装的是完整发行版；如果问题持续出现，请重新安装或联系技术支持。</p>
           <button class="primary-button" @click="bootstrapGate">重新检查</button>
         </article>
       </section>
 
       <section v-else-if="!gate.auth.authenticated" class="auth-layout">
         <article class="auth-card">
-          <p class="eyebrow">SUPABASE AUTH</p>
+          <p class="eyebrow">账号登录</p>
           <h2>{{ authMode === "signin" ? "登录时奕桌面版" : authMode === "signup" ? "注册账号" : authMode === "reset" ? "申请重置密码" : "设置新密码" }}</h2>
           <p class="form-copy">使用网页版的同一账号登录，会员权益自动核验。</p>
           <form @submit.prevent="submitAuth">
@@ -575,14 +563,14 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
           </div>
         </article>
         <aside class="security-card">
-          <p class="eyebrow">PRIVACY BOUNDARY</p><h2>身份联网，教务离线</h2>
-          <ul><li>Supabase 验证账号，项目 API 核验会员权益。</li><li>学校、教师、班级、课程和课表不上传。</li><li>登录令牌保存在系统凭据库，不进入 WebView。</li></ul>
+          <p class="eyebrow">隐私说明</p><h2>账号联网，教务数据留在本机</h2>
+          <ul><li>使用时奕账号登录并核验会员权益。</li><li>学校、教师、班级、课程和课表仅保存在这台电脑。</li><li>登录状态由系统安全保存。</li></ul>
         </aside>
       </section>
 
       <section v-else-if="!gate.license.active" class="auth-layout">
         <article class="auth-card">
-          <p class="eyebrow">ACCOUNT MEMBERSHIP</p><h2>账号会员权益</h2>
+          <p class="eyebrow">会员权益</p><h2>账号会员权益</h2>
           <p class="form-copy">已登录 {{ gate.auth.user?.email }}。</p>
           <form @submit.prevent="bootstrapGate">
             <p v-if="gateError" class="form-message error-copy">{{ gateError }}</p>
@@ -595,7 +583,7 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
           </div>
         </article>
         <aside class="security-card">
-          <p class="eyebrow">ACCOUNT POLICY</p><h2>同一账号，共享会员权益</h2>
+          <p class="eyebrow">会员说明</p><h2>同一账号，共享会员权益</h2>
           <ul><li>无需激活码或单独购买桌面许可证。</li><li>账号邮箱须已验证，会员须在有效期内。</li><li>当前版本需要联网核验会员，不支持离线授权。</li></ul>
         </aside>
       </section>
@@ -610,7 +598,7 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
       <BackupsView v-else-if="activeView === 'backups' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" @project-restored="applyRestoredProject" />
       <template v-else>
         <div v-if="workspaceBusy && !runtime" class="state-panel">
-          <div class="spinner"></div><h2>正在启动安全本地服务</h2><p>校验随机端口、一次性令牌和项目工作目录…</p>
+          <div class="spinner"></div><h2>正在准备本地工作区</h2><p>首次启动可能需要十几秒，请稍候…</p>
         </div>
         <div v-else-if="workspaceError" class="state-panel error-panel">
           <h2>本地服务启动失败</h2><p>{{ workspaceError }}</p><button class="primary-button" @click="bootstrapWorkspace">重新尝试</button>
@@ -619,15 +607,15 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
           <section class="hero-card">
             <div>
               <p class="eyebrow">工作目录</p><h2>建立或打开一个本地排课项目</h2>
-              <p>每个项目使用独立 SQLite、附件与备份目录。账号和授权服务不会接收教务数据。</p>
+              <p>每个项目的资料、附件和备份均保存在所选文件夹中，教务数据不会上传。</p>
               <div class="hero-actions">
                 <button class="secondary-button" :disabled="workspaceBusy" @click="selectWorkspaceDirectory">选择工作目录</button>
                 <button v-if="currentProject" class="text-button" :disabled="workspaceBusy" @click="closeCurrentProject">关闭当前项目</button>
               </div>
             </div>
             <dl>
-              <div><dt>协议</dt><dd>v{{ health?.protocolVersion }}</dd></div>
-              <div><dt>数据结构</dt><dd>Schema {{ health?.schemaVersion }}</dd></div>
+              <div><dt>本地服务</dt><dd>v{{ health?.protocolVersion }}</dd></div>
+              <div><dt>数据版本</dt><dd>{{ health?.schemaVersion }}</dd></div>
               <div><dt>授权到期</dt><dd>{{ licenseExpiry }}</dd></div>
               <div><dt>工作区</dt><dd class="path-value">{{ runtime?.workspacePath ?? "应用数据目录" }}</dd></div>
             </dl>

@@ -180,13 +180,10 @@ fn identity_config(root: &Path) -> Result<IdentityConfig, String> {
     let config = load_config(root)?;
     let identity = service(&config, "identity")?;
     if identity.mode != "real" {
-        return Err("当前桌面身份模块只允许 real Supabase Auth".into());
+        return Err("登录服务配置无效".into());
     }
-    let endpoint = identity
-        .endpoint
-        .clone()
-        .ok_or("Supabase 身份服务缺少 endpoint")?;
-    let parsed = reqwest::Url::parse(&endpoint).map_err(|_| "Supabase endpoint 格式无效")?;
+    let endpoint = identity.endpoint.clone().ok_or("登录服务地址未配置")?;
+    let parsed = reqwest::Url::parse(&endpoint).map_err(|_| "登录服务地址格式无效")?;
     let loopback = parsed.host_str().is_some_and(|host| {
         host.eq_ignore_ascii_case("localhost")
             || host
@@ -195,16 +192,16 @@ fn identity_config(root: &Path) -> Result<IdentityConfig, String> {
                 .unwrap_or(false)
     });
     if parsed.scheme() != "https" && !(parsed.scheme() == "http" && loopback) {
-        return Err("Supabase 身份服务必须使用 HTTPS；仅本机回环开发环境可使用 HTTP".into());
+        return Err("登录服务地址未使用安全连接".into());
     }
     let variable = identity
         .env
         .get("publishable_key")
-        .ok_or("Supabase 身份服务缺少 publishable_key 环境变量引用")?;
+        .ok_or("登录服务客户端配置不完整")?;
     let runtime_key = match std::env::var(variable) {
         Ok(value) => Some(value),
         Err(std::env::VarError::NotPresent) => None,
-        Err(_) => return Err(format!("环境变量 {variable} 编码无效")),
+        Err(_) => return Err("登录服务配置无法读取，请重新安装应用".into()),
     };
     let embedded_key = if variable == "STT_SUPABASE_PUBLISHABLE_KEY" {
         option_env!("STT_SUPABASE_PUBLISHABLE_KEY")
@@ -230,10 +227,10 @@ fn resolve_client_api_key(
             .flatten()
             .map(str::to_owned)
     });
-    let key = key.ok_or("未配置 Supabase 客户端 Key，请安装完整发行版或配置开发环境变量")?;
+    let key = key.ok_or("登录服务配置未随发行版提供，请重新安装应用")?;
     let key = key.trim();
     if key.is_empty() {
-        return Err("Supabase 客户端 Key 为空".into());
+        return Err("登录服务配置为空，请重新安装应用".into());
     }
     validate_client_api_key(key)?;
     Ok(key.to_owned())
@@ -253,10 +250,7 @@ fn validate_client_api_key(key: &str) -> Result<(), String> {
             }
         }
     }
-    Err(
-        "桌面端只能配置 Supabase publishable 或 Legacy anon key，禁止使用 secret/service_role 密钥"
-            .into(),
-    )
+    Err("登录服务配置类型无效".into())
 }
 
 fn license_config(root: &Path) -> Result<LicenseConfig, String> {
@@ -324,7 +318,10 @@ fn load_session() -> Result<Option<StoredSession>, String> {
 }
 
 fn store_session(response: SupabaseSessionResponse) -> Result<StoredSession, String> {
-    let email = response.user.email.ok_or("Supabase 用户缺少邮箱")?;
+    let email = response
+        .user
+        .email
+        .ok_or("账号信息缺少邮箱，请重新登录或联系技术支持")?;
     let session = StoredSession {
         access_token: response.access_token,
         refresh_token: response.refresh_token,
@@ -385,8 +382,8 @@ fn recovery_token(config: &IdentityConfig, recovery_link: &str) -> Result<String
     if trimmed.is_empty() || trimmed.len() > 8_192 {
         return Err("密码恢复链接为空或过长".into());
     }
-    let endpoint = reqwest::Url::parse(&config.endpoint)
-        .map_err(|_| "Supabase endpoint 格式无效".to_string())?;
+    let endpoint =
+        reqwest::Url::parse(&config.endpoint).map_err(|_| "登录服务地址格式无效".to_string())?;
     let link = reqwest::Url::parse(trimmed).map_err(|_| "密码恢复链接格式无效".to_string())?;
     let same_origin = link.scheme() == endpoint.scheme()
         && link.host_str() == endpoint.host_str()
@@ -547,7 +544,7 @@ fn current_license_status(root: &Path, auth: &AuthStatus) -> Result<LicenseStatu
             expires_at: None,
             device_id: None,
             device_limit: config.device_limit,
-            message: Some("请先登录 Supabase 账号".into()),
+            message: Some("请先登录时奕账号".into()),
         });
     }
     if config.mode == "real" {
@@ -817,7 +814,7 @@ pub async fn sign_out(root: &Path) -> Result<GateStatus, String> {
 
 pub async fn activate(root: &Path, enterprise_key: String) -> Result<GateStatus, String> {
     let auth = current_auth_status(root).await?;
-    let user = auth.user.as_ref().ok_or("请先登录 Supabase 账号")?;
+    let user = auth.user.as_ref().ok_or("请先登录时奕账号")?;
     let config = license_config(root)?;
     if config.mode != "mock" {
         return Err("真实许可证激活接口尚未接入".into());
