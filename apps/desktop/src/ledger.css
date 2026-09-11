@@ -1,0 +1,84 @@
+/* Ledger typography and field alignment follow the web edition. */
+.ledger-page > .school-data-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "title totals" "description description";
+  align-items: center;
+  gap: 8px 24px;
+  margin-bottom: 20px;
+}
+.ledger-page .school-data-heading h2 { grid-area: title; font-size: 22px; font-weight: 600; }
+.ledger-page .school-data-heading > p { grid-area: description; margin: 0; color: #63736c; font-size: 13px; line-height: 1.6; }
+.ledger-page .school-data-totals { grid-area: totals; gap: 18px; flex-wrap: wrap; }
+.ledger-page .school-data-totals > div { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.ledger-page .school-data-totals dt { font-size: 12px; color: #66736f; }
+.ledger-page .school-data-totals dd { margin: 0; font-size: 16px; font-weight: 600; }
+.ledger-page .data-workbench { grid-template-columns: 212px minmax(0, 1fr); min-height: 540px; }
+.ledger-page .subnav { display: flex; flex-direction: column; gap: 8px; padding: 14px 10px; }
+.ledger-page .subnav button { min-height: 78px; gap: 10px; padding: 12px 10px; border: 1px solid transparent; }
+.ledger-page .subnav button.active { border-color: #a7c9bb; background: #edf6f1; }
+.ledger-page .subnav button > div { display: grid; gap: 5px; min-width: 0; }
+.ledger-page .subnav button strong { font-size: 14px; font-weight: 600; color: #293e35; }
+.ledger-page .subnav button span { font-size: 12px; font-weight: 400; color: #687b71; line-height: 1.5; white-space: normal; }
+.ledger-page .subnav button em { display: grid; place-items: center; flex: 0 0 auto; min-width: 30px; height: 30px; padding: 0 6px; border-radius: 16px; background: #e8eee9; color: #42715d; font-size: 12px; font-style: normal; font-weight: 600; }
+.ledger-page .subnav button.active em { background: #2f7d6d; color: white; }
+.ledger-page .data-table-panel { padding: 22px; }
+.ledger-page .data-table-title h3 { font-size: 18px; font-weight: 600; }
+.ledger-page .data-table-title p { font-size: 13px; line-height: 1.6; }
+.ledger-page .ledger-create-button { min-width: 82px; min-height: 36px; font-size: 13px; font-weight: 600; }
+.ledger-page .table-toolbar { flex-wrap: wrap; gap: 10px 18px; margin: 18px 0 14px; }
+.ledger-page .search-field { flex: 1 1 220px; min-width: 0; max-width: 420px; min-height: 38px; }
+.ledger-page .search-field > span { flex-shrink: 0; padding-left: 12px; color: #6c7e73; font-size: 13px; }
+.ledger-page .search-field input { font-size: 13px; }
+.ledger-page .search-field:focus-within { border-color: #2f7d6d; box-shadow: 0 0 0 3px #2f7d6d12; }
+.ledger-page .table-count { margin-left: auto; color: #6c7e73; font-size: 12px; }
+.ledger-table-scroll { overflow-x: auto; border: 1px solid #e1e7e2; border-radius: 7px; }
+.ledger-page .data-table { table-layout: fixed; min-width: 640px; font-family: inherit; font-size: 13px; line-height: 1.5; letter-spacing: 0; }
+.ledger-page .data-table th, .ledger-page .data-table td { padding: 12px; vertical-align: middle; overflow-wrap: anywhere; }
+.ledger-page .data-table th { height: 44px; color: #54675c; background: #f4f7f3; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.ledger-page .data-table td { height: 56px; color: #2b3b35; font-size: 13px; font-weight: 400; }
+.ledger-page .data-table tbody tr:nth-child(even) td { background: #fbfcfa; }
+.ledger-page .data-table tbody tr:hover td { background: #f0f7f3; }
+.ledger-page .data-table tbody tr:last-child td { border-bottom: 0; }
+.ledger-page .data-table td.ledger-name-cell { font-weight: 600; }
+.ledger-page .data-table .ledger-number-column { width: 124px; text-align: right; font-variant-numeric: tabular-nums; }
+.ledger-page .data-table .ledger-status-column { width: 90px; text-align: center; }
+.ledger-page .data-table .ledger-detail-column { width: 112px; text-align: center; }
+.ledger-page .ledger-detail-button { min-width: 82px; min-height: 34px; padding: 6px 10px; border: 1px solid #cdded6; border-radius: 6px; background: #f3f8f5; color: #245f51; font-size: 13px; line-height: 1.4; font-weight: 500; white-space: nowrap; }
+.ledger-page .ledger-detail-button:hover { background: #e9f4ef; border-color: #74a898; }
+.ledger-page .ledger-muted, .ledger-page .data-table td.ledger-muted { color: #79877e; }
+.ledger-tag-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.ledger-tag { max-width: 100%; padding: 3px 7px; border: 1px solid #dbe7df; border-radius: 5px; background: #f0f5f1; color: #486452; font-size: 12px; overflow-wrap: anywhere; }
+.ledger-status { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 5px; color: #2f7159; background: #eaf4ed; font-size: 12px; white-space: nowrap; }
+.ledger-status::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.ledger-status.inactive { color: #756b63; background: #f0eeeb; }
+.ledger-page .empty-state { font-size: 13px; gap: 8px; line-height: 1.6; }
+.ledger-page .pagination-controls { display: flex; justify-content: flex-end; margin-top: 18px; }
+.ledger-page .pagination-controls span { font-size: 12px; }
+.ledger-detail-modal .modal-header { padding: 20px 24px; align-items: start; }
+.ledger-detail-modal .modal-header span { color: #61776a; font-size: 12px; }
+.ledger-detail-modal .modal-header h3 { margin: 4px 0; font-size: 20px; font-weight: 600; }
+.ledger-detail-modal .modal-header p { margin: 0; font-size: 13px; color: #6c7e73; }
+.ledger-detail-modal .icon-button { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; }
+.ledger-detail-modal .icon-button:hover { background: #f0f3ef; }
+.ledger-detail-modal .ledger-detail-form { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 20px; padding: 24px; }
+.ledger-detail-modal .ledger-detail-form label { gap: 7px; font-size: 13px; font-weight: 500; color: #455d4e; }
+.ledger-detail-modal .ledger-detail-form input, .ledger-detail-modal .ledger-detail-form select { min-height: 40px; font-size: 14px; font-weight: 400; color: #293e33; }
+.ledger-detail-modal .ledger-detail-form .check-label { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+.ledger-detail-modal .ledger-detail-form .check-label input { width: 16px; height: 16px; min-height: 0; accent-color: #2f7d6d; }
+.ledger-detail-modal .ledger-form-actions { border-top: 1px solid #e3e8e2; padding-top: 18px; margin-top: 4px; }
+.ledger-detail-modal .ledger-form-actions button { min-height: 36px; font-size: 13px; }
+.ledger-detail-modal .ledger-form-actions .danger-button { order: -1; margin-right: auto; }
+.ledger-form-notice { grid-column: 1 / -1; margin: 0; }
+@media (max-width: 1150px) {
+  .ledger-page .data-workbench { grid-template-columns: 180px minmax(0, 1fr); }
+  .ledger-page .data-table-panel { padding: 18px; }
+}
+@media (max-width: 1050px) {
+  .ledger-page .data-workbench { grid-template-columns: 1fr; }
+  .ledger-page .subnav { flex-direction: row; }
+  .ledger-page .subnav button { flex: 1 0 170px; min-height: 68px; }
+}
+@media (max-width: 640px) {
+  .ledger-detail-modal .ledger-detail-form { grid-template-columns: 1fr; padding: 20px; }
+}

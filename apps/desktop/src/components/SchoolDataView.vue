@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { formatLocalError, localApi, type EntityRecord } from "../lib/sidecar";
+import "../ledger.css";
 
 const props = withDefaults(defineProps<{ revision: number; mode?: "school" | "rooms" }>(), { mode: "school" });
 const emit = defineEmits<{ revision: [value: number] }>();
@@ -61,13 +62,23 @@ const visibleKinds = computed(() => props.mode === "rooms"
   ? kinds.filter((kind) => kind.key === "room_type" || kind.key === "room")
   : kinds.filter((kind) => kind.key === "teacher" || kind.key === "homeroom" || kind.key === "subject"));
 const activeLabel = computed(() => kinds.find((kind) => kind.key === activeType.value)?.label ?? "资料");
-const heading = computed(() => props.mode === "rooms" ? "教室设置" : "学校数据");
-const intro = computed(() => props.mode === "rooms" ? "维护教室类型、教室容量和使用状态。" : "维护教师、班级、年级和科目，与网页版使用相同的名称和顺序。");
+const intro = computed(() => props.mode === "rooms" ? "维护教室类型、教室容量和使用状态。" : "维护教师、班级和科目，供课程计划与排课使用。");
 const totalPages = computed(() => Math.max(1, Math.ceil((totals[activeType.value] ?? 0) / PAGE_SIZE)));
 
 function nameOf(type: string, id: unknown) {
-  if (!id) return "未关联";
+  if (!id) return "未指定";
   return (records[type] ?? []).find((item) => item.id === id)?.name ?? "未知记录";
+}
+
+const numberFormatter = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 });
+function formatCount(value: unknown) {
+  if (value === null || value === undefined || value === "") return "—";
+  const number = Number(value);
+  return Number.isFinite(number) ? numberFormatter.format(number) : "—";
+}
+
+function groupTags(value: unknown) {
+  return [...new Set(String(value ?? "").split(/[,，、;；\n]+/).map((tag) => tag.trim()).filter(Boolean))];
 }
 
 function subtitle(item: EntityRecord) {
@@ -216,7 +227,7 @@ onMounted(loadAll);
 </script>
 
 <template>
-  <section class="module-view master-data-panel">
+  <section class="module-view master-data-panel ledger-page">
     <header class="section-heading school-data-heading">
       <h2>{{ mode === "rooms" ? "教室设置" : "学校数据维护" }}</h2>
       <dl class="school-data-totals">
@@ -241,34 +252,48 @@ onMounted(loadAll);
 
       <article class="data-table-panel">
         <div class="table-title data-table-title"><div><h3>{{ activeLabel }}台账</h3><p>{{ mode === 'rooms' ? '课程计划会从这里选择可用教室。' : '后续课程计划和约束会从这里选择。' }}</p></div><button class="ledger-create-button" @click="createNew">新增</button></div>
-        <div class="table-toolbar"><label class="search-field"><span>搜索</span><input v-model="search" :placeholder="`搜索${activeLabel}`" /></label><span class="table-count">{{ activeRecords.length }} / {{ totals[activeType] ?? 0 }} 条</span></div>
+        <div class="table-toolbar"><label class="search-field"><span>搜索</span><input v-model="search" type="search" :placeholder="`搜索本页${activeLabel}`" /></label><span class="table-count">本页 {{ formatCount(activeRecords.length) }} 条 · 共 {{ formatCount(totals[activeType] ?? 0) }} 条</span></div>
+        <div class="ledger-table-scroll" role="region" :aria-label="`${activeLabel}台账，可横向滚动`" tabindex="0">
         <table class="data-table">
+          <caption class="visually-hidden">{{ activeLabel }}台账</caption>
           <thead><tr>
-            <template v-if="activeType === 'teacher'"><th>姓名</th><th>分组标签</th><th>状态</th></template>
-            <template v-else-if="activeType === 'homeroom'"><th>班级</th><th>人数</th><th>分组</th><th>班主任</th><th>默认教室</th></template>
-            <template v-else-if="activeType === 'subject'"><th>科目</th><th>默认课长</th><th>教室要求</th></template>
-            <template v-else-if="activeType === 'room'"><th>教室</th><th>类型</th><th>容量</th><th>状态</th></template>
-            <template v-else><th>类型</th><th>说明</th></template>
-            <th class="ledger-detail-column">详情</th>
+            <template v-if="activeType === 'teacher'"><th scope="col">姓名</th><th scope="col">分组标签</th><th scope="col" class="ledger-status-column">状态</th></template>
+            <template v-else-if="activeType === 'homeroom'"><th scope="col">班级</th><th scope="col" class="ledger-number-column">人数（人）</th><th scope="col">分组</th><th scope="col">班主任</th><th scope="col">默认教室</th></template>
+            <template v-else-if="activeType === 'subject'"><th scope="col">科目</th><th scope="col" class="ledger-number-column">默认课长（课时）</th><th scope="col">教室要求</th></template>
+            <template v-else-if="activeType === 'room'"><th scope="col">教室</th><th scope="col">类型</th><th scope="col" class="ledger-number-column">容量（人）</th><th scope="col" class="ledger-status-column">状态</th></template>
+            <template v-else><th scope="col">类型</th><th scope="col">说明</th></template>
+            <th scope="col" class="ledger-detail-column">详情</th>
           </tr></thead>
           <tbody><tr v-for="item in activeRecords" :key="item.id">
-            <template v-if="activeType === 'teacher'"><td><strong>{{ item.name }}</strong></td><td>{{ item.department || '未分组' }}</td><td>{{ item.status === 'inactive' ? '停用' : '在用' }}</td></template>
-            <template v-else-if="activeType === 'homeroom'"><td>{{ item.name }}</td><td>{{ item.student_count || '-' }}</td><td>{{ item.group_name || '未分组' }}</td><td>{{ nameOf('teacher', item.head_teacher_id) }}</td><td>{{ nameOf('room', item.default_room_id) }}</td></template>
-            <template v-else-if="activeType === 'subject'"><td>{{ item.name }}</td><td>{{ item.default_duration_slots || 1 }} 课时</td><td>{{ item.requires_special_room ? '需要专用教室' : '普通教室' }}</td></template>
-            <template v-else-if="activeType === 'room'"><td>{{ item.name }}</td><td>{{ nameOf('room_type', item.room_type_id) }}</td><td>{{ item.capacity || '-' }}</td><td>{{ item.status === 'inactive' ? '停用' : '在用' }}</td></template>
-            <template v-else><td>{{ item.name }}</td><td>{{ item.description || '-' }}</td></template>
-            <td class="ledger-detail-column"><button class="ledger-detail-button" @click="edit(item)">查看详情</button></td>
+            <template v-if="activeType === 'teacher'">
+              <td class="ledger-name-cell">{{ item.name }}</td>
+              <td><div v-if="groupTags(item.department).length" class="ledger-tag-list"><span v-for="tag in groupTags(item.department)" :key="tag" class="ledger-tag">{{ tag }}</span></div><span v-else class="ledger-muted">未分组</span></td>
+              <td class="ledger-status-column"><span class="ledger-status" :class="{ inactive: item.status === 'inactive' }">{{ item.status === 'inactive' ? '停用' : '在用' }}</span></td>
+            </template>
+            <template v-else-if="activeType === 'homeroom'">
+              <td class="ledger-name-cell">{{ item.name }}</td><td class="ledger-number-column">{{ formatCount(item.student_count) }}</td><td :class="{ 'ledger-muted': !item.group_name }">{{ item.group_name || '未分组' }}</td><td :class="{ 'ledger-muted': !item.head_teacher_id }">{{ nameOf('teacher', item.head_teacher_id) }}</td><td :class="{ 'ledger-muted': !item.default_room_id }">{{ nameOf('room', item.default_room_id) }}</td>
+            </template>
+            <template v-else-if="activeType === 'subject'">
+              <td class="ledger-name-cell">{{ item.name }}</td><td class="ledger-number-column">{{ formatCount(item.default_duration_slots ?? 1) }}</td><td>{{ Number(item.requires_special_room) ? '需要专用教室' : '普通教室' }}</td>
+            </template>
+            <template v-else-if="activeType === 'room'">
+              <td class="ledger-name-cell">{{ item.name }}</td><td :class="{ 'ledger-muted': !item.room_type_id }">{{ nameOf('room_type', item.room_type_id) }}</td><td class="ledger-number-column">{{ formatCount(item.capacity) }}</td><td class="ledger-status-column"><span class="ledger-status" :class="{ inactive: item.status === 'inactive' }">{{ item.status === 'inactive' ? '停用' : '在用' }}</span></td>
+            </template>
+            <template v-else><td class="ledger-name-cell">{{ item.name }}</td><td :class="{ 'ledger-muted': !item.description }">{{ item.description || '—' }}</td></template>
+            <td class="ledger-detail-column"><button class="ledger-detail-button" :aria-label="`查看${item.name}详情`" @click="edit(item)">查看详情</button></td>
           </tr></tbody>
         </table>
+        </div>
         <div v-if="activeRecords.length === 0" class="empty-state"><strong>没有匹配数据</strong><span>换一个关键词，或点击右上角“新增”录入{{ activeLabel }}。</span></div>
         <nav v-if="totalPages > 1" class="pagination-controls" aria-label="台账分页"><button :disabled="busy || page <= 1" @click="changePage(page - 1)">上一页</button><span>第 {{ page }} / {{ totalPages }} 页</span><button :disabled="busy || page >= totalPages" @click="changePage(page + 1)">下一页</button></nav>
       </article>
     </div>
 
     <div v-if="dialogOpen" class="modal-mask" @click.self="cancelEdit">
-      <section class="modal-panel ledger-detail-modal">
-        <header class="modal-header"><div><span>台账维护</span><h3>{{ editingId ? `编辑${activeLabel}` : `新增${activeLabel}` }}</h3><p>填写并确认资料后保存。</p></div><button class="icon-button" type="button" aria-label="关闭" @click="cancelEdit">×</button></header>
+      <section class="modal-panel ledger-detail-modal" role="dialog" aria-modal="true" aria-labelledby="ledger-dialog-title" @keydown.esc="cancelEdit">
+        <header class="modal-header"><div><span>台账维护</span><h3 id="ledger-dialog-title">{{ editingId ? `编辑${activeLabel}` : `新增${activeLabel}` }}</h3><p>填写并确认资料后保存。</p></div><button class="icon-button" type="button" aria-label="关闭" @click="cancelEdit">×</button></header>
         <form class="detail-form ledger-detail-form" @submit.prevent="createActive">
+          <p v-if="errorMessage" class="form-message error-copy ledger-form-notice" role="alert">{{ errorMessage }}</p>
           <template v-if="activeType === 'grade'">
             <label>年级名称<input v-model="forms.grade.name" placeholder="一年级" required /></label><label>代码<input v-model="forms.grade.code" placeholder="可选" /></label>
           </template>
