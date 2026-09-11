@@ -10,7 +10,7 @@ import {
   type TimetableEntry,
 } from "../lib/sidecar";
 
-const props = defineProps<{ revision: number }>();
+const props = withDefaults(defineProps<{ revision: number; embedded?: boolean }>(), { embedded: false });
 const emit = defineEmits<{ revision: [value: number] }>();
 
 const revision = ref(props.revision);
@@ -266,8 +266,9 @@ onMounted(loadBase);
 </script>
 
 <template>
-  <section class="module-view timetable-view">
-    <div class="module-heading"><div><p class="eyebrow">排课结果</p><h2>候选课表</h2><p>像网页版一样按班级、教师、年级或教室查看，也可以导出和手工调整。</p></div><span>已自动保存</span></div>
+  <section class="module-view timetable-view" :class="{ 'embedded-timetable': embedded }">
+    <div v-if="!embedded" class="module-heading"><div><p class="eyebrow">排课结果</p><h2>候选课表</h2><p>像网页版一样按班级、教师、年级或教室查看，也可以导出和手工调整。</p></div><span>已自动保存</span></div>
+    <h2 v-else class="embedded-timetable-title">候选课表</h2>
     <div v-if="basedOnOldData" class="invariant-banner stale-banner"><strong>项目资料已经更新</strong><span>这份课表仍可查看，建议使用最新资料重新运行自动排课。</span></div>
     <div v-if="selectedCandidate && !selectedCandidateIsValid" class="invariant-banner stale-banner"><strong>历史方案仅供查看</strong><span>这份方案不符合当前设置，不能调整或导出。</span></div>
     <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>

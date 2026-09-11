@@ -18,6 +18,9 @@ const rooms = ref<EntityRecord[]>([]);
 const roomTypes = ref<EntityRecord[]>([]);
 const busy = ref(false);
 const errorMessage = ref("");
+const selectedScheduleId = ref("");
+const openWeekday = ref(1);
+const slotEditorOpen = ref(false);
 
 const yearForm = ref({ name: "", start_date: "", end_date: "" });
 const termForm = ref({ academic_year_id: "", name: "", start_date: "", end_date: "", week_count: 20, day_count: 5 });
@@ -36,6 +39,42 @@ const assignmentOptions = computed(() => {
   if (assignmentForm.value.entity_type === "room_type") return roomTypes.value;
   return [];
 });
+const selectedSchedule = computed(() => schedules.value.find((item) => item.id === selectedScheduleId.value) ?? null);
+const weekdayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+
+function periodsForWeekday(day: number) {
+  return slots.value.filter((item) => item.bell_schedule_id === selectedScheduleId.value && Number(item.weekday) === day).sort((left, right) => Number(left.period_index) - Number(right.period_index));
+}
+
+function selectSchedule(id: string) {
+  const item = schedules.value.find((value) => value.id === id);
+  if (!item) return;
+  selectedScheduleId.value = id;
+  editSchedule(item);
+  slotForm.value.bell_schedule_id = id;
+  slotEditorOpen.value = false;
+}
+
+function newSchedule() {
+  editing.bell_schedule = null;
+  selectedScheduleId.value = "";
+  scheduleForm.value = { term_id: terms.value[0]?.id ?? "", name: "新课表模板", day_count: 5, slot_duration_minutes: 40, is_default: schedules.value.length ? 0 : 1 };
+}
+
+function addSlotForDay(day: number) {
+  const periods = periodsForWeekday(day);
+  const last = periods.at(-1);
+  const start = last ? Number(last.end_time_minutes) : 8 * 60;
+  openWeekday.value = day;
+  editing.time_slot = null;
+  slotEditorOpen.value = true;
+  slotForm.value = { bell_schedule_id: selectedScheduleId.value, weekday: day, period_index: periods.length, label: `第${periods.length + 1}节`, start_time: clock(start), end_time: clock(start + Number(selectedSchedule.value?.slot_duration_minutes ?? 40)) };
+}
+
+function cancelSlotEdit() {
+  editing.time_slot = null;
+  slotEditorOpen.value = false;
+}
 
 function minutes(value: string) {
   const [hour, minute] = value.split(":").map(Number);
@@ -76,6 +115,8 @@ async function loadAll() {
     subjects.value = subjectResult.items;
     rooms.value = roomResult.items;
     roomTypes.value = roomTypeResult.items;
+    if (!editing.term && terms.value.length) editTerm(terms.value[0]);
+    if (!selectedScheduleId.value && schedules.value.length) selectSchedule(schedules.value.find((item) => Number(item.is_default))?.id ?? schedules.value[0].id);
     revision.value = Math.max(...results.map((result) => result.revision));
     emit("revision", revision.value);
   } catch (error) {
@@ -111,6 +152,8 @@ async function remove(entityType: string, item: EntityRecord) {
     const result = await localApi.deleteEntity(entityType, item.id, revision.value);
     revision.value = result.revision;
     emit("revision", revision.value);
+    if (entityType === "bell_schedule" && item.id === selectedScheduleId.value) selectedScheduleId.value = "";
+    if (entityType === "time_slot" && item.id === editing.time_slot) slotEditorOpen.value = false;
     await loadAll();
   } catch (error) {
     errorMessage.value = formatLocalError(error);
@@ -127,16 +170,18 @@ async function createYear() {
 }
 
 async function createTerm() {
+  const savedName = termForm.value.name;
   if (await save("term", { ...termForm.value, active: 1, ...(editing.term ? { id: editing.term } : {}) })) {
-    termForm.value = { academic_year_id: "", name: "", start_date: "", end_date: "", week_count: 20, day_count: 5 };
-    editing.term = null;
+    const saved = terms.value.find((item) => item.name === savedName);
+    if (saved) editTerm(saved);
   }
 }
 
 async function createSchedule() {
+  const savedName = scheduleForm.value.name;
   if (await save("bell_schedule", { ...scheduleForm.value, display_config: "{}", ...(editing.bell_schedule ? { id: editing.bell_schedule } : {}) })) {
-    scheduleForm.value = { term_id: "", name: "", day_count: 5, slot_duration_minutes: 40, is_default: 1 };
-    editing.bell_schedule = null;
+    const saved = schedules.value.find((item) => item.name === savedName);
+    if (saved) selectSchedule(saved.id);
   }
 }
 
@@ -155,6 +200,7 @@ async function createSlot() {
     ...(editing.time_slot ? { id: editing.time_slot } : {}),
   })) {
     editing.time_slot = null;
+    slotEditorOpen.value = false;
     slotForm.value.period_index += 1;
     slotForm.value.label = `第${slotForm.value.period_index + 1}节`;
   }
@@ -197,84 +243,41 @@ function editTerm(item: EntityRecord) {
 function editSchedule(item: EntityRecord) {
   scheduleForm.value = { term_id: String(item.term_id ?? ""), name: String(item.name), day_count: Number(item.day_count), slot_duration_minutes: Number(item.slot_duration_minutes), is_default: Number(item.is_default) };
   editing.bell_schedule = item.id;
+  selectedScheduleId.value = item.id;
 }
 
 function editSlot(item: EntityRecord) {
   slotForm.value = { bell_schedule_id: String(item.bell_schedule_id), weekday: Number(item.weekday), period_index: Number(item.period_index), label: String(item.label), start_time: clock(item.start_time_minutes), end_time: clock(item.end_time_minutes) };
   editing.time_slot = item.id;
+  slotEditorOpen.value = true;
+  openWeekday.value = Number(item.weekday);
 }
 
 onMounted(loadAll);
 </script>
 
 <template>
-  <section class="module-view">
-    <div class="module-heading">
-      <div><p class="eyebrow">排课准备 · 第 1 步</p><h2>课表设置</h2><p>先设置学期，再录入每天上课的节次时间。</p></div>
-      <span>已自动保存</span>
-    </div>
+  <section class="module-view master-data-panel">
+    <header class="section-heading timetable-section-heading"><div><h2 title="设置学期范围、课次规划和候选课表导出样式">课表设置</h2></div><div class="master-summary"><label class="term-summary-editor"><span>学期周数</span><input v-model.number="termForm.week_count" type="number" min="1" max="60" /><em>周</em></label><span>每周 7 天</span><span>模板 {{ schedules.length }}</span><span>节次 {{ slots.length }}</span></div></header>
     <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>
 
-    <div class="module-grid">
-      <article class="panel data-panel">
-        <h3>学年</h3>
-        <form class="compact-form" @submit.prevent="createYear">
-          <input v-model="yearForm.name" placeholder="如：2026-2027学年" required />
-          <input v-model="yearForm.start_date" type="date" />
-          <input v-model="yearForm.end_date" type="date" />
-          <button class="primary-button" :disabled="busy">{{ editing.academic_year ? "更新学年" : "新增学年" }}</button>
-        </form>
-        <div class="data-list"><div v-for="item in years" :key="item.id" class="data-row"><span><strong>{{ item.name }}</strong><small>{{ item.start_date || "未设日期" }} 至 {{ item.end_date || "未设日期" }}</small></span><div class="row-actions"><button @click="editYear(item)">编辑</button><button class="danger-action" @click="remove('academic_year', item)">删除</button></div></div></div>
-      </article>
+    <div class="timetable-settings-layout">
+      <div class="template-editor settings-card">
+        <div class="settings-editor-header"><div><h3 title="课次规划会用于课程计划、排课运行和课表导出">周课程表模板</h3></div><div class="template-actions"><button class="secondary-button" @click="newSchedule">新建</button><button v-if="selectedSchedule" class="secondary-button danger-button" :disabled="busy" @click="remove('bell_schedule', selectedSchedule)">删除当前模板</button><button class="primary-button" :disabled="busy" @click="createSchedule">保存</button></div></div>
+        <div v-if="schedules.length" class="template-project-list"><div class="template-project-list-heading"><strong>本项目模板</strong><span>{{ schedules.length }} 个模板</span></div><div class="project-template-stack"><button v-for="item in schedules" :key="item.id" class="project-template-card" :class="{ active: selectedScheduleId === item.id, 'is-default': item.is_default }" @click="selectSchedule(item.id)"><span class="project-template-marker">{{ item.is_default ? '默' : '模' }}</span><span class="project-template-copy"><strong>{{ item.name }}</strong><small>{{ item.is_default ? '项目默认模板' : '普通模板' }}</small></span><span>{{ selectedScheduleId === item.id ? '当前编辑' : '打开编辑' }}</span></button></div></div>
+        <div v-if="!schedules.length && !editing.bell_schedule" class="template-empty-state"><strong>暂无课表模板</strong><button class="primary-button" @click="newSchedule">新建第一个模板</button></div>
+        <form v-if="editing.bell_schedule || !schedules.length || scheduleForm.name" class="template-form" @submit.prevent="createSchedule"><label>模板名称<input v-model="scheduleForm.name" placeholder="默认周课程表" required /></label><div class="template-form-options"><label class="check-label"><input v-model="scheduleForm.is_default" type="checkbox" :true-value="1" :false-value="0" />设为默认模板</label></div></form>
 
-      <article class="panel data-panel">
-        <h3>学期</h3>
-        <form class="compact-form" @submit.prevent="createTerm">
-          <select v-model="termForm.academic_year_id"><option value="">不关联学年</option><option v-for="item in years" :key="item.id" :value="item.id">{{ item.name }}</option></select>
-          <input v-model="termForm.name" placeholder="如：第一学期" required />
-          <div class="inline-fields"><input v-model="termForm.start_date" type="date" /><input v-model="termForm.end_date" type="date" /></div>
-          <div class="inline-fields"><label>周数<input v-model.number="termForm.week_count" type="number" min="1" max="60" /></label><label>上课日<input v-model.number="termForm.day_count" type="number" min="1" max="7" /></label></div>
-          <button class="primary-button" :disabled="busy">{{ editing.term ? "更新学期" : "新增学期" }}</button>
-        </form>
-        <div class="data-list"><div v-for="item in terms" :key="item.id" class="data-row"><span><strong>{{ item.name }}</strong><small>{{ item.week_count }} 周 · 每周 {{ item.day_count }} 天</small></span><div class="row-actions"><button @click="editTerm(item)">编辑</button><button class="danger-action" @click="remove('term', item)">删除</button></div></div></div>
-      </article>
+        <div v-if="selectedSchedule" class="weekday-visibility-strip" aria-label="选择周课程表显示的星期"><button v-for="(label, index) in weekdayLabels" :key="label" :class="{ active: periodsForWeekday(index + 1).length }" @click="openWeekday = index + 1">{{ label }}</button></div>
+        <div v-if="selectedSchedule" class="weekday-drawers"><section v-for="(label, index) in weekdayLabels" :key="label" class="weekday-drawer" :class="{ open: openWeekday === index + 1 }"><button class="weekday-drawer-header" @click="openWeekday = openWeekday === index + 1 ? 0 : index + 1"><span>{{ label }}</span><small>{{ periodsForWeekday(index + 1).length }} 节</small><strong>{{ openWeekday === index + 1 ? '收起' : '展开' }}</strong></button><div v-if="openWeekday === index + 1" class="weekday-drawer-body"><div class="weekday-period-list"><div v-for="period in periodsForWeekday(index + 1)" :key="period.id" class="weekday-period-row"><strong>{{ period.label }}</strong><span>{{ clock(period.start_time_minutes) }}</span><span>{{ clock(period.end_time_minutes) }}</span><button class="secondary-button" @click="editSlot(period)">编辑</button><button class="danger-button" @click="remove('time_slot', period)">删除</button></div></div><button class="secondary-button" @click="addSlotForDay(index + 1)">新增{{ label }}节次</button></div></section></div>
 
-      <article class="panel data-panel">
-        <h3>作息表</h3>
-        <form class="compact-form" @submit.prevent="createSchedule">
-          <select v-model="scheduleForm.term_id"><option value="">不关联学期</option><option v-for="item in terms" :key="item.id" :value="item.id">{{ item.name }}</option></select>
-          <input v-model="scheduleForm.name" placeholder="如：常规作息" required />
-          <div class="inline-fields"><label>上课日<input v-model.number="scheduleForm.day_count" type="number" min="1" max="7" /></label><label>基础分钟<input v-model.number="scheduleForm.slot_duration_minutes" type="number" min="5" max="240" /></label></div>
-          <button class="primary-button" :disabled="busy">{{ editing.bell_schedule ? "更新作息表" : "新增作息表" }}</button>
-        </form>
-        <div class="data-list"><div v-for="item in schedules" :key="item.id" class="data-row"><span><strong>{{ item.name }}</strong><small>{{ item.day_count }} 天 · {{ item.slot_duration_minutes }} 分钟</small></span><div class="row-actions"><button @click="editSchedule(item)">编辑</button><button class="danger-action" @click="remove('bell_schedule', item)">删除</button></div></div></div>
-      </article>
+        <form v-if="selectedSchedule && slotEditorOpen" class="period-inline-editor" @submit.prevent="createSlot"><strong>{{ editing.time_slot ? '编辑课次' : '新增课次' }}</strong><input v-model="slotForm.label" placeholder="课次名称" required /><input v-model="slotForm.start_time" type="time" required /><input v-model="slotForm.end_time" type="time" required /><button class="primary-button" :disabled="busy">保存课次</button><button type="button" class="secondary-button" @click="cancelSlotEdit">取消</button></form>
+      </div>
 
-      <article class="panel data-panel">
-        <h3>课节</h3>
-        <form class="compact-form" @submit.prevent="createSlot">
-          <select v-model="slotForm.bell_schedule_id" required><option value="" disabled>选择作息表</option><option v-for="item in schedules" :key="item.id" :value="item.id">{{ item.name }}</option></select>
-          <div class="inline-fields"><label>星期<input v-model.number="slotForm.weekday" type="number" min="1" max="7" /></label><label>序号<input v-model.number="slotForm.period_index" type="number" min="0" /></label></div>
-          <input v-model="slotForm.label" placeholder="课节名称" required />
-          <div class="inline-fields"><input v-model="slotForm.start_time" type="time" required /><input v-model="slotForm.end_time" type="time" required /></div>
-          <button class="primary-button" :disabled="busy">{{ editing.time_slot ? "更新课节" : "新增课节" }}</button>
-        </form>
-        <div class="data-list tall-list"><div v-for="item in slots" :key="item.id" class="data-row"><span><strong>周{{ item.weekday }} · {{ item.label }}</strong><small>{{ clock(item.start_time_minutes) }}–{{ clock(item.end_time_minutes) }}</small></span><div class="row-actions"><button @click="editSlot(item)">编辑</button><button class="danger-action" @click="remove('time_slot', item)">删除</button></div></div></div>
-      </article>
-
-      <article class="panel data-panel">
-        <h3>作息模板分配</h3>
-        <form class="compact-form" @submit.prevent="saveAssignment">
-          <select v-model="assignmentForm.entity_type" @change="assignmentForm.entity_id = ''">
-            <option value="homeroom">班级</option><option value="teacher">教师</option><option value="subject">科目</option><option value="room">教室</option><option value="room_type">教室类型</option><option value="all">全局回退</option>
-          </select>
-          <select v-if="assignmentForm.entity_type !== 'all'" v-model="assignmentForm.entity_id" required><option value="" disabled>选择分配对象</option><option v-for="item in assignmentOptions" :key="item.id" :value="item.id">{{ item.name }}</option></select>
-          <select v-model="assignmentForm.bell_schedule_id" required><option value="" disabled>选择作息表</option><option v-for="item in schedules" :key="item.id" :value="item.id">{{ item.name }}</option></select>
-          <button class="primary-button" :disabled="busy">保存分配</button>
-          <small>排课优先级：班级 → 教师 → 科目 → 全局 → 默认作息。教室分配用于对应课表展示。</small>
-        </form>
-        <div class="data-list tall-list"><div v-for="item in assignments" :key="item.id" class="data-row"><span><strong>{{ assignmentEntityName(item) }}</strong><small>{{ item.entity_type }} · {{ scheduleName(item.bell_schedule_id) }}</small></span><div class="row-actions"><button class="danger-action" @click="remove('timetable_template_assignment', item)">删除</button></div></div></div>
-      </article>
+      <aside class="timetable-side-settings">
+        <article class="settings-card"><div class="settings-editor-header"><div><h3>学期设置</h3><p>设置当前项目使用的学期和周数。</p></div></div><form class="detail-form" @submit.prevent="createTerm"><label>学期名称<input v-model="termForm.name" placeholder="第一学期" required /></label><label>学期周数<input v-model.number="termForm.week_count" type="number" min="1" max="60" /></label><button class="primary-button" :disabled="busy">保存学期设置</button></form><div class="compact-record-list"><button v-for="item in terms" :key="item.id" @click="editTerm(item)"><strong>{{ item.name }}</strong><span>{{ item.week_count }} 周</span></button></div></article>
+        <details class="settings-card advanced-details"><summary>模板分配</summary><form class="detail-form" @submit.prevent="saveAssignment"><label>分配对象<select v-model="assignmentForm.entity_type" @change="assignmentForm.entity_id = ''"><option value="homeroom">班级</option><option value="teacher">教师</option><option value="subject">科目</option><option value="room">教室</option><option value="room_type">教室类型</option><option value="all">全部</option></select></label><label v-if="assignmentForm.entity_type !== 'all'">具体对象<select v-model="assignmentForm.entity_id" required><option value="" disabled>选择对象</option><option v-for="item in assignmentOptions" :key="item.id" :value="item.id">{{ item.name }}</option></select></label><label>课表模板<select v-model="assignmentForm.bell_schedule_id" required><option value="" disabled>选择模板</option><option v-for="item in schedules" :key="item.id" :value="item.id">{{ item.name }}</option></select></label><button class="primary-button">保存分配</button></form><div class="compact-record-list"><div v-for="item in assignments" :key="item.id"><span>{{ assignmentEntityName(item) }} · {{ scheduleName(item.bell_schedule_id) }}</span><button class="danger-button" @click="remove('timetable_template_assignment', item)">删除</button></div></div></details>
+      </aside>
     </div>
   </section>
 </template>

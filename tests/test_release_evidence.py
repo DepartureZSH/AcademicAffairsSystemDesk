@@ -181,8 +181,8 @@ def test_application_version_is_consistent_across_build_systems() -> None:
         tauri["version"],
     }
 
-    assert versions == {"0.1.8"}
-    assert 'APP_VERSION = "0.1.8"' in project_source
+    assert versions == {"0.1.9"}
+    assert 'APP_VERSION = "0.1.9"' in project_source
 
 
 def test_end_user_login_view_avoids_implementation_jargon() -> None:
@@ -238,6 +238,46 @@ def test_primary_desktop_pages_avoid_internal_english_headings() -> None:
         assert jargon not in source
 
 
+def test_primary_desktop_pages_keep_web_workbench_structure_without_ai() -> None:
+    root = Path(__file__).resolve().parents[1]
+    component_root = root / "apps" / "desktop" / "src" / "components"
+    expected_markers = {
+        "CalendarView.vue": (
+            "timetable-settings-layout",
+            "template-editor settings-card",
+            "weekday-drawers",
+        ),
+        "SchoolDataView.vue": ("data-workbench", "subnav", "data-table-panel"),
+        "PlanningView.vue": (
+            "official-class-flow",
+            "planning-class-workbench",
+            "subject-plan-panel",
+        ),
+        "ConstraintsView.vue": (
+            "constraint-toolbar",
+            "constraint-workbench-v2",
+            "constraint-detail-panel",
+        ),
+        "SchedulingView.vue": (
+            "runs-dashboard",
+            "run-status-card",
+            "run-input-summary",
+            "validation-card",
+        ),
+    }
+
+    sources = {}
+    for filename, markers in expected_markers.items():
+        source = (component_root / filename).read_text(encoding="utf-8")
+        sources[filename] = source
+        for marker in markers:
+            assert marker in source
+
+    user_interface = "\n".join(source.split("<template>", 1)[-1] for source in sources.values())
+    assert "AI 助手" not in user_interface
+    assert "AI 生成" not in user_interface
+
+
 def test_release_desktop_uses_windows_gui_subsystem() -> None:
     root = Path(__file__).resolve().parents[1]
     main_source = (
@@ -273,10 +313,10 @@ def test_frozen_sidecar_windows_metadata_matches_tauri_product() -> None:
 
     rendered = VERSION_INFO_MODULE.render_version_info(config)
 
-    assert "filevers=(0, 1, 8, 0)" in rendered
-    assert "prodvers=(0, 1, 8, 0)" in rendered
+    assert "filevers=(0, 1, 9, 0)" in rendered
+    assert "prodvers=(0, 1, 9, 0)" in rendered
     assert "StringStruct('ProductName', '时奕教务排课')" in rendered
-    assert "StringStruct('ProductVersion', '0.1.8')" in rendered
+    assert "StringStruct('ProductVersion', '0.1.9')" in rendered
     assert "StringStruct('CompanyName', '杭州格若时科技有限公司')" in rendered
     assert "StringStruct('OriginalFilename', 'stt-sidecar.exe')" in rendered
 
