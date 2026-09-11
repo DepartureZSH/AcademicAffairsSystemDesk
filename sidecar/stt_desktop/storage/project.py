@@ -14,9 +14,10 @@ from collections.abc import Callable, Sequence
 from typing import Any, Mapping
 
 from .schema import MIGRATIONS, SCHEMA_V1, SCHEMA_VERSION
+from stt_desktop.lesson_config import parse_lesson_config
 
 FORMAT_VERSION = 1
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 ALGORITHM_PROTOCOL_VERSION = "1"
 
 
@@ -93,6 +94,8 @@ class EntitySpec:
     order_by: str
 
 
+LEDGER_TEMPLATE_TYPES = frozenset({"teacher", "homeroom", "room", "room_type"})
+
 ENTITY_SPECS: dict[str, EntitySpec] = {
     "academic_year": EntitySpec(
         "academic_years", frozenset({"name", "start_date", "end_date"}), frozenset({"name"}), "name"
@@ -119,7 +122,7 @@ ENTITY_SPECS: dict[str, EntitySpec] = {
         "grades", frozenset({"name", "code", "sort_order"}), frozenset({"name"}), "sort_order, name"
     ),
     "teacher": EntitySpec(
-        "teachers", frozenset({"employee_no", "name", "department", "status"}), frozenset({"name"}), "name"
+        "teachers", frozenset({"name", "department", "status"}), frozenset({"name"}), "name"
     ),
     "room_type": EntitySpec(
         "room_types", frozenset({"name", "code", "description"}), frozenset({"name"}), "name"
@@ -153,7 +156,7 @@ ENTITY_SPECS: dict[str, EntitySpec] = {
     ),
     "task_lesson": EntitySpec(
         "task_lessons",
-        frozenset({"teaching_task_id", "lesson_index", "duration_slots", "source_id", "week_bits", "day_bits", "label", "enabled"}),
+        frozenset({"teaching_task_id", "lesson_index", "duration_slots", "source_id", "week_bits", "day_bits", "label", "enabled", "planning_config"}),
         frozenset({"teaching_task_id", "lesson_index"}),
         "teaching_task_id, lesson_index",
     ),
@@ -410,7 +413,8 @@ class ProjectRepository:
         expected_revision: int,
     ) -> tuple[dict[str, Any], int]:
         spec = self._entity_spec(entity_type)
-        unknown = sorted(set(payload) - spec.fields - {"id"})
+        virtual_fields = {"export_template_id"} if entity_type in LEDGER_TEMPLATE_TYPES else set()
+        unknown = sorted(set(payload) - spec.fields - {"id"} - virtual_fields)
         if unknown:
             raise ProjectError(f"{entity_type} 包含未知字段: {', '.join(unknown)}")
         entity_id = str(payload.get("id") or uuid7())
@@ -432,10 +436,10 @@ class ProjectRepository:
         self._begin_write(expected_revision)
         try:
             if existing:
-                assignments = ", ".join(f"{key} = ?" for key in values)
+                assignments = "".join(f"{key} = ?, " for key in values)
                 parameters = [*values.values(), now, entity_id]
                 self.connection.execute(
-                    f"UPDATE {spec.table} SET {assignments}, updated_at = ? WHERE id = ?",  # noqa: S608
+                    f"UPDATE {spec.table} SET {assignments}updated_at = ? WHERE id = ?",  # noqa: S608
                     parameters,
                 )
             else:
@@ -446,6 +450,8 @@ class ProjectRepository:
                     f"INSERT INTO {spec.table} ({', '.join(columns)}) VALUES ({placeholders})",  # noqa: S608
                     parameters,
                 )
+            if "export_template_id" in payload:
+                self._save_ledger_template(entity_type, entity_id, payload["export_template_id"], now)
             revision = self._commit_write(now)
         except Exception:
             self.connection.execute("ROLLBACK")
@@ -599,6 +605,40 @@ class ProjectRepository:
         self._write_manifest_revision(revision, now)
         return counts, revision
 
+    def _save_ledger_template(
+        self, entity_type: str, entity_id: str, template_id: Any, now: str
+    ) -> None:
+        """Save the ledger's virtual field in the existing assignment table, atomically."""
+        if template_id is not None and (not isinstance(template_id, str) or not template_id):
+            raise ProjectError("导出模板须为有效模板，恢复默认请传入 null")
+        if template_id is not None:
+            template = self.get_entity("bell_schedule", template_id)
+            if not template:
+                raise ProjectError("所选导出模板不存在，请刷新后重新选择")
+            metadata = json.loads(template["display_config"] or "{}").get("_web_template", {})
+            if metadata.get("template_kind") == "special":
+                raise ProjectError("台账导出模板请选择普通课表模板，不能使用总课表模板")
+        existing = self.connection.execute(
+            "SELECT id FROM timetable_template_assignments WHERE entity_type = ? AND entity_id = ?",
+            (entity_type, entity_id),
+        ).fetchone()
+        if template_id is None:
+            self.connection.execute(
+                "DELETE FROM timetable_template_assignments WHERE entity_type = ? AND entity_id = ?",
+                (entity_type, entity_id),
+            )
+        elif existing:
+            self.connection.execute(
+                "UPDATE timetable_template_assignments SET bell_schedule_id = ?, updated_at = ? WHERE id = ?",
+                (template_id, now, existing["id"]),
+            )
+        else:
+            self.connection.execute(
+                "INSERT INTO timetable_template_assignments "
+                "(id, entity_type, entity_id, bell_schedule_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (uuid7(), entity_type, entity_id, template_id, now, now),
+            )
+
     def delete_entity(self, entity_type: str, entity_id: str, expected_revision: int) -> int:
         spec = self._entity_spec(entity_type)
         now = utc_now()
@@ -610,6 +650,11 @@ class ProjectRepository:
             )
             if cursor.rowcount != 1:
                 raise ProjectError(f"未找到要删除的 {entity_type}: {entity_id}")
+            if entity_type in LEDGER_TEMPLATE_TYPES:
+                self.connection.execute(
+                    "DELETE FROM timetable_template_assignments WHERE entity_type = ? AND entity_id = ?",
+                    (entity_type, entity_id),
+                )
             revision = self._commit_write(now)
         except Exception:
             self.connection.execute("ROLLBACK")
@@ -630,6 +675,7 @@ class ProjectRepository:
             "bell_schedule": ("display_config",),
             "time_slot": ("display_config",),
             "constraint": ("parameters",),
+            "task_lesson": ("planning_config",),
         }
         normalized = dict(values)
         for field in json_fields.get(entity_type, ()):
@@ -642,6 +688,11 @@ class ProjectRepository:
                 raise ProjectError(f"{entity_type}.{field} 必须是有效 JSON") from exc
             if not isinstance(parsed, dict):
                 raise ProjectError(f"{entity_type}.{field} 必须是 JSON 对象")
+            if field == 'planning_config':
+                try:
+                    parsed = parse_lesson_config(parsed)
+                except ValueError as exc:
+                    raise ProjectError(str(exc)) from exc
             normalized[field] = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
         return normalized
 

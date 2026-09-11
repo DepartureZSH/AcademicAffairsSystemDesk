@@ -16,7 +16,7 @@ def project_fixture(tmp_path: Path):
     project = workspace.create_project("2026 秋季排课")
     project.save_entity(
         "teacher",
-        {"employee_no": "T001", "name": "张老师", "department": "数学组"},
+        {"name": "张老师", "department": "数学组"},
         0,
     )
     attachment = project.project_directory / "attachments" / "导入说明.txt"
@@ -79,7 +79,7 @@ def test_save_as_creates_verified_editable_copy_and_removes_temporary_package(
             assert copy.list_entities("teacher")[0]["name"] == "张老师"
             copy.save_entity(
                 "teacher",
-                {"employee_no": "T002", "name": "李老师"},
+                {"name": "李老师"},
                 copy.revision,
             )
             assert len(copy.list_entities("teacher")) == 2

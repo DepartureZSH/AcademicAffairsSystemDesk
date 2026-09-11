@@ -8,6 +8,7 @@ from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
 
 from stt_desktop.scheduler_engine import run_cp_sat_v1
 from stt_desktop.storage.project import ProjectError, ProjectRepository, utc_now, uuid7
+from stt_desktop.lesson_config import parse_lesson_config, preferred_options
 
 
 SOLVER_VERSION = "stt-cp-sat-v1+desktop-1"
@@ -742,6 +743,7 @@ class SchedulingService:
         lesson_ids_by_task: dict[str, list[str]] = {}
         for lesson in lessons:
             task = task_by_id[lesson["teaching_task_id"]]
+            config = parse_lesson_config(lesson.get('planning_config', '{}'))
             schedule = schedule_for_task(task)
             slots = slots_by_schedule.get(str(schedule["id"]), []) if schedule else []
             label = "-".join(
@@ -794,18 +796,22 @@ class SchedulingService:
                     if not preference["required"]
                     and period_index not in preference["periods"]
                 )
-                time_attrs = {
-                    "days": _day_bits(weekday),
-                    "weeks": str(lesson.get("week_bits") or task.get("week_bits") or "1"),
-                    "start": str(slot["start_slot"]),
-                    "length": str(duration),
-                    "periodIndex": str(slot["period_index"]),
-                    "penalty": str(penalty),
-                }
-                SubElement(node, "time", time_attrs)
-                emitted_times.append((time_attrs, window_ids))
-                diagnostics["option_count"] += 1
-            candidate_rooms = self._candidate_rooms(task, homeroom_by_id, rooms, room_by_id)
+                for weeks, preference_penalty in preferred_options(config, slot['id'], window_ids,
+                        str(lesson.get('week_bits') or task.get('week_bits') or '1')):
+                    time_attrs = {
+                        "days": _day_bits(weekday), "weeks": weeks,
+                        "start": str(slot["start_slot"]), "length": str(duration),
+                        "periodIndex": str(slot["period_index"]), "penalty": str(penalty + preference_penalty),
+                    }
+                    SubElement(node, "time", time_attrs)
+                    emitted_times.append((time_attrs, window_ids))
+                    diagnostics["option_count"] += 1
+            candidate_rooms = (config['room_ids'] if config['room_mode'] == 'custom' else
+                               self._candidate_rooms(task, homeroom_by_id, rooms, room_by_id))
+            if any(room_id not in room_by_id for room_id in candidate_rooms):
+                diagnostics['errors'].append({'code': 'LESSON_ROOM_UNAVAILABLE', 'lessonId': lesson['id'],
+                                              'message': f'{label} 的课次教室不存在或已停用'})
+                candidate_rooms = [room_id for room_id in candidate_rooms if room_id in room_by_id]
             for room_id in candidate_rooms:
                 room_node = SubElement(node, "room", {"id": room_id, "penalty": "0"})
                 room_rules = [

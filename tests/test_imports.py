@@ -31,7 +31,6 @@ def test_csv_preview_mapping_confirm_and_pre_import_backup(tmp_path: Path) -> No
         service = ImportService(project, workspace)
         preview = service.preview_file(source_path=str(source), entity_type="teacher")
         assert preview["mapping"] == {
-            "教师工号": "employee_no",
             "教师姓名": "name",
             "部门": "department",
             "状态": "status",
@@ -39,7 +38,7 @@ def test_csv_preview_mapping_confirm_and_pre_import_backup(tmp_path: Path) -> No
         assert preview["canConfirm"]
         assert preview["rowCount"] == 2
         assert "allRecords" not in preview
-        assert preview["warnings"][0]["message"] == "未导入字段: 忽略备注"
+        assert preview["warnings"][0]["message"] == "未导入字段: 教师工号, 忽略备注"
         assert project.list_entities("teacher") == []
 
         result = service.confirm_import(preview["id"], expected_revision=0)
@@ -161,7 +160,7 @@ def test_localized_csv_and_xlsx_import_templates(tmp_path: Path) -> None:
             destination_path=str(xlsx_path),
         )
         assert csv_result["destinationPath"] == str(csv_path.resolve())
-        assert csv_path.read_text(encoding="utf-8-sig").startswith("工号,姓名,部门,状态")
+        assert csv_path.read_text(encoding="utf-8-sig").startswith("姓名,部门,状态")
         workbook = load_workbook(xlsx_path, read_only=True)
         assert workbook.sheetnames == ["导入模板", "字段说明"]
         assert workbook["导入模板"]["A1"].value == "班级名称"

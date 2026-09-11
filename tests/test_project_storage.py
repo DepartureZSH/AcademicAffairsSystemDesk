@@ -105,7 +105,7 @@ def test_crud_increments_revision_and_rejects_stale_write(tmp_path: Path) -> Non
     with workspace.create_project("版本测试") as project:
         teacher, revision = project.save_entity(
             "teacher",
-            {"name": "测试教师", "employee_no": "T-001", "department": "教务处"},
+            {"name": "测试教师", "department": "教务处"},
             expected_revision=0,
         )
         assert revision == 1
@@ -322,6 +322,8 @@ def _downgrade_fixture_to_v1(workspace: ProjectWorkspace) -> tuple[str, Path]:
     connection = sqlite3.connect(database_path)
     try:
         connection.execute("DROP TABLE timetable_template_assignments")
+        connection.execute("ALTER TABLE teachers ADD COLUMN employee_no TEXT")
+        connection.execute("ALTER TABLE task_lessons DROP COLUMN planning_config")
         connection.execute(
             "UPDATE app_metadata SET value = '1' WHERE key = 'schema_version'"
         )

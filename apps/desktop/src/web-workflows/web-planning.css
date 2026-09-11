@@ -78,6 +78,29 @@
   gap: 10px;
 }
 
+.web-planning .frequency-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.web-planning .frequency-title strong {
+  color: #263a34;
+  font-size: 13px;
+}
+
+.web-planning .frequency-title span {
+  color: #66736f;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+  max-width: 62%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .web-planning .lesson-summary-card {
   display: grid;
   gap: 10px;
@@ -1149,7 +1172,7 @@ section.web-planning { padding: 20px; }
 .web-planning .course-table-cell-button { width: 100%; border: 0; background: transparent; color: #287d6d; text-align: left; }
 .web-planning .subject-plan-row em, .web-planning .class-list-item em { font-style: normal; }
 .web-planning .class-list-empty { padding: 32px 16px; color: #738279; text-align: center; }
-.web-planning.subject-editor-mask { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 24px; background: #20372f66; }
+.web-planning.subject-editor-mask { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 24px; background: #20372f66; width: auto; max-width: none; height: auto; max-height: none; margin: 0; border: 0; border-radius: 0; box-sizing: border-box; }
 .web-planning.planning-guided-page.subject-editor-mask { grid-template-columns: minmax(0,1fr); }
 .web-planning.planning-guided-page.subject-editor-mask .subject-editor-dialog { grid-column: 1; place-self: center; }
 .web-planning.subject-editor-mask .subject-editor-dialog { box-sizing: border-box; width: min(720px,100%); max-width: 720px; max-height: calc(100dvh - 48px); overflow: auto; padding: 0 20px 20px; border: 0; border-radius: 8px; background: white; }
@@ -1199,3 +1222,50 @@ section.web-planning.planning-guided-page { padding: 24px; background: #fff; bor
 .web-planning .planning-class-page-heading { margin-bottom: 20px; }
 .web-planning .subject-editor-dialog-header { padding: 18px 0; font-size: 15px; }
 @media(max-width: 700px) { section.web-planning.planning-guided-page { padding: 16px; } .web-planning.planning-guided-page .planning-class-panel, .web-planning.planning-guided-page .official-class-flow { padding: 16px; } }
+
+/* Align the count with the input/button row, not its text baseline. */
+.web-planning .table-column-filters > span { display: flex; align-items: center; min-height: 40px; line-height: 20px; margin: 0; }
+.web-planning .table-column-filters > button { height: 40px; margin: 0; padding-block: 0; }
+.web-planning .planning-dialog-actions > button { margin: 0; }
+.web-planning .lesson-summary-card { display: grid; gap: 12px; padding: 16px; text-align: left; }
+.web-planning .lesson-summary-card > div { display: flex; align-items: center; justify-content: space-between; padding: 0; background: transparent; }
+.web-planning .lesson-summary-card > button { justify-self: start; }
+.web-planning .task-switcher:empty { display: none; }
+.web-planning.subject-editor-mask.lesson-sheet-mask { padding: 24px 24px 0; }
+.web-planning.planning-guided-page.lesson-sheet-mask .subject-editor-dialog { width: min(1100px, 100%); max-width: 1100px; max-height: calc(100dvh - 24px); place-self: end center; border-radius: 12px 12px 0 0; }
+.web-planning .local-lesson-editor { font-size: 14px; line-height: 1.6; }
+.web-planning .lesson-sheet-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.web-planning .lesson-sheet-heading h3 { margin: 0 0 6px; font-size: 20px; }
+.web-planning .local-lesson-editor p { margin: 8px 0; color: #62736c; }
+.web-planning .lesson-sheet-content { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 16px; }
+.web-planning .lesson-draft-notice { display: flex; justify-content: space-between; padding: 12px 16px; background: #f1f6f3; border-radius: 8px; }
+.web-planning .local-lesson-card, .web-planning .lesson-preference-section { border: 1px solid #dce5df; border-radius: 10px; padding: 18px; display: grid; gap: 14px; }
+.web-planning .local-lesson-editor h4 { margin: 0; font-size: 16px; }
+.web-planning .lesson-card-title { display: grid; grid-template-columns: minmax(0, 1fr) auto 150px; gap: 16px; align-items: end; }
+.web-planning .lesson-card-title label, .web-planning .lesson-room-choice > label { display: grid; gap: 6px; }
+.web-planning .lesson-card-title .lesson-enabled { display: flex; align-items: center; min-height: 40px; gap: 8px; }
+.web-planning .lesson-detail-line { display: flex; flex-wrap: wrap; gap: 12px; }
+.web-planning .lesson-inline-actions, .web-planning .lesson-week-picker, .web-planning .lesson-priority-picker, .web-planning .lesson-room-options { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.web-planning .lesson-week-picker button, .web-planning .lesson-priority-picker button { padding: 8px 12px; border: 1px solid #d6e2db; border-radius: 6px; background: #fff; color: #30483f; }
+.web-planning .lesson-week-picker button.active { background: #e5f3ec; border-color: #287d6d; }
+.web-planning .lesson-priority-picker button.active { outline: 2px solid #287d6d; outline-offset: 1px; }
+.web-planning .lesson-room-options { padding: 12px 0 0; }
+.web-planning .lesson-room-options label { display: flex; align-items: center; gap: 6px; padding: 6px 10px; }
+.web-planning .lesson-room-options p { flex-basis: 100%; }
+.web-planning .lesson-time-scroll { overflow-x: auto; }
+.web-planning .lesson-time-grid { width: 100%; min-width: 760px; border-collapse: collapse; table-layout: fixed; }
+.web-planning .lesson-time-grid th, .web-planning .lesson-time-grid td { padding: 6px; border: 1px solid #dce5df; text-align: center; vertical-align: middle; }
+.web-planning .lesson-time-grid th { background: #f3f7f4; }
+.web-planning .lesson-time-grid th:first-child { width: 70px; }
+.web-planning .lesson-time-grid button { width: 100%; min-height: 76px; display: grid; gap: 3px; padding: 8px 4px; border: 1px solid #dce5df; border-radius: 6px; background: #fff; color: #30483f; }
+.web-planning .lesson-time-grid button:disabled { opacity: .4; cursor: not-allowed; }
+.web-planning .lesson-time-grid small, .web-planning .lesson-time-grid span { font-size: 12px; }
+.web-planning .local-lesson-editor .priority-0 { background: #ecf8f1; }
+.web-planning .local-lesson-editor .priority-10 { background: #d7ebdf; }
+.web-planning .local-lesson-editor .priority-30 { background: #b5d9c5; }
+.web-planning .local-lesson-editor .priority-60 { background: #86b69a; }
+.web-planning .local-lesson-editor .priority--1 { background: #fce6e6; color: #9c3434; }
+.web-planning .lesson-rule-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; border-bottom: 1px solid #e7ece9; padding-bottom: 8px; }
+.web-planning .lesson-sheet-footer { position: sticky; bottom: -20px; display: flex; gap: 10px; flex-wrap: wrap; padding: 16px 0; border-top: 1px solid #dce5df; background: #fff; margin-top: 20px; }
+.web-planning .lesson-sheet-footer button { margin: 0; min-height: 40px; }
+@media(max-width: 700px) { .web-planning .lesson-card-title { grid-template-columns: minmax(0, 1fr); gap: 8px; } .web-planning.subject-editor-mask.lesson-sheet-mask { padding: 10px 10px 0; } }

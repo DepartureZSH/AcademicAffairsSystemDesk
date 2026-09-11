@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from stt_desktop.storage import ProjectError, ProjectRepository, RevisionConflictError
 from stt_desktop.storage.project import ENTITY_SPECS
+from stt_desktop.lesson_config import parse_lesson_config
 
 
 def copy_class_courses(project: ProjectRepository, source_id: str, target_id: str,
@@ -52,6 +53,8 @@ def copy_class_courses(project: ProjectRepository, source_id: str, target_id: st
                                 primary_teacher_id=None, fixed_room_id=None) for item in source_tasks],
         'task_lesson': [clone('task_lesson', item, lesson_ids[item['id']],
                               teaching_task_id=task_ids[item['teaching_task_id']],
+                              planning_config={**parse_lesson_config(item.get('planning_config', '{}')),
+                                               'room_mode': 'default', 'room_ids': []},
                               source_id=lesson_ids[item['id']]) for item in source_lessons],
         'availability_rule': [clone('availability_rule', item, str(uuid4()),
                                     entity_id=lesson_ids[item['entity_id']])

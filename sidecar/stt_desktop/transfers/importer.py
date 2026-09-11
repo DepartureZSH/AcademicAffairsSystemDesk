@@ -91,7 +91,6 @@ def _status(value: Any) -> str:
 
 IMPORT_SCHEMAS: dict[str, tuple[ImportField, ...]] = {
     "teacher": (
-        ImportField("employee_no", ("工号", "教师工号", "employee_no", "employee no"), converter=_optional_text),
         ImportField("name", ("姓名", "教师姓名", "name"), required=True, converter=_text),
         ImportField("department", ("部门", "院系", "department"), converter=_optional_text),
         ImportField("status", ("状态", "status"), converter=_status),

@@ -70,6 +70,9 @@
 .ledger-detail-modal .ledger-form-actions button { min-height: 36px; font-size: 13px; }
 .ledger-detail-modal .ledger-form-actions .danger-button { order: -1; margin-right: auto; }
 .ledger-form-notice { grid-column: 1 / -1; margin: 0; }
+.ledger-page .ledger-template-name { display: block; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.ledger-detail-modal .ledger-template-field { grid-column: 1 / -1; }
+.ledger-detail-modal .ledger-template-field small { color: #6c7e73; font-size: 12px; font-weight: 400; line-height: 1.6; }
 @media (max-width: 1150px) {
   .ledger-page .data-workbench { grid-template-columns: 180px minmax(0, 1fr); }
   .ledger-page .data-table-panel { padding: 18px; }

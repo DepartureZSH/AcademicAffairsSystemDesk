@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_V1 = r"""
 CREATE TABLE app_metadata (
@@ -409,4 +409,8 @@ ON timetable_template_assignments(bell_schedule_id);
 
 MIGRATIONS: dict[int, str] = {
     2: SCHEMA_V2,
+    3: """
+ALTER TABLE teachers DROP COLUMN employee_no;
+ALTER TABLE task_lessons ADD COLUMN planning_config TEXT NOT NULL DEFAULT '{}';
+""",
 }

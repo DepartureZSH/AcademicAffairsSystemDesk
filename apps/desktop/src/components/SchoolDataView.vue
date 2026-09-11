@@ -28,12 +28,15 @@ const totals = reactive<Record<string, number>>({});
 const search = ref("");
 const dialogOpen = ref(false);
 const selectedRecord = ref<EntityRecord | null>(null);
+const exportTemplateId = ref("");
+const templates = ref<EntityRecord[]>([]);
+const templateAssignments = ref<EntityRecord[]>([]);
 const PAGE_SIZE = 50;
 const LOOKUP_LIMIT = 500;
 
 const forms = reactive({
   grade: { name: "", code: "", sort_order: 0 },
-  teacher: { name: "", employee_no: "", department: "", status: "active" },
+  teacher: { name: "", department: "", status: "active" },
   room_type: { name: "", code: "", description: "" },
   room: { name: "", room_no: "", room_type_id: "", capacity: 0, status: "active" },
   homeroom: { name: "", grade_id: "", term_id: "", head_teacher_id: "", default_room_id: "", group_name: "", student_count: 0, status: "active" },
@@ -64,6 +67,39 @@ const visibleKinds = computed(() => props.mode === "rooms"
 const activeLabel = computed(() => kinds.find((kind) => kind.key === activeType.value)?.label ?? "资料");
 const intro = computed(() => props.mode === "rooms" ? "维护教室类型和教室容量。" : "维护教师、班级和科目，供课程计划与排课使用。");
 const totalPages = computed(() => Math.max(1, Math.ceil((totals[activeType.value] ?? 0) / PAGE_SIZE)));
+const hasExportTemplate = computed(() => ["teacher", "homeroom", "room_type", "room"].includes(activeType.value));
+const normalTemplates = computed(() => templates.value.filter((item) => {
+  try { return JSON.parse(String(item.display_config || "{}"))._web_template?.template_kind !== "special"; }
+  catch { return false; }
+}));
+const defaultTemplate = computed(() => normalTemplates.value.find((item) => Number(item.is_default) === 1) ?? normalTemplates.value[0]);
+
+function assignedTemplateId(type: string, id: string) {
+  return String(templateAssignments.value.find((item) => item.entity_type === type && item.entity_id === id)?.bell_schedule_id ?? "");
+}
+
+function inheritedTemplate(type: string, roomTypeId?: unknown) {
+  if (type === "room" && roomTypeId) {
+    const inherited = templates.value.find((item) => item.id === assignedTemplateId("room_type", String(roomTypeId)));
+    if (inherited) return `${String(inherited.name)}（沿用教室类型）`;
+  }
+  return defaultTemplate.value ? `${String(defaultTemplate.value.name)}（项目默认）` : "未设置，请先在课表设置中新建模板";
+}
+
+function templateName(item: EntityRecord) {
+  const assigned = templates.value.find((template) => template.id === assignedTemplateId(activeType.value, item.id));
+  return assigned ? String(assigned.name) : inheritedTemplate(activeType.value, item.room_type_id);
+}
+
+async function loadTemplateLookup(type: string) {
+  const items: EntityRecord[] = [];
+  let result;
+  do {
+    result = await localApi.listEntities(type, { limit: LOOKUP_LIMIT, offset: items.length });
+    items.push(...result.items);
+  } while (result.items.length === LOOKUP_LIMIT && items.length < (result.total ?? Infinity));
+  return { items, total: result.total ?? items.length, revision: result.revision };
+}
 
 function nameOf(type: string, id: unknown) {
   if (!id) return "未指定";
@@ -83,7 +119,7 @@ function groupTags(value: unknown) {
 
 function subtitle(item: EntityRecord) {
   switch (activeType.value) {
-    case "teacher": return [item.employee_no, item.department, item.status === "inactive" ? "停用" : "在用"].filter(Boolean).join(" · ");
+    case "teacher": return String(item.department || "未分组");
     case "grade": return [item.code, `排序 ${item.sort_order}`].filter(Boolean).join(" · ");
     case "room_type": return String(item.code ?? item.description ?? "");
     case "room": return [item.room_no, nameOf("room_type", item.room_type_id), `容量 ${item.capacity ?? "未设"}`].filter(Boolean).join(" · ");
@@ -99,12 +135,16 @@ async function loadAll() {
     const results = await Promise.all([
       ...kinds.map((kind) => localApi.listEntities(kind.key, { limit: LOOKUP_LIMIT })),
       localApi.listEntities("term", { limit: LOOKUP_LIMIT }),
+      loadTemplateLookup("bell_schedule"),
+      loadTemplateLookup("timetable_template_assignment"),
     ]);
     kinds.forEach((kind, index) => {
       records[kind.key] = results[index].items;
       totals[kind.key] = results[index].total ?? results[index].items.length;
     });
     terms.value = results[kinds.length].items;
+    templates.value = results[kinds.length + 1].items;
+    templateAssignments.value = results[kinds.length + 2].items;
     revision.value = Math.max(...results.map((result) => result.revision));
     emit("revision", revision.value);
     if (page.value > totalPages.value) page.value = totalPages.value;
@@ -153,6 +193,7 @@ async function createActive() {
   try {
     const form = forms[activeType.value] as Record<string, unknown>;
     const data = cleanData(form);
+    if (hasExportTemplate.value) data.export_template_id = exportTemplateId.value || null;
     if (editingId.value) data.id = editingId.value;
     const result = await localApi.saveEntity(activeType.value, data, revision.value);
     revision.value = result.revision;
@@ -176,6 +217,7 @@ function edit(item: EntityRecord) {
     form[key] = item[key] ?? emptyForm(activeType.value)[key] ?? "";
   }
   editingId.value = item.id;
+  exportTemplateId.value = assignedTemplateId(activeType.value, item.id);
   selectedRecord.value = item;
   dialogOpen.value = true;
 }
@@ -191,13 +233,14 @@ function createNew() {
   Object.assign(forms[activeType.value], emptyForm(activeType.value));
   editingId.value = null;
   selectedRecord.value = null;
+  exportTemplateId.value = "";
   dialogOpen.value = true;
 }
 
 function emptyForm(type: string): Record<string, unknown> {
   switch (type) {
     case "grade": return { name: "", code: "", sort_order: 0 };
-    case "teacher": return { name: "", employee_no: "", department: "", status: "active" };
+    case "teacher": return { name: "", department: "", status: "active" };
     case "room_type": return { name: "", code: "", description: "" };
     case "room": return { name: "", room_no: "", room_type_id: "", capacity: 0, status: "active" };
     case "homeroom": return { name: "", grade_id: "", term_id: "", head_teacher_id: "", default_room_id: "", group_name: "", student_count: 0, status: "active" };
@@ -262,6 +305,7 @@ onMounted(loadAll);
             <template v-else-if="activeType === 'subject'"><th scope="col">科目</th><th scope="col" class="ledger-number-column">默认课长（课时）</th></template>
             <template v-else-if="activeType === 'room'"><th scope="col">教室</th><th scope="col">类型</th><th scope="col" class="ledger-number-column">容量（人）</th></template>
             <template v-else><th scope="col">类型</th><th scope="col">说明</th></template>
+            <th v-if="hasExportTemplate" scope="col">导出模板</th>
             <th scope="col" class="ledger-detail-column">详情</th>
           </tr></thead>
           <tbody><tr v-for="item in activeRecords" :key="item.id">
@@ -279,6 +323,7 @@ onMounted(loadAll);
               <td class="ledger-name-cell">{{ item.name }}</td><td :class="{ 'ledger-muted': !item.room_type_id }">{{ nameOf('room_type', item.room_type_id) }}</td><td class="ledger-number-column">{{ formatCount(item.capacity) }}</td>
             </template>
             <template v-else><td class="ledger-name-cell">{{ item.name }}</td><td :class="{ 'ledger-muted': !item.description }">{{ item.description || '—' }}</td></template>
+            <td v-if="hasExportTemplate" data-label="导出模板"><span class="ledger-template-name" :title="templateName(item)">{{ templateName(item) }}</span></td>
             <td class="ledger-detail-column"><button class="ledger-detail-button" :aria-label="`查看${item.name}详情`" @click="edit(item)">查看详情</button></td>
           </tr></tbody>
         </table>
@@ -297,7 +342,7 @@ onMounted(loadAll);
             <label>年级名称<input v-model="forms.grade.name" placeholder="一年级" required /></label><label>代码<input v-model="forms.grade.code" placeholder="可选" /></label>
           </template>
           <template v-else-if="activeType === 'teacher'">
-            <label>姓名<input v-model="forms.teacher.name" placeholder="张老师" required /></label><label>分组标签<input v-model="forms.teacher.department" placeholder="例如：班主任、数学组" /></label><label>工号<input v-model="forms.teacher.employee_no" placeholder="可选" /></label>
+            <label>姓名<input v-model="forms.teacher.name" placeholder="张老师" required /></label><label>分组标签<input v-model="forms.teacher.department" placeholder="例如：班主任、数学组" /></label>
           </template>
           <template v-else-if="activeType === 'room_type'">
             <label>类型名称<input v-model="forms.room_type.name" placeholder="普通教室" required /></label><label>说明<input v-model="forms.room_type.description" placeholder="常规文化课教室" /></label>
@@ -311,6 +356,13 @@ onMounted(loadAll);
           <template v-else>
             <label>科目名称<input v-model="forms.subject.name" placeholder="数学" required /></label><label>默认课长<input v-model.number="forms.subject.default_duration_slots" type="number" min="1" /></label>
           </template>
+          <label v-if="hasExportTemplate" class="ledger-template-field">导出模板
+            <select v-model="exportTemplateId" :disabled="busy">
+              <option value="">{{ inheritedTemplate(activeType, forms.room.room_type_id) }}</option>
+              <option v-for="item in normalTemplates" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </select>
+            <small>选择“课表设置”中已有的模板；选择默认项可取消单独指定。</small>
+          </label>
           <div class="ledger-form-actions"><button type="button" class="secondary-button" @click="cancelEdit">取消</button><button class="primary-button" :disabled="busy">{{ editingId ? "保存修改" : "确认新增" }}</button><button v-if="editingId && selectedRecord" type="button" class="danger-button" @click="remove(selectedRecord)">删除</button></div>
         </form>
       </section>

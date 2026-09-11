@@ -101,7 +101,7 @@ def test_latest_page_structure_and_safe_dialogs():
         assert marker in source
     assert '@click.self' not in source
     assert 'aria-modal="true"' in source and "event.key !== 'Tab'" in source
-    assert "sameLessons ? await localApi.saveEntity('teaching_task'" in source
+    assert 'localApi.saveCourseArrangement' in source
     assert "'1'.repeat(Number(term?.week_count" in source
     css = (ROOT / 'apps/desktop/src/web-workflows/web-planning.css').read_text(encoding='utf-8')
     assert 'repeat(auto-fill, minmax(min(240px, 100%), 1fr))' in css

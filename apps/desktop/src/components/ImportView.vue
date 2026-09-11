@@ -26,7 +26,7 @@ const entityOptions = [
   ["course_plan", "课程计划"], ["teaching_task", "教学任务"],
 ];
 const targetFields: Record<string, Array<[string, string]>> = {
-  teacher: [["employee_no", "工号"], ["name", "姓名（必填）"], ["department", "部门"], ["status", "状态"]],
+  teacher: [["name", "姓名（必填）"], ["department", "部门"], ["status", "状态"]],
   subject: [["name", "科目名称（必填）"], ["code", "代码"], ["category", "分类"], ["default_duration_slots", "默认连续课时"], ["requires_special_room", "需要专用教室"]],
   grade: [["name", "年级名称（必填）"], ["code", "代码"], ["sort_order", "排序"]],
   room_type: [["name", "类型名称（必填）"], ["code", "代码"], ["description", "说明"]],

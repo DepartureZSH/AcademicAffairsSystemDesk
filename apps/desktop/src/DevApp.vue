@@ -13,7 +13,7 @@ const pages = [{id:'calendar',label:'课表设置',icon:CalendarDays},{id:'rooms
 <template>
   <div class="browser-preview">
     <header class="browser-preview-header">
-      <img src="/app-icon.png" alt="" width="32" height="32" /><strong>时奕教务排课</strong><span>本地开发预览 · v0.2.0</span>
+      <img src="/app-icon.png" alt="" width="32" height="32" /><strong>时奕教务排课</strong><span>本地开发预览 · v0.2.1</span>
       <small>独立测试项目 · 修改自动保留在本机（模板需点击保存）</small>
     </header>
     <div class="browser-preview-body">

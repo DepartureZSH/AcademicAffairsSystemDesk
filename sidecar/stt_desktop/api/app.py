@@ -35,6 +35,7 @@ from stt_desktop.storage.schema import SCHEMA_VERSION
 from stt_desktop.transfers import ExportService, ImportService
 from stt_desktop.timetable_settings import TimetableSettingsService
 from stt_desktop.planning import copy_class_courses
+from stt_desktop.lesson_planning import save_course_arrangement
 
 PROTOCOL_VERSION = "1"
 DEFAULT_ALLOWED_ORIGINS = frozenset(
@@ -64,6 +65,10 @@ class ClassCourseCopyRequest(BaseModel):
     target_id: str
     term_id: str
     expected_revision: int = Field(ge=0)
+
+
+class CourseArrangementRequest(EntityWriteRequest):
+    lessons: list[dict[str, Any]] = Field(max_length=500)
 
 
 class SchedulingRoundRequest(BaseModel):
@@ -485,6 +490,17 @@ def create_app(
             "revision": revision,
             "backupWarning": backup_warning,
         }
+
+    @app.put('/v1/planning/arrangement')
+    async def save_arrangement(request: CourseArrangementRequest) -> dict[str, Any]:
+        project = state.require_project()
+        if project.revision != request.expected_revision:
+            raise RevisionConflictError(request.expected_revision, project.revision)
+        if request.data.get('id'):
+            BackupService(project, workspace).create_backup(reason='pre-destructive')
+        task, lessons, revision = save_course_arrangement(project, request.data, request.lessons, request.expected_revision)
+        return {'task': task, 'lessons': lessons, 'revision': revision,
+                'backupWarning': _daily_backup_warning(project, workspace)}
 
     @app.delete("/v1/data/{entity_type}/{entity_id}")
     async def delete_entity(

@@ -2,6 +2,8 @@
 import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ArrowLeft, ChevronRight, X, Plus } from 'lucide-vue-next';
 import { formatLocalError, localApi, type EntityRecord } from '../lib/sidecar';
+import LessonEditor from './LessonEditor.vue';
+import { cloneLessons, draftLesson, serializeLesson, type LessonDraft } from '../lib/lessonPlanning';
 
 // Latest web PlanningView presentation, backed exclusively by the local project.
 const props = defineProps<{ revision: number }>();
@@ -12,6 +14,10 @@ const busy = ref(false), errorMessage = ref(''), notice = ref('');
 const tasks = ref<EntityRecord[]>([]), lessons = ref<EntityRecord[]>([]), terms = ref<EntityRecord[]>([]);
 const homerooms = ref<EntityRecord[]>([]), subjects = ref<EntityRecord[]>([]), teachers = ref<EntityRecord[]>([]);
 const rooms = ref<EntityRecord[]>([]), roomTypes = ref<EntityRecord[]>([]);
+const slots = ref<EntityRecord[]>([]), schedules = ref<EntityRecord[]>([]), assignments = ref<EntityRecord[]>([]);
+const lessonDrafts = ref<LessonDraft[]>([]), lessonEditorOpen = ref(false);
+const lessonEditor = ref<InstanceType<typeof LessonEditor> | null>(null);
+watch(lessonEditorOpen, async () => { await nextTick(); dialog.value?.querySelector<HTMLElement>('button:not(:disabled)')?.focus(); });
 const selectedHomeroomId = ref(''), selectedSubjectId = ref(''), editingId = ref<string | null>(null);
 const classPageOpen = ref(false), editorOpen = ref(false), displayMode = ref<'classic' | 'table'>('classic');
 const classSearch = ref(''), groupFilter = ref(''), statusFilter = ref('');
@@ -35,6 +41,16 @@ const selectedSubject = computed(() => subjects.value.find(item => item.id === s
 const currentTasks = computed(() => classTasks(selectedHomeroomId.value));
 const selectedSubjectTasks = computed(() => subjectTasks(selectedSubjectId.value));
 const selectedTask = computed(() => selectedSubjectTasks.value.find(item => item.id === editingId.value));
+const selectedSchedule = computed(() => {
+  for (const [kind, id] of [['homeroom', selectedHomeroomId.value], ['teacher', taskForm.primary_teacher_id], ['subject', selectedSubjectId.value], ['all', null]]) {
+    const assignment = assignments.value.find(item => item.entity_type === kind && (item.entity_id || null) === id);
+    const schedule = schedules.value.find(item => item.id === assignment?.bell_schedule_id);
+    if (schedule && slots.value.some(slot => slot.bell_schedule_id === schedule.id && slot.active)) return schedule;
+  }
+  const options = schedules.value.filter(item => (!item.term_id || item.term_id === taskForm.term_id) && slots.value.some(slot => slot.bell_schedule_id === item.id && slot.active));
+  return options.find(item => item.is_default) || options[0];
+});
+const lessonSlots = computed(() => slots.value.filter(item => item.bell_schedule_id === selectedSchedule.value?.id && item.active !== 0));
 const groups = computed(() => [...new Set(homerooms.value.map(item => String(item.group_name || '')).filter(Boolean))].sort());
 const completeClassCount = computed(() => homerooms.value.filter(item => homeroomStatus(item.id).complete).length);
 const currentTotals = computed(() => ({subjects: new Set(currentTasks.value.map(item => item.subject_id)).size, lessons: currentTasks.value.reduce((n, item) => n + lessonCount(item.id), 0), teachers: new Set(currentTasks.value.map(item => item.primary_teacher_id).filter(Boolean)).size}));
@@ -61,7 +77,7 @@ function onDialogKey(event: KeyboardEvent) {
   if (event.shiftKey && document.activeElement === items[0]) { event.preventDefault(); items.at(-1)?.focus(); }
   else if (!event.shiftKey && document.activeElement === items.at(-1)) { event.preventDefault(); items[0]?.focus(); }
 }
-function closeDialog() { if (!busy.value) { editorOpen.value = false; filterKind.value = null; } }
+function closeDialog() { if (!busy.value) { if (lessonEditorOpen.value) { lessonEditor.value?.requestClose(); return; } editorOpen.value = false; filterKind.value = null; } }
 function matchesText(value: unknown, query: string) { return String(value ?? '').toLocaleLowerCase('zh-CN').includes(query.trim().toLocaleLowerCase('zh-CN')); }
 function label(items: EntityRecord[], id: unknown, fallback = '未指定') { return String(items.find(item => item.id === id)?.name ?? fallback); }
 function teacherName(task: EntityRecord) { return label(teachers.value, task.primary_teacher_id, '未指定教师'); }
@@ -89,13 +105,16 @@ function resetForm() {
   editingId.value = null; importTaskId.value = '';
   const term = terms.value.find(item => item.id === selectedHomeroom.value?.term_id) ?? currentTerm.value;
   Object.assign(taskForm, {term_id: term?.id ?? '', course_plan_id: '', homeroom_id: selectedHomeroomId.value, subject_id: selectedSubjectId.value, primary_teacher_id: '', weekly_slots: 5, duration_slots: Number(selectedSubject.value?.default_duration_slots ?? 1), required_room_type: '', fixed_room_id: '', status: 'active', week_bits: '1'.repeat(Number(term?.week_count ?? 20)), day_bits: '1'.repeat(Number(term?.day_count ?? 5))});
+  lessonDrafts.value = [draftLesson({ duration_slots: taskForm.duration_slots }, taskForm.week_bits, taskForm.day_bits)];
 }
-function edit(task: EntityRecord) { resetForm(); editingId.value = task.id; for (const key of Object.keys(taskForm)) (taskForm as Record<string, unknown>)[key] = task[key] ?? (taskForm as Record<string, unknown>)[key]; }
+function edit(task: EntityRecord) { resetForm(); editingId.value = task.id; for (const key of Object.keys(taskForm)) (taskForm as Record<string, unknown>)[key] = task[key] ?? (taskForm as Record<string, unknown>)[key]; lessonDrafts.value = lessons.value.filter(item => item.teaching_task_id === task.id).sort((a,b) => Number(a.lesson_index) - Number(b.lesson_index)).map((item, index) => draftLesson(item, taskForm.week_bits, taskForm.day_bits, index)); }
 function openSubject(id: string, task?: EntityRecord | null) { selectedSubjectId.value = id; const existing = task ?? subjectTasks(id)[0]; if (existing) edit(existing); else resetForm(); errorMessage.value = ''; notice.value = ''; editorOpen.value = true; }
-function importLessonSettings() { const source = tasks.value.find(item => item.id === importTaskId.value); if (!source) return; taskForm.weekly_slots = Number(source.weekly_slots); taskForm.duration_slots = Number(source.duration_slots); notice.value = '已填入课时数量，教师、教室不变。点击保存后生效。'; }
+function importLessonSettings() { const source = tasks.value.find(item => item.id === importTaskId.value); if (!source) return; if (source.term_id !== taskForm.term_id) { errorMessage.value = '只能导入同一学期的课次设置。'; return; } lessonDrafts.value = lessons.value.filter(item => item.teaching_task_id === source.id).sort((a,b) => Number(a.lesson_index)-Number(b.lesson_index)).map((item,index) => { const draft = draftLesson(item, taskForm.week_bits, taskForm.day_bits,index); delete draft.id; return draft; }); notice.value = '已导入课次、期望时间和课次教室；教师不变。保存授课任务后生效。'; }
+function applyLessons(value: LessonDraft[]) { lessonDrafts.value = cloneLessons(value); lessonEditorOpen.value = false; }
+async function saveLessons(value: LessonDraft[]) { lessonDrafts.value = cloneLessons(value); await saveTask(); }
 async function loadAll() {
-  const results = await Promise.all(['teaching_task','task_lesson','term','homeroom','subject','teacher','room','room_type'].map(type => localApi.listEntities(type)));
-  [tasks.value, lessons.value, terms.value, homerooms.value, subjects.value, teachers.value, rooms.value, roomTypes.value] = results.map(result => result.items);
+  const results = await Promise.all(['teaching_task','task_lesson','term','homeroom','subject','teacher','room','room_type','time_slot','bell_schedule','timetable_template_assignment'].map(type => localApi.listEntities(type)));
+  [tasks.value, lessons.value, terms.value, homerooms.value, subjects.value, teachers.value, rooms.value, roomTypes.value, slots.value, schedules.value, assignments.value] = results.map(result => result.items);
   revision.value = Math.max(...results.map(result => result.revision)); emit('revision', revision.value);
 }
 async function saveTask() {
@@ -105,12 +124,8 @@ async function saveTask() {
     const data: Record<string, unknown> = {...taskForm, primary_teacher_id: taskForm.primary_teacher_id || null, fixed_room_id: taskForm.fixed_room_id || null, course_plan_id: taskForm.course_plan_id || null};
     if (!data.term_id) throw new Error('请先在课表设置中设置学期。');
     if (editingId.value) data.id = editingId.value;
-    const original = selectedTask.value;
-    // Preserve lesson IDs referenced by constraints when only teacher/room metadata changes.
-    const sameLessons = original && ['weekly_slots','duration_slots','week_bits','day_bits'].every(key => String(original[key]) === String(data[key]));
-    if (original && !sameLessons && !window.confirm('修改课时会重新生成本任务的课次，相关课次约束需要重新检查。是否继续？')) return;
-    const result = sameLessons ? await localApi.saveEntity('teaching_task', data, revision.value) : await localApi.saveTeachingTask(data, revision.value);
-    revision.value = result.revision; emit('revision', revision.value); await loadAll(); editorOpen.value = false; notice.value = '课程配置已保存。';
+    const result = await localApi.saveCourseArrangement(data, lessonDrafts.value.map(serializeLesson), revision.value);
+    revision.value = result.revision; emit('revision', revision.value); await loadAll(); lessonEditorOpen.value = false; editorOpen.value = false; notice.value = '课程配置已保存。';
   } catch (error) { errorMessage.value = formatLocalError(error); }
   finally { busy.value = false; }
 }
@@ -148,9 +163,18 @@ onBeforeUnmount(() => { if (modalOpen.value) document.body.style.overflow = prev
           <article v-else class="class-planning-table-panel"><div class="table-column-filters"><label>科目<input v-model="subjectSearch" placeholder="搜索科目" /></label><label>教师<input v-model="teacherSearch" placeholder="搜索教师" /></label><label>教室<input v-model="roomSearch" placeholder="搜索教室" /></label><span>{{ tableRows.length }} 条授课配置</span><button class="secondary-button" @click="subjectSearch = ''; teacherSearch = ''; roomSearch = ''">重置筛选</button></div><div class="planning-table-scroll"><table class="class-planning-table"><thead><tr><th>科目</th><th>教师</th><th>教室</th><th>课次</th><th>操作</th></tr></thead><tbody><tr v-for="row in tableRows" :key="row.task?.id || row.subject.id" class="course-table-row"><td><strong>{{ row.subject.name }}</strong></td><td><button class="course-table-cell-button" @click="openSubject(row.subject.id, row.task)">{{ row.task ? teacherName(row.task) : '未指定教师' }}</button></td><td><button class="course-table-cell-button" @click="openSubject(row.subject.id, row.task)">{{ row.task ? roomName(row.task) : '未配置' }}</button></td><td><button class="course-table-cell-button" @click="openSubject(row.subject.id, row.task)">{{ row.task ? lessonCount(row.task.id) : 0 }} 课次</button></td><td><div class="course-table-actions"><button class="secondary-button" @click="openSubject(row.subject.id, row.task)">配置</button><button v-if="row.task" class="danger-button" :disabled="busy" @click="remove(row.task)">删除</button></div></td></tr></tbody></table></div><p v-if="!tableRows.length" class="class-list-empty">没有匹配的授课配置</p></article><p v-if="!subjects.length" class="class-list-empty">请先在学校数据中添加科目。</p></div>
       </template>
     </div>
-    <Teleport to="body"><div v-if="modalOpen" class="web-planning planning-guided-page subject-editor-mask" @keydown="onDialogKey"><aside ref="dialog" class="plan-detail-panel subject-editor-dialog" role="dialog" aria-modal="true" :aria-label="editorOpen ? '科目配置' : `指定${filterKind ? filterLabels[filterKind] : ''}`"><header class="subject-editor-dialog-header"><strong>{{ editorOpen ? `${selectedHomeroom?.name} · 科目配置` : `指定${filterKind ? filterLabels[filterKind] : ''}` }}</strong><button class="subject-editor-close" aria-label="关闭弹窗" :disabled="busy" @click="closeDialog"><X :size="20" /></button></header>
-      <template v-if="editorOpen"><div class="task-editor-heading"><div><h3>{{ selectedSubject?.name }}</h3><span>{{ selectedHomeroom?.name }}</span></div><button class="secondary-button" :disabled="busy" @click="resetForm"><Plus :size="16" />新增授课老师</button></div><div class="task-switcher"><button v-for="task in selectedSubjectTasks" :key="task.id" class="task-switcher-item" :class="{active: editingId === task.id}" :disabled="busy" @click="edit(task)"><strong>{{ teacherName(task) }}</strong><span>{{ lessonCount(task.id) }} 个课次</span></button></div>
-        <form class="detail-form" @submit.prevent="saveTask"><fieldset :disabled="busy"><label>教师<select v-model="taskForm.primary_teacher_id"><option value="">未指定教师，稍后配置</option><option v-for="item in teachers" :key="item.id" :value="item.id">{{ item.name }}{{ item.department ? ` · ${item.department}` : '' }}</option></select></label><label>默认教室<select v-model="taskForm.fixed_room_id"><option value="">{{ selectedHomeroom?.default_room_id ? `沿用班级教室：${label(rooms, selectedHomeroom.default_room_id)}` : '不指定固定教室' }}</option><option v-for="item in rooms" :key="item.id" :value="item.id">{{ item.name }}</option></select></label><label>教室类型<select v-model="taskForm.required_room_type"><option value="">不限定教室类型</option><option v-for="item in roomTypes" :key="item.id" :value="item.id">{{ item.name }}</option></select></label><section class="planning-import-card"><label>从其他课程导入课时数量<select v-model="importTaskId"><option value="">选择参考课程</option><option v-for="task in tasks.filter(item => item.id !== editingId)" :key="task.id" :value="task.id">{{ label(homerooms, task.homeroom_id) }} · {{ label(subjects, task.subject_id) }} · {{ teacherName(task) }}</option></select></label><button type="button" class="secondary-button" :disabled="!importTaskId" @click="importLessonSettings">导入数量</button></section><div class="lesson-summary-card"><div><strong>课次</strong><span>每周 {{ taskForm.weekly_slots }} 课时 · {{ Math.ceil(taskForm.weekly_slots / taskForm.duration_slots) || 0 }} 个课次</span></div></div><div class="inline-fields"><label>每周课时<input v-model.number="taskForm.weekly_slots" type="number" min="0" step="1" required /></label><label>连续课时<input v-model.number="taskForm.duration_slots" type="number" min="1" step="1" required /></label></div><p class="planning-help">连续课时表示一次课程占用的节数；余下不足一组的课时单独安排。</p><p v-if="notice" role="status" class="form-message">{{ notice }}</p><p v-if="errorMessage" role="alert" class="form-message error-copy">{{ errorMessage }}</p><div class="planning-dialog-actions"><button class="primary-button" :disabled="busy">{{ busy ? '保存中…' : '保存课程配置' }}</button><button v-if="selectedTask" type="button" class="danger-button" @click="remove(selectedTask)">删除授课任务</button><button type="button" class="secondary-button" @click="closeDialog">取消</button></div></fieldset></form>
+    <Teleport to="body"><div v-if="modalOpen" class="web-planning planning-guided-page subject-editor-mask" :class="{'lesson-sheet-mask': lessonEditorOpen}" @keydown="onDialogKey"><aside ref="dialog" class="plan-detail-panel subject-editor-dialog" role="dialog" aria-modal="true" :aria-label="lessonEditorOpen ? '编辑课次' : editorOpen ? '科目配置' : `指定${filterKind ? filterLabels[filterKind] : ''}`"><header class="subject-editor-dialog-header"><strong>{{ editorOpen ? `${selectedHomeroom?.name} · ${selectedSubject?.name} · 科目配置` : `指定${filterKind ? filterLabels[filterKind] : ''}` }}</strong><button class="subject-editor-close" aria-label="关闭弹窗" :disabled="busy" @click="closeDialog"><X :size="20" /></button></header>
+      <LessonEditor v-if="lessonEditorOpen" ref="lessonEditor" :lessons="lessonDrafts" :slots="lessonSlots" :rooms="rooms.filter(item => item.status !== 'inactive')" :weeks="taskForm.week_bits" :days="taskForm.day_bits" :default-duration="Number(selectedSubject?.default_duration_slots || 1)" :busy="busy" :error="errorMessage" @apply="applyLessons" @save="saveLessons" @cancel="lessonEditorOpen = false" />
+      <template v-else-if="editorOpen"><div class="task-editor-heading"><div><h3>{{ selectedSubject?.name }}</h3><span>{{ selectedHomeroom?.name }}</span></div><button class="secondary-button" :disabled="busy" @click="resetForm"><Plus :size="16" />新增授课老师</button></div><div class="task-switcher"><button v-for="task in selectedSubjectTasks" :key="task.id" class="task-switcher-item" :class="{active: editingId === task.id}" :disabled="busy" @click="edit(task)"><strong>{{ teacherName(task) }}</strong><span>{{ lessonCount(task.id) }} 个课次</span></button></div>
+        <form class="detail-form" @submit.prevent="saveTask"><fieldset :disabled="busy">
+          <label>教师<select v-model="taskForm.primary_teacher_id"><option value="">未指定教师，稍后配置</option><option v-for="item in teachers" :key="item.id" :value="item.id">{{ item.name }}{{ item.department ? ` · ${item.department}` : '' }}</option></select></label>
+          <label>默认教室<select v-model="taskForm.fixed_room_id"><option value="">{{ selectedHomeroom?.default_room_id ? `沿用班级教室：${label(rooms, selectedHomeroom.default_room_id)}` : '不指定固定教室' }}</option><option v-for="item in rooms" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
+          <label>教室类型<select v-model="taskForm.required_room_type"><option value="">不限定教室类型</option><option v-for="item in roomTypes" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
+          <section class="planning-import-card"><label>从其他课程导入课次设置<select v-model="importTaskId"><option value="">选择已配置课程</option><option v-for="task in tasks.filter(item => item.id !== editingId && item.term_id === taskForm.term_id)" :key="task.id" :value="task.id">{{ label(homerooms, task.homeroom_id) }} · {{ label(subjects, task.subject_id) }} · {{ teacherName(task) }}</option></select></label><button type="button" class="secondary-button" :disabled="!importTaskId" @click="importLessonSettings">导入课次设置</button></section>
+          <div class="lesson-summary-card"><div class="frequency-title"><strong>课次</strong><span>{{ lessonDrafts.length }} 个课次 · {{ lessonDrafts.filter(item => item.enabled).length }} 个启用</span></div><p>期望时间、启用状态和课次教室在下方弹出栏中集中维护。</p><button type="button" class="secondary-button" @click="lessonEditorOpen = true">编辑课次</button></div>
+          <p class="planning-help">每个课次可设置连续节数；具体上课时间以本班课表模板为准。</p><p v-if="notice" role="status" class="form-message">{{ notice }}</p><p v-if="errorMessage" role="alert" class="form-message error-copy">{{ errorMessage }}</p>
+          <div class="planning-dialog-actions"><button class="primary-button" :disabled="busy">{{ busy ? '保存中…' : '保存授课任务' }}</button><button v-if="selectedTask" type="button" class="danger-button" @click="remove(selectedTask)">删除授课任务</button><button type="button" class="secondary-button" @click="closeDialog">取消</button></div>
+        </fieldset></form>
       </template>
       <template v-else><input v-model="filterSearch" type="search" :placeholder="`搜索${filterKind ? filterLabels[filterKind] : ''}`" aria-label="搜索筛选项" /><div class="planning-filter-options"><label v-for="item in filterOptions" :key="item.id"><input v-model="filterSelection" type="checkbox" :value="item.id" /><span>{{ item.name }}</span></label><p v-if="!filterOptions.length">没有匹配项</p></div><div class="planning-dialog-actions"><span>已选 {{ filterSelection.length }} 项</span><button class="secondary-button" @click="filterSelection = []">清空选择</button><button class="primary-button" @click="confirmFilter">确定</button></div><p class="planning-help">确定后，点击过滤器中的“应用”更新班级列表。</p></template>
     </aside></div></Teleport>
