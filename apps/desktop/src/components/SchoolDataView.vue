@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { formatLocalError, localApi, type EntityRecord } from "../lib/sidecar";
 
-const props = defineProps<{ revision: number }>();
+const props = withDefaults(defineProps<{ revision: number; mode?: "school" | "rooms" }>(), { mode: "school" });
 const emit = defineEmits<{ revision: [value: number] }>();
 
 const kinds = [
@@ -14,7 +14,7 @@ const kinds = [
   { key: "subject", label: "科目" },
 ] as const;
 
-const activeType = ref<(typeof kinds)[number]["key"]>("teacher");
+const activeType = ref<(typeof kinds)[number]["key"]>(props.mode === "rooms" ? "room" : "teacher");
 const editingId = ref<string | null>(null);
 const revision = ref(props.revision);
 const records = reactive<Record<string, EntityRecord[]>>({});
@@ -37,6 +37,9 @@ const forms = reactive({
 });
 
 watch(() => props.revision, (value) => { revision.value = value; });
+watch(() => props.mode, (mode) => {
+  activeType.value = mode === "rooms" ? "room" : "teacher";
+});
 watch(activeType, () => {
   editingId.value = null;
   page.value = 1;
@@ -44,7 +47,12 @@ watch(activeType, () => {
 });
 
 const activeRecords = computed(() => pageRecords.value);
+const visibleKinds = computed(() => props.mode === "rooms"
+  ? kinds.filter((kind) => kind.key === "room_type" || kind.key === "room")
+  : kinds.filter((kind) => kind.key === "grade" || kind.key === "teacher" || kind.key === "homeroom" || kind.key === "subject"));
 const activeLabel = computed(() => kinds.find((kind) => kind.key === activeType.value)?.label ?? "资料");
+const heading = computed(() => props.mode === "rooms" ? "教室设置" : "学校数据");
+const intro = computed(() => props.mode === "rooms" ? "维护教室类型、教室容量和使用状态。" : "维护教师、班级、年级和科目，与网页版使用相同的名称和顺序。");
 const totalPages = computed(() => Math.max(1, Math.ceil((totals[activeType.value] ?? 0) / PAGE_SIZE)));
 
 function nameOf(type: string, id: unknown) {
@@ -185,17 +193,17 @@ onMounted(loadAll);
 <template>
   <section class="module-view">
     <div class="module-heading">
-      <div><p class="eyebrow">SCHOOL DIRECTORY</p><h2>基础资料</h2><p>所有教师、班级、科目和教室信息都写入当前本地项目。</p></div>
-      <span>Revision {{ revision }}</span>
+      <div><p class="eyebrow">排课准备</p><h2>{{ heading }}</h2><p>{{ intro }}</p></div>
+      <span>已自动保存</span>
     </div>
     <div class="data-tabs" role="tablist">
-      <button v-for="kind in kinds" :key="kind.key" :class="{ active: activeType === kind.key }" @click="activeType = kind.key">{{ kind.label }} <small>{{ totals[kind.key] ?? 0 }}</small></button>
+      <button v-for="kind in visibleKinds" :key="kind.key" :class="{ active: activeType === kind.key }" @click="activeType = kind.key">{{ kind.label }} <small>{{ totals[kind.key] ?? 0 }}</small></button>
     </div>
     <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>
 
     <div class="directory-layout">
       <article class="panel data-panel">
-        <p class="eyebrow">NEW RECORD</p><h3>新增{{ activeLabel }}</h3>
+        <p class="eyebrow">{{ editingId ? "正在编辑" : "新增资料" }}</p><h3>{{ editingId ? `编辑${activeLabel}` : `新增${activeLabel}` }}</h3>
         <form class="compact-form" @submit.prevent="createActive">
           <template v-if="activeType === 'grade'">
             <input v-model="forms.grade.name" placeholder="年级名称" required /><input v-model="forms.grade.code" placeholder="代码（可选）" /><label>排序<input v-model.number="forms.grade.sort_order" type="number" /></label>
@@ -221,7 +229,7 @@ onMounted(loadAll);
       </article>
 
       <article class="panel data-panel records-panel">
-        <div class="panel-heading"><div><p class="eyebrow">LOCAL RECORDS</p><h3>{{ activeLabel }}列表</h3></div><span>共 {{ totals[activeType] ?? 0 }} 条</span></div>
+        <div class="panel-heading"><div><p class="eyebrow">数据列表</p><h3>{{ activeLabel }}列表</h3></div><span>共 {{ totals[activeType] ?? 0 }} 条</span></div>
         <p v-if="activeRecords.length === 0" class="empty-copy">还没有{{ activeLabel }}记录。</p>
         <div v-else class="data-list tall-list"><div v-for="item in activeRecords" :key="item.id" class="data-row"><span><strong>{{ item.name }}</strong><small>{{ subtitle(item) || "本地记录" }}</small></span><div class="row-actions"><button @click="edit(item)">编辑</button><button class="danger-action" @click="remove(item)">删除</button></div></div></div>
         <nav v-if="totalPages > 1" class="pagination-controls" aria-label="基础资料分页">

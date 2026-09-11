@@ -77,7 +77,7 @@ async function verifyBackup(item: BackupRecord) {
   notice.value = "";
   try {
     const result = await localApi.verifyBackup(item.id);
-    notice.value = `校验通过：${String(result.sha256).slice(0, 16)}… · ${fileSize(Number(result.sizeBytes))}`;
+    notice.value = `备份检查通过，可以正常恢复（${fileSize(Number(result.sizeBytes))}）`;
   } catch (error) {
     errorMessage.value = formatLocalError(error);
   } finally {
@@ -136,14 +136,14 @@ onMounted(loadBackups);
 
 <template>
   <section class="module-view">
-    <div class="module-heading"><div><p class="eyebrow">BACKUP & RECOVERY</p><h2>备份与恢复</h2><p>备份先做一致性快照、哈希和解压校验；恢复始终创建新项目副本。</p></div><span>Revision {{ revision }}</span></div>
-    <div class="invariant-banner"><strong>不覆盖原项目</strong><span>恢复失败不会修改当前项目；保留的手工备份不参与最近 10 份自动备份清理。</span></div>
+    <div class="module-heading"><div><p class="eyebrow">保护项目数据</p><h2>数据备份</h2><p>需要换电脑或进行重要操作前，可以在这里保存一份完整备份。</p></div><span>已自动保存</span></div>
+    <div class="invariant-banner"><strong>恢复不会覆盖原项目</strong><span>系统会把备份恢复成一个新项目，原项目保持不变。</span></div>
     <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>
     <p v-if="notice" class="form-message notice-copy">{{ notice }}</p>
 
     <div class="directory-layout planning-layout">
       <article class="panel data-panel">
-        <p class="eyebrow">CREATE BACKUP</p><h3>创建完整备份</h3>
+        <p class="eyebrow">创建备份</p><h3>保存当前项目</h3>
         <form class="compact-form" @submit.prevent="createBackup(false)">
           <label>备份原因<input v-model="reason" maxlength="200" required /></label>
           <label class="check-label"><input v-model="retained" type="checkbox" />标记为长期保留</label>
@@ -151,7 +151,7 @@ onMounted(loadBackups);
           <button type="button" class="secondary-button" :disabled="busy" @click="createBackup(true)">创建并另存一份</button>
         </form>
         <hr class="soft-divider" />
-        <p class="eyebrow">RESTORE COPY</p><h3>恢复为新项目</h3>
+        <p class="eyebrow">恢复备份</p><h3>恢复为新项目</h3>
         <div class="compact-form">
           <label>新项目名称（可选）<input v-model="restoredName" maxlength="200" placeholder="默认添加恢复日期" /></label>
           <button class="secondary-button" :disabled="busy" @click="restoreExternal">选择外部 .sttbackup</button>
@@ -159,11 +159,11 @@ onMounted(loadBackups);
       </article>
 
       <article class="panel data-panel records-panel">
-        <div class="panel-heading"><div><p class="eyebrow">VERIFIED COPIES</p><h3>项目备份</h3></div><span>{{ backups.length }} 份</span></div>
+        <div class="panel-heading"><div><p class="eyebrow">已有备份</p><h3>项目备份</h3></div><span>{{ backups.length }} 份</span></div>
         <p v-if="!backups.length" class="empty-copy">还没有备份。业务数据首次成功保存后也会自动生成每日备份。</p>
         <div v-else class="data-list tall-list">
           <div v-for="item in backups" :key="item.id" class="data-row backup-row">
-            <span><strong>{{ item.reason }} · Revision {{ item.revision }}</strong><small>{{ item.created_at }} · {{ fileSize(item.size_bytes) }} · {{ item.relative_path }}</small><small>{{ item.retained ? "长期保留" : "自动保留策略" }} · {{ item.exists ? "文件存在" : "文件缺失" }}</small></span>
+            <span><strong>{{ item.reason }}</strong><small>{{ item.created_at }} · {{ fileSize(item.size_bytes) }}</small><small>{{ item.retained ? "长期保留" : "自动保留" }} · {{ item.exists ? "可以恢复" : "备份文件已移动" }}</small></span>
             <div class="row-actions"><button :disabled="busy || !item.exists" @click="verifyBackup(item)">校验</button><button :disabled="busy" @click="toggleRetained(item)">{{ item.retained ? "取消保留" : "保留" }}</button><button :disabled="busy || !item.exists" @click="restore({ backup_id: item.id }, item.relative_path)">恢复副本</button></div>
           </div>
         </div>

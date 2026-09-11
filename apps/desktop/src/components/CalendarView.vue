@@ -210,8 +210,8 @@ onMounted(loadAll);
 <template>
   <section class="module-view">
     <div class="module-heading">
-      <div><p class="eyebrow">ACADEMIC CALENDAR</p><h2>学期与作息</h2><p>依次建立学年、学期、作息表和每日课节。</p></div>
-      <span>Revision {{ revision }}</span>
+      <div><p class="eyebrow">排课准备 · 第 1 步</p><h2>课表设置</h2><p>先设置学期，再录入每天上课的节次时间。</p></div>
+      <span>已自动保存</span>
     </div>
     <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>
 

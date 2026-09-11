@@ -146,13 +146,13 @@ onMounted(loadAll);
 
 <template>
   <section class="module-view">
-    <div class="module-heading"><div><p class="eyebrow">COURSE PLANNING</p><h2>课程计划与教学任务</h2><p>先定义班级周课时，再分配教师、教室并自动展开排课课次。</p></div><span>Revision {{ revision }}</span></div>
+    <div class="module-heading"><div><p class="eyebrow">排课准备</p><h2>课程计划</h2><p>先设置班级每周要上多少课，再安排任课教师和教室。</p></div><span>已自动保存</span></div>
     <div class="data-tabs"><button :class="{ active: activeTab === 'plans' }" @click="activeTab = 'plans'">课程计划 <small>{{ plans.length }}</small></button><button :class="{ active: activeTab === 'tasks' }" @click="activeTab = 'tasks'">教学任务 <small>{{ tasks.length }}</small></button></div>
     <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>
 
     <div class="directory-layout planning-layout">
       <article class="panel data-panel">
-        <p class="eyebrow">{{ editingId ? "EDIT" : "NEW" }}</p><h3>{{ activeTab === "plans" ? "课程计划" : "教学任务" }}</h3>
+        <p class="eyebrow">{{ editingId ? "正在编辑" : "新增内容" }}</p><h3>{{ activeTab === "plans" ? "课程计划" : "教学任务" }}</h3>
         <form v-if="activeTab === 'plans'" class="compact-form" @submit.prevent="savePlan">
           <select v-model="planForm.term_id"><option value="">不限定学期</option><option v-for="item in terms" :key="item.id" :value="item.id">{{ item.name }}</option></select>
           <select v-model="planForm.homeroom_id" required><option value="" disabled>选择班级</option><option v-for="item in homerooms" :key="item.id" :value="item.id">{{ item.name }}</option></select>
@@ -172,8 +172,8 @@ onMounted(loadAll);
       </article>
 
       <article class="panel data-panel records-panel">
-        <div class="panel-heading"><div><p class="eyebrow">LOCAL RECORDS</p><h3>{{ activeTab === "plans" ? "课程计划" : "教学任务" }}列表</h3></div><span>{{ activeRecords.length }} 条</span></div>
-        <p v-if="activeRecords.length === 0" class="empty-copy">当前项目还没有记录。请先在基础资料中准备班级和科目。</p>
+        <div class="panel-heading"><div><p class="eyebrow">已录入</p><h3>{{ activeTab === "plans" ? "课程计划" : "教学任务" }}列表</h3></div><span>{{ activeRecords.length }} 条</span></div>
+        <p v-if="activeRecords.length === 0" class="empty-copy">当前项目还没有记录。请先在“学校数据”中准备班级和科目。</p>
         <div v-else class="data-list tall-list"><div v-for="item in activeRecords" :key="item.id" class="data-row"><span><strong>{{ label(homerooms, item.homeroom_id) }} · {{ label(subjects, item.subject_id) }}</strong><small v-if="activeTab === 'plans'">每周 {{ item.weekly_slots }} 课时 · 连续 {{ item.duration_slots }} · 优先级 {{ item.priority }}</small><small v-else>{{ label(teachers, item.primary_teacher_id) }} · {{ lessonCount(item.id) }} 个课次 · 每周 {{ item.weekly_slots }} 课时</small></span><div class="row-actions"><button @click="edit(item)">编辑</button><button class="danger-action" @click="remove(item)">删除</button></div></div></div>
       </article>
     </div>

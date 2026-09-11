@@ -242,18 +242,18 @@ onMounted(loadAll);
 
 <template>
   <section class="module-view">
-    <div class="module-heading"><div><p class="eyebrow">CONSTRAINTS</p><h2>约束配置</h2><p>资源冲突始终作为硬约束；这里配置偏好、上限和可用时段。</p></div><span>Revision {{ revision }}</span></div>
-    <div class="invariant-banner"><strong>内置硬约束</strong><span>教师、班级、教室同一时段不可冲突；停用任务不参与排课；固定教室必须满足任务要求。</span></div>
+    <div class="module-heading"><div><p class="eyebrow">排课准备</p><h2>约束配置</h2><p>设置哪些课程必须错开、哪些时间不能排课，以及希望优先安排的时段。</p></div><span>已自动保存</span></div>
+    <div class="invariant-banner"><strong>系统会自动避免冲突</strong><span>同一位教师、同一个班级或同一间教室不会被安排在相同时间。</span></div>
     <div class="data-tabs"><button :class="{ active: activeTab === 'constraints' }" @click="activeTab = 'constraints'">规则约束 <small>{{ constraints.length }}</small></button><button :class="{ active: activeTab === 'availability' }" @click="activeTab = 'availability'">可用时段 <small>{{ availability.length }}</small></button></div>
     <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>
 
     <div class="directory-layout planning-layout">
       <article class="panel data-panel">
-        <p class="eyebrow">{{ editingId ? "EDIT" : "NEW" }}</p><h3>{{ activeTab === "constraints" ? "规则约束" : "可用时段" }}</h3>
+        <p class="eyebrow">{{ editingId ? "正在编辑" : "新增规则" }}</p><h3>{{ activeTab === "constraints" ? "规则约束" : "可用时段" }}</h3>
         <form v-if="activeTab === 'constraints'" class="compact-form" @submit.prevent="saveActive">
           <select v-model="constraintForm.type" @change="applyTemplate"><option value="max_daily_lessons">每日最大课时</option><option value="same_day_spacing">同科课次分散</option><option value="consecutive_limit">连续授课限制</option><option value="preferred_periods">优先时段</option></select>
           <input v-model="constraintForm.name" placeholder="约束名称" required />
-          <div class="inline-fields"><select v-model="constraintForm.severity"><option value="hard">硬约束</option><option value="soft">软约束</option></select><label>权重<input v-model.number="constraintForm.weight" type="number" min="0" /></label></div>
+          <div class="inline-fields"><select v-model="constraintForm.severity"><option value="hard">必须满足</option><option value="soft">尽量满足</option></select><label>重要程度<input v-model.number="constraintForm.weight" type="number" min="0" /></label></div>
           <div v-if="['max_daily_lessons', 'consecutive_limit'].includes(constraintForm.type)" class="inline-fields">
             <label>{{ constraintForm.type === "max_daily_lessons" ? "每日课时上限" : "连续课时上限" }}<input v-model.number="constraintForm.limit" type="number" min="1" required /></label>
             <label>统计资源<select v-model="constraintForm.resource_type"><option value="">教师和班级</option><option value="teacher">仅教师</option><option value="homeroom">仅班级</option></select></label>
@@ -265,7 +265,7 @@ onMounted(loadAll);
             <select v-model="constraintForm.teaching_task_ids" class="multi-select task-select" multiple><option v-for="item in tasks" :key="item.id" :value="item.id">{{ taskLabel(item) }}</option></select>
           </label>
           <label class="check-label"><input v-model="constraintForm.enabled" type="checkbox" :true-value="1" :false-value="0" />启用</label>
-          <p class="form-copy">四类规则均由本地求解器编译并参与候选校验。已选 {{ constraintForm.teaching_task_ids.length }} 个教学任务。</p>
+          <p class="form-copy">已选择 {{ constraintForm.teaching_task_ids.length }} 个教学任务；未选择时对全部任务生效。</p>
           <p v-if="constraintForm.legacy_lesson_ids.length" class="form-copy">此旧规则还精确引用 {{ constraintForm.legacy_lesson_ids.length }} 个课次；更新时会原样保留这些引用。</p>
           <button class="primary-button" :disabled="busy">{{ editingId ? "更新约束" : "保存约束" }}</button>
         </form>
@@ -281,9 +281,9 @@ onMounted(loadAll);
       </article>
 
       <article class="panel data-panel records-panel">
-        <div class="panel-heading"><div><p class="eyebrow">LOCAL RULES</p><h3>{{ activeTab === "constraints" ? "规则约束" : "可用时段" }}列表</h3></div><span>{{ activeRecords.length }} 条</span></div>
+        <div class="panel-heading"><div><p class="eyebrow">已设置</p><h3>{{ activeTab === "constraints" ? "规则约束" : "可用时段" }}列表</h3></div><span>{{ activeRecords.length }} 条</span></div>
         <p v-if="activeRecords.length === 0" class="empty-copy">还没有自定义配置，排课仍会执行内置资源冲突硬约束。</p>
-        <div v-else class="data-list tall-list"><div v-for="item in activeRecords" :key="item.id" class="data-row"><span v-if="activeTab === 'constraints'"><strong>{{ item.name }}</strong><small>{{ item.severity === "hard" ? "硬约束" : "软约束" }} · 权重 {{ item.weight }} · {{ item.enabled ? "启用" : "停用" }}</small><small>{{ constraintSummary(item) }}</small></span><span v-else><strong>{{ availabilityEntityName(item) }}</strong><small>{{ item.required ? "必须可用" : "不可用/避开" }} · 代价 {{ item.penalty }} · {{ item.reason || "无备注" }}</small></span><div class="row-actions"><button :disabled="activeTab === 'constraints' && !isSupportedConstraint(item)" :title="activeTab === 'constraints' && !isSupportedConstraint(item) ? '旧版类型只读' : '编辑'" @click="edit(item)">编辑</button><button class="danger-action" @click="remove(item)">删除</button></div></div></div>
+        <div v-else class="data-list tall-list"><div v-for="item in activeRecords" :key="item.id" class="data-row"><span v-if="activeTab === 'constraints'"><strong>{{ item.name }}</strong><small>{{ item.severity === "hard" ? "必须满足" : "尽量满足" }} · 重要程度 {{ item.weight }} · {{ item.enabled ? "启用" : "停用" }}</small><small>{{ constraintSummary(item) }}</small></span><span v-else><strong>{{ availabilityEntityName(item) }}</strong><small>{{ item.required ? "必须可用" : "不可用/避开" }} · 重要程度 {{ item.penalty }} · {{ item.reason || "无备注" }}</small></span><div class="row-actions"><button :disabled="activeTab === 'constraints' && !isSupportedConstraint(item)" :title="activeTab === 'constraints' && !isSupportedConstraint(item) ? '旧版类型只读' : '编辑'" @click="edit(item)">编辑</button><button class="danger-action" @click="remove(item)">删除</button></div></div></div>
       </article>
     </div>
   </section>

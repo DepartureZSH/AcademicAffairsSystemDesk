@@ -220,8 +220,6 @@ const exportOptions: Record<string, { label: string; extension: string }> = {
   xlsx: { label: "Excel 工作簿", extension: "xlsx" },
   csv: { label: "CSV 明细", extension: "csv" },
   pdf: { label: "PDF 打印表", extension: "pdf" },
-  problem_xml: { label: "Problem XML", extension: "xml" },
-  solution_xml: { label: "Solution XML", extension: "xml" },
 };
 
 async function exportCandidate() {
@@ -247,7 +245,7 @@ async function exportCandidate() {
       layout: exportLayout.value,
       color_mode: colorMode.value,
     });
-    exportNotice.value = `已导出 ${String(result.export.fileName)}，SHA-256 ${String(result.export.sha256).slice(0, 12)}…`;
+    exportNotice.value = `已成功导出：${String(result.export.fileName)}`;
     exportHistory.value = (await localApi.listExports()).items;
   } catch (error) {
     errorMessage.value = formatLocalError(error);
@@ -269,9 +267,9 @@ onMounted(loadBase);
 
 <template>
   <section class="module-view timetable-view">
-    <div class="module-heading"><div><p class="eyebrow">TIMETABLE</p><h2>课表查看与手工调整</h2><p>按班级、教师或教室查看候选；手工移动会先预检，再生成不可变子候选。</p></div><span>Revision {{ revision }}</span></div>
-    <div v-if="basedOnOldData" class="invariant-banner stale-banner"><strong>旧数据候选</strong><span>该候选基于较早的项目 Revision，仍可查看；建议在最新数据上重新运行自动排课。</span></div>
-    <div v-if="selectedCandidate && !selectedCandidateIsValid" class="invariant-banner stale-banner"><strong>只读历史候选</strong><span>该候选含 {{ selectedCandidate.hard_violations }} 个硬约束违例或已被替代，仅用于查看和比较，不能手工调整、导出或继续优化。</span></div>
+    <div class="module-heading"><div><p class="eyebrow">排课结果</p><h2>候选课表</h2><p>像网页版一样按班级、教师、年级或教室查看，也可以导出和手工调整。</p></div><span>已自动保存</span></div>
+    <div v-if="basedOnOldData" class="invariant-banner stale-banner"><strong>项目资料已经更新</strong><span>这份课表仍可查看，建议使用最新资料重新运行自动排课。</span></div>
+    <div v-if="selectedCandidate && !selectedCandidateIsValid" class="invariant-banner stale-banner"><strong>历史方案仅供查看</strong><span>这份方案不符合当前设置，不能调整或导出。</span></div>
     <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>
 
     <article class="panel timetable-toolbar">
@@ -282,21 +280,20 @@ onMounted(loadBase);
     </article>
 
     <article v-if="candidates.length > 1" class="panel comparison-toolbar">
-      <div><p class="eyebrow">CANDIDATE DIFF</p><strong>候选差异比较</strong><small>以当前候选和当前查看范围为基线，按课次 ID 比较时间、教室和周次。</small></div>
+      <div><p class="eyebrow">方案对比</p><strong>看看两份课表哪里不同</strong><small>对比课程时间、教室和周次的变化。</small></div>
       <select v-model="compareCandidateId"><option value="">选择对比候选</option><option v-for="item in candidates.filter((candidate) => candidate.id !== candidateId)" :key="item.id" :value="item.id">得分 {{ item.total_score }} · {{ item.name }}</option></select>
       <div v-if="comparison" class="comparison-metrics"><span><b>{{ comparison.moved }}</b> 移动/变更</span><span><b>{{ comparison.added }}</b> 新增</span><span><b>{{ comparison.removed }}</b> 缺失</span><span><b>{{ comparison.unchanged }}</b> 未变</span><span :class="comparison.scoreDelta <= 0 ? 'better' : 'worse'"><b>{{ comparison.scoreDelta > 0 ? '+' : '' }}{{ comparison.scoreDelta }}</b> 得分差</span></div>
     </article>
 
     <article v-if="candidates.length" class="panel export-toolbar">
-      <div><p class="eyebrow">LOCAL EXPORT</p><strong>导出当前候选</strong><small>文件先在项目内原子生成并校验，再复制到系统对话框选择的位置。</small></div>
+      <div><p class="eyebrow">导出课表</p><strong>保存或打印当前课表</strong><small>可以按当前查看范围导出，也可以导出全部课表。</small></div>
       <select v-model="exportType"><option v-for="(item, key) in exportOptions" :key="key" :value="key">{{ item.label }}</option></select>
       <select v-model="weekMode" :disabled="isRawXmlExport"><option value="all">全部周次</option><option value="odd">仅单周</option><option value="even">仅双周</option></select>
       <select v-model="exportLayout" :disabled="isRawXmlExport"><option value="landscape">横向</option><option value="portrait">纵向</option></select>
       <select v-model="colorMode" :disabled="isRawXmlExport"><option value="color">彩色</option><option value="grayscale">黑白</option></select>
       <button class="primary-button" :disabled="busy || !selectedCandidateIsValid" @click="exportCandidate">{{ busy ? "处理中…" : "选择位置并导出" }}</button>
       <span v-if="exportNotice" class="export-notice">{{ exportNotice }}</span>
-      <small v-else-if="isRawXmlExport">XML 始终导出候选绑定的原始算法制品，不应用展示筛选。</small>
-      <small v-else>预览：{{ exportPreviewCount }} 条 · {{ filterId ? '当前筛选范围' : '全部范围' }} · {{ weekMode === 'odd' ? '单周' : weekMode === 'even' ? '双周' : '全部周次' }} · {{ exportLayout === 'landscape' ? '横向' : '纵向' }} · {{ colorMode === 'color' ? '彩色' : '黑白' }}</small>
+      <small v-else>将导出 {{ exportPreviewCount }} 条课程 · {{ filterId ? '当前查看范围' : '全部课表' }} · {{ weekMode === 'odd' ? '单周' : weekMode === 'even' ? '双周' : '全部周次' }}</small>
     </article>
 
     <div v-if="!candidates.length" class="state-panel compact-state"><h2>尚无可查看候选</h2><p>先在“排课运行”生成完整可行候选。</p></div>
@@ -305,7 +302,7 @@ onMounted(loadBase);
         <div class="timetable-grid" :style="{ gridTemplateColumns: `92px repeat(7, minmax(128px, 1fr))` }">
           <div class="grid-head">课节</div><div v-for="day in weekdays" :key="`head-${day}`" class="grid-head">周{{ day }}</div>
           <template v-for="[startSlot, label] in gridRows" :key="startSlot">
-            <div class="grid-time"><strong>{{ label }}</strong><small>Slot {{ startSlot }}</small></div>
+            <div class="grid-time"><strong>{{ label }}</strong><small>第 {{ Number(startSlot) + 1 }} 节</small></div>
             <div v-for="day in weekdays" :key="`${day}-${startSlot}`" class="grid-cell">
               <button v-for="item in cellEntries(day, startSlot)" :key="item.id" class="lesson-chip" :disabled="!selectedCandidateIsValid" :class="{ selected: selectedEntry?.id === item.id }" @click="selectEntry(item)">
                 <strong>{{ item.subject_name || "未命名课程" }}</strong><span>{{ item.homeroom_name }} · {{ item.teacher_name }}</span><small>{{ item.room_name || "无指定教室" }} · {{ item.duration_slots }} 课时</small>
@@ -316,7 +313,7 @@ onMounted(loadBase);
       </article>
 
       <aside class="panel manual-panel">
-        <p class="eyebrow">MANUAL MOVE</p><h3>手工移动课次</h3>
+        <p class="eyebrow">手工调整</p><h3>移动一节课</h3>
         <p v-if="!selectedCandidateIsValid" class="empty-copy">当前候选为只读历史记录，不能用于手工调整。</p>
         <p v-else-if="!selectedEntry" class="empty-copy">在课表中选择一个课次开始调整。</p>
         <form v-else class="compact-form" @submit.prevent="validateMove">
