@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import SchedulingView from "./SchedulingView.vue";
-import TimetableView from "./TimetableView.vue";
 
 defineProps<{ revision: number }>();
 const emit = defineEmits<{ revision: [value: number] }>();
@@ -9,6 +8,5 @@ const emit = defineEmits<{ revision: [value: number] }>();
 <template>
   <section class="runs-workspace">
     <SchedulingView :revision="revision" @revision="emit('revision', $event)" />
-    <TimetableView embedded :revision="revision" @revision="emit('revision', $event)" />
   </section>
 </template>

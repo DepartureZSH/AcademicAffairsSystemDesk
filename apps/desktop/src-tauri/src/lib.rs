@@ -612,6 +612,16 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Mutex::new(SidecarManager::default()))
         .manage(app_updates::PendingUpdate::default())
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                window.set_icon(tauri::image::Image::new_owned(
+                    include_bytes!("../icons/taskbar-icon.rgba").to_vec(),
+                    32,
+                    32,
+                ))?;
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             runtime_status,
             access_gate_status,

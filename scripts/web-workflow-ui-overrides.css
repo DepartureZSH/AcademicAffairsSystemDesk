@@ -1,0 +1,41 @@
+.web-workflow .constraint-editor-modal { width: min(1200px, calc(100vw - 48px)); max-width: none; }
+.web-workflow .constraint-template-workspace { display: grid; gap: 16px; min-width: 0; }
+.web-workflow .constraint-form-card { display: grid; gap: 16px; }
+.web-workflow .constraint-transfer { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.web-workflow .transfer-pane { min-width: 0; }
+.web-workflow .transfer-pane > header { display:flex; align-items:center; gap:8px; padding:12px; }
+.web-workflow .constraint-editor-tabs > button.active { color: #fff; background: #2f7d6d; }
+.web-workflow .form-field { display:grid; gap:8px; }
+.web-workflow .field-label {font-size:13px; font-weight:500;}
+.web-workflow input:not([type="checkbox"]):not([type="radio"]), .web-workflow select {font:400 14px/1.5 "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;}
+.web-workflow .run-data-overview-sheet { width:min(1120px,calc(100vw - 48px)); }
+.web-workflow .run-data-sheet-header { display:flex; flex-wrap:wrap; align-items:center; gap:16px; }
+.web-workflow .run-data-sheet-status { margin-left:auto; }
+.web-workflow .run-data-sheet-header > button { flex:0 0 auto; width:auto; }
+.web-workflow .run-algorithm-option input[type="radio"] {width:18px;height:18px;min-height:0;padding:0;}
+.web-workflow .run-timetable-card {grid-column:1 / -1;}
+@media (max-width:700px) { .web-workflow .constraint-transfer {grid-template-columns:1fr;} }
+
+/* Desktop run page: never inherit the web dashboard's edge-to-edge card layout. */
+.web-workflow.desktop-runs-page { padding: 24px; border: 1px solid #dfe7e2; border-radius: 12px; background: #fff; font-family: "Inter", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif; font-size: 14px; line-height: 1.6; }
+.desktop-runs-page > .section-heading { margin: 0 0 20px; padding: 0; align-items: center; gap: 16px; background: transparent; }
+.desktop-runs-page > .section-heading h2 { margin: 0; font-size: 22px; line-height: 1.5; font-weight: 600; }
+.desktop-runs-page .runs-dashboard { gap: 16px; }
+.desktop-runs-page .runs-dashboard > .run-card { padding: 20px; border: 1px solid #dfe7e2; border-radius: 10px; background: #fff; box-shadow: none; }
+.desktop-runs-page .runs-dashboard > .run-status-card { padding: 24px; }
+.desktop-runs-page .runs-dashboard > .run-input-summary { background: #f5f8f6; }
+.desktop-runs-page .run-card-heading > div > span { font-size: 13px; line-height: 1.6; color: #62736c; }
+.desktop-runs-page .run-card-heading h2 { margin: 6px 0 0; font-size: 19px; line-height: 1.5; font-weight: 600; }
+.desktop-runs-page .run-status-card .run-card-heading h2 { font-size: 26px; line-height: 1.4; }
+.desktop-runs-page .run-card-heading > strong { font-size: 13px; line-height: 1.6; font-weight: 500; }
+.desktop-runs-page .run-card > p { font-size: 14px; line-height: 1.7; margin: 14px 0 0; color: #62736c; }
+.desktop-runs-page .run-stage-pill { font-size: 13px; line-height: 1.6; }
+.desktop-runs-page .run-step strong { font-size: 12px; line-height: 1.6; font-weight: 500; }
+.desktop-runs-page .run-stat-grid span, .desktop-runs-page .validation-stat-grid span { font-size: 13px; line-height: 1.6; }
+.desktop-runs-page .run-stat-grid strong { font-size: 22px; line-height: 1.4; font-weight: 600; font-variant-numeric: tabular-nums; }
+.desktop-runs-page .run-timetable-card > h2 { margin: 0 0 16px; font-size: 19px; line-height: 1.5; font-weight: 600; }
+.desktop-runs-page .empty-timetable-state { padding: 36px 20px; gap: 12px; border-radius: 8px; }
+.desktop-runs-page .empty-timetable-state strong { font-size: 16px; line-height: 1.5; font-weight: 600; }
+.desktop-runs-page .empty-timetable-state p { margin: 0; font-size: 14px; line-height: 1.7; }
+.desktop-runs-page button, .desktop-runs-page input, .desktop-runs-page select { font-family: inherit; font-size: 14px; }
+@media(max-width: 700px) { .web-workflow.desktop-runs-page { padding: 16px; } .desktop-runs-page .runs-dashboard > .run-card { padding: 16px; } }

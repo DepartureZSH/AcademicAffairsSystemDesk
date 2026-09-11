@@ -55,6 +55,7 @@ try {
         --add-data $fontData `
         --collect-all ortools `
         --version-file $versionInfoPath `
+        --icon (Join-Path $tauriDirectory 'icons\icon.ico') `
         --workpath $workDirectory `
         --specpath $specDirectory `
         --distpath $distDirectory `

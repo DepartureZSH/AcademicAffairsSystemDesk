@@ -10,12 +10,12 @@ import {
   type TimetableEntry,
 } from "../lib/sidecar";
 
-const props = withDefaults(defineProps<{ revision: number; embedded?: boolean }>(), { embedded: false });
-const emit = defineEmits<{ revision: [value: number] }>();
+const props = withDefaults(defineProps<{ revision: number; embedded?: boolean; initialCandidateId?: string }>(), { embedded: false });
+const emit = defineEmits<{ revision: [value: number]; candidate: [value: string] }>();
 
 const revision = ref(props.revision);
 const candidates = ref<SchedulingCandidate[]>([]);
-const candidateId = ref("");
+const candidateId = ref(props.initialCandidateId ?? "");
 const entries = ref<TimetableEntry[]>([]);
 const slots = ref<EntityRecord[]>([]);
 const rooms = ref<EntityRecord[]>([]);
@@ -48,7 +48,7 @@ watch([filterType, filterId], () => {
   if (compareCandidateId.value) void loadComparison();
 });
 watch(compareCandidateId, () => { void loadComparison(); });
-watch(candidateId, () => { if (compareCandidateId.value) void loadComparison(); });
+watch(candidateId, () => { emit('candidate', candidateId.value); if (compareCandidateId.value) void loadComparison(); });
 
 const selectedCandidate = computed(() => candidates.value.find((item) => item.id === candidateId.value) ?? null);
 const selectedCandidateIsValid = computed(() => selectedCandidate.value?.status === "valid");

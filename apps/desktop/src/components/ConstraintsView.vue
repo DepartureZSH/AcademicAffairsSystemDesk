@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { formatLocalError, localApi, type EntityRecord } from "../lib/sidecar";
+import CommonConstraintDialog from '../web-workflows/CommonConstraintDialog.vue';
+import { commonConstraintScenarios } from '../web-workflows/itcConstraints';
 
 const props = defineProps<{ revision: number }>();
 const emit = defineEmits<{ revision: [value: number] }>();
@@ -12,6 +14,8 @@ const busy = ref(false);
 const errorMessage = ref("");
 const search = ref("");
 const editorOpen = ref(false);
+const commonEditorOpen = ref(false);
+const commonRecord = ref<EntityRecord | null>(null);
 const selectedId = ref("");
 const constraints = ref<EntityRecord[]>([]);
 const availability = ref<EntityRecord[]>([]);
@@ -106,6 +110,8 @@ function numberArray(value: unknown) {
 
 function constraintSummary(item: EntityRecord) {
   const parameters = parseParameters(item.parameters);
+  const common = commonConstraintScenarios.find(s => s.type === item.type);
+  if (common) return `${common.title} · ${stringArray(parameters.lessonIds).length} 个课次`;
   const taskCount = stringArray(parameters.teachingTaskIds).length;
   const scope = taskCount ? `${taskCount} 个教学任务` : "全部教学任务";
   if (item.type === "max_daily_lessons") return `${scope} · 每日最多 ${Number(parameters.max ?? 6)} 课时`;
@@ -119,6 +125,8 @@ function constraintSummary(item: EntityRecord) {
 }
 
 function constraintTypeName(item: EntityRecord) {
+  const common = commonConstraintScenarios.find(s => s.type === item.type);
+  if (common) return common.title;
   if (item.type === "max_daily_lessons") return "每日课时上限";
   if (item.type === "consecutive_limit") return "连续课时上限";
   if (item.type === "same_day_spacing") return "同课程分散安排";
@@ -202,9 +210,23 @@ function resetForm() {
 }
 
 function createNew() {
-  editingId.value = null;
-  resetForm();
-  editorOpen.value = true;
+  commonRecord.value = null;
+  errorMessage.value = '';
+  commonEditorOpen.value = true;
+}
+
+async function saveCommon(data: Record<string, unknown>) {
+  busy.value = true;
+  errorMessage.value = '';
+  try {
+    const result = await localApi.saveEntity('constraint', data, revision.value);
+    revision.value = result.revision;
+    emit('revision', revision.value);
+    commonEditorOpen.value = false;
+    activeTab.value = 'constraints';
+    await loadAll();
+  } catch (error) { errorMessage.value = formatLocalError(error); }
+  finally { busy.value = false; }
 }
 
 function closeEditor() {
@@ -229,6 +251,12 @@ function applyTemplate() {
 }
 
 function edit(item: EntityRecord) {
+  if (activeTab.value === 'constraints' && commonConstraintScenarios.some(s => s.type === item.type)) {
+    commonRecord.value = item;
+    commonEditorOpen.value = true;
+    errorMessage.value = '';
+    return;
+  }
   if (activeTab.value === "constraints" && !isSupportedConstraint(item)) {
     errorMessage.value = `“${String(item.name)}”属于导入的旧版约束类型，只能保留或删除，不能在可视化表单中编辑。`;
     return;
@@ -314,7 +342,8 @@ onMounted(loadAll);
       </aside>
     </div>
 
-    <div v-if="editorOpen" class="modal-mask" @click.self="closeEditor">
+    <CommonConstraintDialog v-if="commonEditorOpen" :record="commonRecord" :lessons="lessons" :tasks="tasks" :teachers="teachers" :homerooms="homerooms" :subjects="subjects" :busy="busy" :error="errorMessage" @close="commonEditorOpen = false" @save="saveCommon" />
+    <div v-if="editorOpen" class="modal-mask">
       <section class="modal-panel constraint-editor-modal">
         <header class="modal-header"><div><span>约束维护</span><h3>{{ editingId ? "编辑自定义约束" : "新建自定义约束" }}</h3><p>选择规则类型，再设置作用范围和强度。</p></div><button class="icon-button" @click="closeEditor">×</button></header>
         <div v-if="!editingId" class="constraint-editor-tabs"><button :class="{ active: activeTab === 'constraints' }" @click="activeTab = 'constraints'; resetForm()">规则约束</button><button :class="{ active: activeTab === 'availability' }" @click="activeTab = 'availability'; resetForm()">可用时段</button></div>

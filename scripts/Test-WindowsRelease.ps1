@@ -4,7 +4,8 @@ param(
     [string]$InstallerPath,
     [Parameter(Mandatory)]
     [string]$ExpectedThumbprint,
-    [string]$UpdaterSignaturePath
+    [string]$UpdaterSignaturePath,
+    [string]$SupabaseEnvFile = (Join-Path (Split-Path -Parent $PSScriptRoot) '.env')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,6 +63,7 @@ if ([IO.Path]::GetExtension($resolvedInstaller) -in @('.exe', '.msi')) {
             $innerNames = @('Path', 'Bin_stt_sidecar.exe')
         }
         $desktopExecutable = Join-Path $extractDirectory $innerNames[0]
+        & (Join-Path $PSScriptRoot 'Test-DesktopEmbeddedConfig.ps1') -ExecutablePath $desktopExecutable -SupabaseEnvFile $SupabaseEnvFile
         & (Join-Path $PSScriptRoot 'Test-WindowsGuiExecutable.ps1') -Path $desktopExecutable | Out-Null
         foreach ($name in $innerNames) {
             $path = Join-Path $extractDirectory $name

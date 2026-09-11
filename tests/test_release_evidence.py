@@ -181,8 +181,20 @@ def test_application_version_is_consistent_across_build_systems() -> None:
         tauri["version"],
     }
 
-    assert versions == {"0.1.10"}
-    assert 'APP_VERSION = "0.1.10"' in project_source
+    assert versions == {"0.1.12"}
+    assert 'APP_VERSION = "0.1.12"' in project_source
+
+
+def test_desktop_and_browser_share_the_official_icon() -> None:
+    root = Path(__file__).resolve().parents[1]
+    desktop = root / "apps" / "desktop"
+    assert (desktop / "public/app-icon.ico").read_bytes() == (desktop / "src-tauri/icons/icon.ico").read_bytes()
+    assert 'src="/app-icon.png"' in (desktop / "src/App.vue").read_text(encoding="utf-8")
+    assert 'href="/app-icon.ico"' in (desktop / "index.html").read_text(encoding="utf-8")
+    config = json.loads((desktop / "src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+    assert config["bundle"]["windows"]["nsis"]["installerIcon"] == "icons/icon.ico"
+    assert config["bundle"]["windows"]["nsis"]["uninstallerIcon"] == "icons/icon.ico"
+    assert "--icon (Join-Path $tauriDirectory 'icons\\icon.ico')" in (root / "scripts/build-sidecar.ps1").read_text(encoding="utf-8")
 
 
 def test_end_user_login_view_avoids_implementation_jargon() -> None:
@@ -243,9 +255,9 @@ def test_primary_desktop_pages_keep_web_workbench_structure_without_ai() -> None
     component_root = root / "apps" / "desktop" / "src" / "components"
     expected_markers = {
         "CalendarView.vue": (
-            "timetable-settings-layout",
-            "template-editor settings-card",
-            "weekday-drawers",
+            "TimetableSettingsView",
+            "useTimetableEditor",
+            "provide(APP_CONTEXT_KEY, editor)",
         ),
         "SchoolDataView.vue": ("data-workbench", "subnav", "data-table-panel"),
         "PlanningView.vue": (
@@ -260,9 +272,9 @@ def test_primary_desktop_pages_keep_web_workbench_structure_without_ai() -> None
         ),
         "SchedulingView.vue": (
             "runs-dashboard",
-            "run-status-card",
-            "run-input-summary",
-            "validation-card",
+            "RunDashboardCards",
+            "run-preflight-steps",
+            "run-timetable-card",
         ),
     }
 
@@ -273,6 +285,13 @@ def test_primary_desktop_pages_keep_web_workbench_structure_without_ai() -> None
         for marker in markers:
             assert marker in source
 
+    timetable_source = (component_root.parent / "web-timetable" / "TimetableSettingsView.vue").read_text(encoding="utf-8")
+    for marker in ("timetable-settings-layout", "template-preview-workbench", "CoursePeriodInspector",
+                   "新建自定义表头", "新建自定义列", "合并单元格", "TemplatePlanningMode"):
+        assert marker in timetable_source
+    assert "weekday-drawers" not in timetable_source
+    assert "showTimetableSaveChoice" not in timetable_source
+    sources["TimetableSettingsView.vue"] = timetable_source
     user_interface = "\n".join(source.split("<template>", 1)[-1] for source in sources.values())
     assert "AI 助手" not in user_interface
     assert "AI 生成" not in user_interface
@@ -313,10 +332,11 @@ def test_frozen_sidecar_windows_metadata_matches_tauri_product() -> None:
 
     rendered = VERSION_INFO_MODULE.render_version_info(config)
 
-    assert "filevers=(0, 1, 10, 0)" in rendered
-    assert "prodvers=(0, 1, 10, 0)" in rendered
+    windows_version = tuple(int(part) for part in config['version'].split('.')) + (0,)
+    assert f"filevers={windows_version}" in rendered
+    assert f"prodvers={windows_version}" in rendered
     assert "StringStruct('ProductName', '时奕教务排课')" in rendered
-    assert "StringStruct('ProductVersion', '0.1.10')" in rendered
+    assert "StringStruct('ProductVersion', '0.1.12')" in rendered
     assert "StringStruct('CompanyName', '杭州格若时科技有限公司')" in rendered
     assert "StringStruct('OriginalFilename', 'stt-sidecar.exe')" in rendered
 

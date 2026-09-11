@@ -5,6 +5,7 @@ param(
     [switch]$SkipSync,
     [switch]$SkipSidecar,
     [switch]$SkipNodeInstall,
+    [string]$SupabaseEnvFile,
     [string]$CertificateThumbprint,
     [string]$TimestampUrl = 'http://timestamp.digicert.com',
     [string]$UpdaterPrivateKeyPath,
@@ -14,6 +15,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $desktopDirectory = Join-Path $repositoryRoot 'apps\desktop'
+. (Join-Path $PSScriptRoot 'DesktopClientConfig.ps1')
+if (-not $SupabaseEnvFile) { $SupabaseEnvFile = Join-Path $repositoryRoot '.env' }
+$buildPublishableKey = Get-DesktopPublishableKey -EnvFile $SupabaseEnvFile
+Write-Host '公开登录配置已校验；密钥值不会输出，也不会复制 .env 到安装包。'
 $tauriConfigurationPath = Join-Path $desktopDirectory 'src-tauri\tauri.conf.json'
 $bundleVersion = [string](Get-Content -LiteralPath $tauriConfigurationPath -Raw -Encoding UTF8 | ConvertFrom-Json).version
 if ($bundleVersion -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') {
@@ -64,7 +69,9 @@ try {
     $oldPrivateKey = $env:TAURI_SIGNING_PRIVATE_KEY
     $oldPrivateKeyPath = $env:TAURI_SIGNING_PRIVATE_KEY_PATH
     $oldPrivateKeyPassword = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+    $oldPublishableKey = $env:STT_SUPABASE_PUBLISHABLE_KEY
     try {
+        $env:STT_SUPABASE_PUBLISHABLE_KEY = $buildPublishableKey
         if ($UpdaterPrivateKeyPath) {
             if (-not (Test-Path -LiteralPath $UpdaterPrivateKeyPath -PathType Leaf)) {
                 throw "Tauri updater 私钥不存在: $UpdaterPrivateKeyPath"
@@ -93,11 +100,13 @@ try {
         $env:TAURI_SIGNING_PRIVATE_KEY = $oldPrivateKey
         $env:TAURI_SIGNING_PRIVATE_KEY_PATH = $oldPrivateKeyPath
         $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $oldPrivateKeyPassword
+        $env:STT_SUPABASE_PUBLISHABLE_KEY = $oldPublishableKey
     }
 }
 finally { Pop-Location }
 
 $desktopExecutable = Join-Path $desktopDirectory 'src-tauri\target\release\karios-stt-desktop.exe'
+& (Join-Path $PSScriptRoot 'Test-DesktopEmbeddedConfig.ps1') -ExecutablePath $desktopExecutable -SupabaseEnvFile $SupabaseEnvFile
 & (Join-Path $PSScriptRoot 'Test-WindowsGuiExecutable.ps1') -Path $desktopExecutable
 if ($LASTEXITCODE -ne 0) { throw '桌面主程序 Windows GUI 子系统验证失败。' }
 

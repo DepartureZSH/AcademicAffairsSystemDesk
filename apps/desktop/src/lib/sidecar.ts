@@ -221,6 +221,11 @@ export const localApi = {
       path: "/v1/planning/tasks",
       body: { data, expected_revision: expectedRevision },
     }),
+  copyClassCourses: (sourceId: string, targetId: string, termId: string, expectedRevision: number) =>
+    sidecarRequest<{ counts: Record<string, number>; revision: number }>({
+      method: 'POST', path: '/v1/planning/copy-class',
+      body: { source_id: sourceId, target_id: targetId, term_id: termId, expected_revision: expectedRevision },
+    }),
   validateProject: () =>
     sidecarRequest<PreflightValidation>({
       method: "POST",

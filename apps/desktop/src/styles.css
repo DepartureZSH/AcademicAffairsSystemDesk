@@ -238,7 +238,7 @@ nav { display: grid; gap: 7px; }
 .app-shell.sidebar-collapsed { grid-template-columns: 64px minmax(0, 1fr); }
 .sidebar { position: sticky; top: 0; height: 100vh; overflow: hidden; background: #23323c; padding: 20px 12px 16px; gap: 24px; }
 .brand { position: relative; min-height: 42px; gap: 10px; padding: 0 4px; white-space: nowrap; }
-.brand-mark { flex: 0 0 36px; width: 36px; height: 36px; border-radius: 8px; background: #2f7d6d; color: #fff; font-size: 19px; }
+.brand-mark { flex: 0 0 36px; width: 36px; height: 36px; border-radius: 8px; background: transparent; object-fit: contain; }
 .brand-copy { min-width: 0; overflow: hidden; }
 .brand strong { font-size: 15px; }
 .brand span { color: #aebdc2; }

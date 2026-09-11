@@ -1,0 +1,83 @@
+/* Desktop integration overrides. Kept outside generated files so re-extraction
+   of the web editor preserves these fixes without changing the web project. */
+.web-timetable {
+  font-family: "Inter", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+/* The current editor uses a drawer, not a duplicate inline inspector. */
+.web-timetable .preview-inspector.inline-inspector { display: none; }
+
+/* Do not inherit the legacy template form's 10px label font in text inputs. */
+.web-timetable .template-form > label:first-child {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.web-timetable input:not([type="radio"]):not([type="checkbox"]),
+.web-timetable select,
+.web-timetable textarea {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* These are mutually exclusive native radios, not text fields or checkboxes. */
+.web-timetable .template-planning-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+  margin: 20px 28px 12px;
+}
+.web-timetable .template-planning-mode > label {
+  display: flex;
+  flex: 1 1 200px;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid #d9e3de;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.web-timetable .template-planning-mode > label:has(input:checked) {
+  border-color: #2f7d6d;
+  background: #edf6f2;
+  color: #215e51;
+}
+.web-timetable .template-planning-mode > label:has(input:disabled) {
+  opacity: .55;
+  cursor: not-allowed;
+}
+.web-timetable .template-planning-mode input[type="radio"] {
+  appearance: auto;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  accent-color: #2f7d6d;
+  cursor: inherit;
+}
+
+/* Keep weekday headings centered and respect saved per-cell left alignment. */
+.web-timetable .weekly-preview-table thead th:not(.left) { text-align: center; }
+.web-timetable .weekly-preview-table td.period-time-block > .template-course-cell-preview:not(.split) {
+  padding: 4px 8px;
+}
+.web-timetable .template-course-cell-preview {
+  text-align: inherit;
+  font-weight: 400;
+}
+.web-timetable .template-course-cell-preview .template-course-cell-line:first-child {
+  font-weight: 600;
+}

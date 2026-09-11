@@ -191,6 +191,22 @@ try {
             end_time_minutes = 520 + $index * 50
         }
     }
+    $settings = Invoke-SidecarApi -Method GET -Path '/v1/timetable/settings'
+    $template = $settings.schoolData.weekly_timetable_templates[0]
+    $template.display_config | Add-Member -NotePropertyName header_rows -NotePropertyValue @(
+        @{ id = 'frozen-header'; cells = @{ '0' = @{ label = '冻结新版课表'; colspan = 6; rowspan = 1 } } }
+    ) -Force
+    $templateSaved = Invoke-SidecarApi -Method PUT -Path '/v1/timetable/templates' -Body @{
+        expected_revision = $revision
+        data = @{ template = $template; periods = @($settings.schoolData.weekly_timetable_periods) }
+    }
+    $revision = [int]$templateSaved.revision
+    $reloadedSettings = Invoke-SidecarApi -Method GET -Path '/v1/timetable/settings'
+    if ($reloadedSettings.schoolData.weekly_timetable_templates[0].display_config.header_rows[0].cells.'0'.label -ne '冻结新版课表') {
+        throw '冻结版本的新版课表模板未保存表头。'
+    }
+    Write-Output 'PASS 新版课表设置接口、模板和表头本地保存'
+
     $null = Save-Entity -Type teacher -Data @{ id = 'teacher-1'; name = '张老师' }
     $null = Save-Entity -Type subject -Data @{ id = 'subject-1'; name = '数学' }
     $null = Save-Entity -Type grade -Data @{ id = 'grade-1'; name = '一年级' }

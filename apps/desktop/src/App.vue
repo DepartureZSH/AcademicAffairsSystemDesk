@@ -534,7 +534,7 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
   <main class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">时</div>
+        <img class="brand-mark" src="/app-icon.png" alt="时奕教务排课" />
         <div class="brand-copy"><strong>时奕教务</strong><span>本地排课系统</span></div>
         <button class="sidebar-toggle" :title="sidebarCollapsed ? '展开菜单' : '收起菜单'" @click="toggleSidebar">
           <PanelLeftOpen v-if="sidebarCollapsed" :size="18" />
@@ -582,12 +582,6 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
           </div>
         </div>
       </header>
-
-      <div v-if="currentProject && !['workspace', 'about'].includes(activeView)" class="project-context">
-        <span>当前项目</span><strong>{{ currentProject.name }}</strong>
-        <button @click="navigate('workspace')">返回工作台选择项目</button>
-        <button v-if="activeView === 'runs'" class="context-action" @click="navigate('imports')"><Upload :size="15" />导入数据</button>
-      </div>
 
       <div v-if="gateBusy && !gate" class="state-panel">
         <div class="spinner"></div><h2>正在检查登录状态和会员权益</h2><p>请稍候…</p>

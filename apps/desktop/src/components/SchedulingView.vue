@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { CalendarDays, CircleStop, Play } from 'lucide-vue-next';
+import RunDashboardCards from '../web-workflows/RunDashboardCards.vue';
+import type { RunCardState } from '../web-workflows/runTypes';
+import TimetableView from './TimetableView.vue';
+import '../web-workflows/web-workflows.css';
 import {
   formatLocalError,
   localApi,
@@ -22,6 +27,12 @@ const busy = ref(false);
 const errorMessage = ref("");
 const latestRound = ref<SchedulingRound | null>(null);
 const preflight = ref<PreflightValidation | null>(null);
+const inputCounts = ref({rooms: 0, constraints: 0, teachers: 0, homerooms: 0});
+const showPreflight = ref(false);
+const preflightStep = ref(0);
+const optimizationMode = ref(false);
+const steps = ['选择算法', '检查数据', '确认排课'];
+const resultElement = ref<HTMLElement | null>(null);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 watch(() => props.revision, (value) => {
@@ -66,7 +77,47 @@ const statusLabel = (status: string) => ({
   cancelled: "已取消",
   solving: "正在求解",
   preparing: "正在准备",
-}[status] ?? status);
+  queued: '等待运行', validating: '校验结果', interrupted: '运行已中断',
+}[status] ?? '运行结束');
+
+const cardState = computed<RunCardState>(() => {
+  const candidate = selectedCandidate.value;
+  const round = activeRound.value ?? latestRound.value ?? rounds.value[0];
+  const succeeded = round?.status === 'succeeded';
+  const failures = preflight.value?.errors ?? [];
+  const conflicts = round ? diagnostics(round) : [];
+  return {
+    run: round ? {status: round.status === 'failed_recoverable' || round.status === 'infeasible' ? 'failed' : round.status} : null,
+    active: Boolean(activeRound.value), optimizing: Boolean(activeRound.value && optimizationMode.value), busy: busy.value,
+    progress: activeRound.value ? progressPercent.value : succeeded ? 100 : 0, candidateId: candidate?.id ?? '',
+    display: {tone: activeRound.value ? 'running' : succeeded ? 'success' : round ? 'warning' : 'idle', label: round ? statusLabel(round.status) : '尚未开始',
+      algorithm: '约束优化排课', description: activeRound.value ? '正在根据课程计划和约束生成课表，请稍候。' : round?.error_message || '选择排课算法，检查数据后发起排课。',
+      stage: activeRound.value ? statusLabel(activeRound.value.status) : succeeded ? '结果已保存' : '等待发起', hasSolution: Boolean(candidate)},
+    steps: ['准备输入', '运行算法', '校验结果'].map((label,index) => ({label, state: succeeded ? 'complete' : activeRound.value ? (index === (activeRound.value.status === 'validating' ? 2 : activeRound.value.status === 'solving' ? 1 : 0) ? 'active' : 'pending') : 'pending'})),
+    input: {generated: Boolean(preflight.value), classText: preflight.value?.summary.activeLessonCount ?? '—', roomText: inputCounts.value.rooms, constraintText: inputCounts.value.constraints},
+    result: {title: round ? statusLabel(round.status) : '等待排课', detail: round?.error_message || (candidate ? `已保留 ${candidates.value.length} 个候选方案，选择任一可用方案可继续优化。` : '排课完成后，候选课表会直接显示在下方。')},
+    validation: {tone: failures.length ? 'error' : candidate?.status === 'valid' ? 'success' : 'idle', title: failures.length ? '需要处理' : candidate ? '校验完成' : preflight.value?.ready ? '检查通过' : '尚未检查',
+      detail: failures.length ? `有 ${failures.length} 个问题需要处理。` : candidate ? '展示所选候选的校验结果。' : '发起排课前会检查课程计划与约束配置。',
+      summary: candidate ? {total_cost: candidate.total_score, missing_time: candidate.metrics.missing_time ?? 0, missing_room: candidate.metrics.missing_room ?? 0,
+        hard_violations: candidate.hard_violations, soft_violations: candidate.metrics.soft_violations, time_penalty: candidate.metrics.time_penalty ?? 0,
+        room_penalty: candidate.metrics.room_penalty ?? 0, soft_penalty: candidate.metrics.distribution_penalty ?? 0} : null,
+      qualityItems: scoreComponents.value.filter(i => i.value > 0)},
+    qualityGroups: candidate ? scoreComponents.value.filter(i => i.value > 0).map(i => ({key:i.key,label:i.label,total:i.value,items:[{title:i.label,detail:'所选候选的累计扣分',penalty:i.value}]})) : [],
+    issueGroups: [...failures, ...conflicts].length ? [{key:'input', tone:'error',label:'需要处理的问题',items:[...failures,...conflicts].map(i=>({category:String(i.code ?? 'constraint'),title:String(i.title ?? '排课条件冲突'),detail:String(i.message ?? i.description ?? '请检查关联课次与约束配置'),severity:'error'}))}] : [],
+  };
+});
+
+async function openPreflight(optimize = false) {
+  optimizationMode.value = optimize;
+  preflightStep.value = 0;
+  showPreflight.value = true;
+  await runPreflight();
+}
+async function confirmRun() {
+  await runRound();
+  if (!errorMessage.value && preflight.value?.ready) showPreflight.value = false;
+}
+function locateResult() { resultElement.value?.scrollIntoView({behavior:'smooth',block:'start'}); }
 
 function diagnostics(round: SchedulingRound): Array<Record<string, unknown>> {
   const events = Array.isArray(round.events) ? round.events : [];
@@ -121,7 +172,7 @@ async function runRound() {
       errorMessage.value = `数据预检发现 ${preflight.value.summary.errorCount} 个阻断问题，请先修复后再运行。`;
       return;
     }
-    const parent = selectedCandidateCanWarmStart.value ? selectedCandidate.value : null;
+    const parent = optimizationMode.value && selectedCandidateCanWarmStart.value ? selectedCandidate.value : null;
     const result = await localApi.runSchedulingRound({
       timeBudgetSeconds: timeBudgetSeconds.value,
       randomSeed: randomSeed.value,
@@ -172,6 +223,10 @@ async function cancelRound() {
 
 onMounted(async () => {
   await loadRuns();
+  try {
+    const results = await Promise.all(['room','constraint','teacher','homeroom'].map(type => localApi.listEntities(type)));
+    inputCounts.value = {rooms: results[0].items.length, constraints: results[1].items.filter(i=>i.enabled !== 0).length, teachers:results[2].items.length, homerooms:results[3].items.length};
+  } catch(error) { errorMessage.value = formatLocalError(error); }
   if (activeRound.value) ensurePolling();
 });
 onBeforeUnmount(() => {
@@ -180,18 +235,47 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="module-view runs-dashboard">
-    <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>
-    <article class="run-card run-status-card"><div class="run-card-heading"><div><span>当前状态</span><h2>{{ currentStatus }}</h2></div><strong>本地自动排课</strong></div><p>{{ activeRound ? '正在根据课程计划和约束生成课表，请稍候。' : candidates.length ? '已生成可用候选课表，可以继续优化或查看结果。' : '完成数据准备后即可发起排课。' }}</p><div class="run-stage-pill">{{ currentStage }}</div><div class="run-progress-track"><span :style="{ width: `${activeRound ? progressPercent : candidates.length ? 100 : 0}%` }"></span></div><div class="run-step-list"><div class="run-step step-complete"><span></span><strong>准备输入</strong></div><div class="run-step" :class="activeRound ? 'step-active' : candidates.length ? 'step-complete' : ''"><span></span><strong>运行算法</strong></div><div class="run-step" :class="candidates.length ? 'step-complete' : ''"><span></span><strong>校验结果</strong></div></div><div class="run-card-actions"><button v-if="!activeRound" class="primary-button" :disabled="busy" @click="runRound">{{ selectedCandidateCanWarmStart ? '继续优化' : candidates.length ? '重新排课' : '发起排课' }}</button><button v-if="activeRound" class="secondary-button" :disabled="busy" @click="cancelRound">停止排课</button></div></article>
-
-    <article class="run-card run-input-summary"><div class="run-card-heading"><div><span>排课输入</span><h2>{{ preflight ? '输入摘要' : '等待检查' }}</h2></div><button class="secondary-button" :disabled="busy || Boolean(activeRound)" @click="runPreflight">{{ busy ? '检查中…' : '检查数据' }}</button></div><div class="run-stat-grid"><div><span>课次</span><strong>{{ preflight?.summary.activeLessonCount ?? '-' }}</strong></div><div><span>教学任务</span><strong>{{ preflight?.summary.activeTaskCount ?? '-' }}</strong></div><div><span>可选位置</span><strong>{{ preflight?.summary.optionCount ?? '-' }}</strong></div></div></article>
-
-    <article class="run-card run-result-card"><div class="run-card-heading"><div><span>运行结果</span><h2>{{ latestRound ? statusLabel(latestRound.status) : candidates.length ? '已有候选方案' : '等待排课' }}</h2></div></div><p>{{ latestRound?.error_message || (latestRound?.status === 'succeeded' ? `已保存候选，得分 ${latestRound.total_score ?? 0}` : candidates.length ? `共保存 ${candidates.length} 个候选方案。` : '排课完成后在下方查看候选课表。') }}</p><div v-if="candidates.length" class="candidate-selector"><button v-for="item in candidates" :key="item.id" :class="{ active: selectedCandidateId === item.id }" @click="selectedCandidateId = item.id"><strong>{{ item.name || '候选方案' }}</strong><span>得分 {{ item.total_score }} · {{ item.entry_count }} 课次</span></button></div></article>
-
-    <article class="run-card validation-card" :class="{ 'validation-error': preflight && !preflight.ready }"><div class="run-card-heading"><div><span>校验结果</span><h2>{{ preflight ? preflight.ready ? '检查通过' : '需要处理' : '尚未检查' }}</h2></div><button class="secondary-button" :disabled="busy" @click="runPreflight">重新校验</button></div><p>{{ preflight ? preflight.ready ? '当前项目可以发起排课。' : `当前项目有 ${preflight.summary.errorCount} 个问题需要处理。` : '检查课程计划、教师、教室、课节和约束是否完整。' }}</p><div v-if="selectedCandidate" class="validation-stat-grid"><div><span>质量</span><strong>{{ selectedCandidate.total_score }}</strong></div><div><span>课次</span><strong>{{ selectedCandidate.entry_count }}</strong></div><div><span>硬约束</span><strong>{{ selectedCandidate.hard_violations ?? 0 }}</strong></div></div><details v-if="preflight?.errors.length" class="validation-issue-group"><summary>需要处理的问题 <strong>{{ preflight.errors.length }} 项</strong></summary><ul class="diagnostic-list"><li v-for="(item, index) in preflight.errors" :key="index">{{ item.message || item.code }}</li></ul></details><details v-if="selectedCandidate" class="validation-issue-group"><summary>质量明细 <strong>展开/收起</strong></summary><div class="score-breakdown-grid"><div v-for="item in scoreComponents" :key="item.key"><small>{{ item.label }}</small><strong>{{ item.value }}</strong></div></div></details></article>
-
-    <article class="run-card run-settings-card"><div class="run-card-heading"><div><span>排课设置</span><h2>{{ selectedCandidateCanWarmStart ? '继续优化当前方案' : '开始新的排课' }}</h2></div></div><form class="run-settings-form" @submit.prevent="runRound"><label>方案名称<input v-model="sessionName" maxlength="200" :disabled="selectedCandidateCanWarmStart" required /></label><label>计算时长<input v-model.number="timeBudgetSeconds" type="number" min="10" max="1800" /><span>秒</span></label><button class="primary-button" :disabled="busy || Boolean(activeRound)">{{ activeRound ? '正在排课…' : selectedCandidateCanWarmStart ? '继续优化' : '开始排课' }}</button></form></article>
-
-    <details v-if="rounds.length" class="run-card run-history-card"><summary>排课记录（{{ rounds.length }} 次）</summary><div class="data-list"><div v-for="item in rounds" :key="item.id" class="data-row"><span><strong>{{ statusLabel(item.status) }}</strong><small>计算 {{ item.time_budget_seconds }} 秒 · {{ item.created_at }}</small></span><b v-if="item.candidate_id">得分 {{ item.total_score }}</b><b v-else>无候选</b></div></div></details>
-  </section>
+  <div class="web-workflow desktop-runs-page">
+    <header class="section-heading"><h2>排课运行</h2><div class="sheet-actions"><button v-if="!activeRound" type="button" :disabled="busy" @click="openPreflight(false)"><Play :size="16" />发起排课</button><button v-else type="button" class="btn-secondary" :disabled="busy" @click="cancelRound"><CircleStop :size="16" />停止排课</button></div></header>
+    <p v-if="errorMessage" class="form-message error-copy" role="alert">{{ errorMessage }}</p>
+    <section class="runs-dashboard">
+      <RunDashboardCards :state="cardState" @optimize="openPreflight(true)" @restart="openPreflight(false)" @cancel="cancelRound" @locate="locateResult" @validate="runPreflight" />
+      <article ref="resultElement" class="run-card run-timetable-card">
+        <h2>候选课表</h2>
+        <template v-if="candidates.length">
+          <label class="local-candidate-select">候选方案<select v-model="selectedCandidateId"><option v-for="c in candidates" :key="c.id" :value="c.id">{{ c.name || '候选方案' }} · 得分 {{ c.total_score }} · {{ c.entry_count }} 课次</option></select></label>
+          <p v-if="selectedCandidate?.based_on_old_data" class="local-run-notice">此方案基于旧数据，请重新排课后再继续优化。</p>
+          <TimetableView :key="selectedCandidateId" embedded :initial-candidate-id="selectedCandidateId" :revision="revision" @revision="emit('revision', $event)" @candidate="selectedCandidateId = $event" />
+        </template>
+        <div v-else class="empty-timetable-state"><CalendarDays :size="32" :stroke-width="1.5" aria-hidden="true" /><strong>尚未生成候选课表</strong><p>发起排课完成后，候选课表会直接显示在这里。</p><button type="button" :disabled="busy || Boolean(activeRound)" @click="openPreflight(false)">发起排课</button></div>
+      </article>
+      <details v-if="rounds.length" class="run-card local-run-history"><summary>排课记录（{{ rounds.length }} 次）</summary><div v-for="item in rounds" :key="item.id" class="local-run-history-row"><strong>{{ statusLabel(item.status) }}</strong><span>{{ item.created_at }}</span><span>计算 {{ item.time_budget_seconds }} 秒</span><span>{{ item.candidate_id ? `得分 ${item.total_score}` : '未生成候选' }}</span></div></details>
+    </section>
+    <div v-if="showPreflight" class="bottom-sheet-mask">
+      <section class="bottom-sheet run-data-overview-sheet" role="dialog" aria-modal="true" aria-label="排课前数据清单">
+        <header class="bottom-sheet-header run-data-sheet-header"><div><span>{{ optimizationMode ? '继续优化' : '发起排课' }}</span><h2>{{ steps[preflightStep] }}</h2></div><div class="run-data-sheet-status" :class="{ready: preflight?.ready}"><strong>{{ busy ? '正在检查数据' : preflight?.ready ? '可以发起排课' : '需要补齐数据' }}</strong></div><button type="button" class="btn-secondary" :disabled="busy" @click="showPreflight = false">关闭</button></header>
+        <ol class="run-preflight-steps" aria-label="排课准备进度"><li v-for="(label,index) in steps" :key="label" :class="{current:preflightStep === index,complete:preflightStep > index}" :aria-current="preflightStep === index ? 'step' : undefined"><span>{{ index+1 }}</span>{{ label }}</li></ol>
+        <div class="run-data-overview-body">
+          <fieldset v-if="preflightStep === 0" class="run-algorithm-selection" :disabled="busy"><legend>选择排课算法</legend><label class="run-algorithm-option selected"><input type="radio" name="scheduling-algorithm" checked /><div><strong>约束优化排课</strong><span class="algorithm-tag">本地运行</span><p>先寻找满足硬约束的课表，再按软约束改善排课质量。</p><small>所有计算均在本机完成，可选择已有候选继续优化。</small></div></label><label class="local-run-budget">每轮计算时长（秒）<input v-model.number="timeBudgetSeconds" type="number" min="10" max="1800" required /></label></fieldset>
+          <template v-else-if="preflightStep === 1">
+            <section class="run-overview-stat-grid"><article v-for="item in [{label:'课次',value:preflight?.summary.activeLessonCount ?? '—'},{label:'教师',value:inputCounts.teachers},{label:'班级',value:inputCounts.homerooms},{label:'教室',value:inputCounts.rooms}]" :key="item.label" class="run-overview-stat-card"><span>{{ item.label }}</span><strong>{{ item.value }}</strong></article></section>
+            <section class="run-overview-issue-panel"><h3>{{ preflight?.ready ? '当前项目可以发起排课' : '当前项目还需要处理以下问题' }}</h3><div class="run-overview-issue-list"><article v-for="(issue,index) in [...(preflight?.errors ?? []),...(preflight?.warnings ?? [])]" :key="index" class="run-overview-issue"><strong>{{ issue.title || '数据检查' }}</strong><span>{{ issue.message || issue.code }}</span></article><p v-if="preflight?.ready && !preflight?.warnings.length">课程计划和约束检查通过。</p></div></section>
+            <details class="run-preflight-details"><summary>查看详细数据清单</summary><dl class="run-preflight-summary"><div><dt>教学任务</dt><dd>{{ preflight?.summary.activeTaskCount }}</dd></div><div><dt>课次</dt><dd>{{ preflight?.summary.activeLessonCount }}</dd></div><div><dt>教室</dt><dd>{{ inputCounts.rooms }}</dd></div><div><dt>约束</dt><dd>{{ inputCounts.constraints }}</dd></div></dl></details>
+          </template>
+          <template v-else><dl class="run-preflight-summary"><div><dt>排课算法</dt><dd>约束优化排课</dd></div><div><dt>本轮时长</dt><dd>{{ timeBudgetSeconds }} 秒</dd></div><div><dt>数据检查</dt><dd>{{ preflight?.ready ? '已通过，可发起排课' : '需要补齐数据' }}</dd></div><div v-if="optimizationMode"><dt>继续优化的方案</dt><dd>{{ selectedCandidate?.name || '所选候选方案' }}</dd></div></dl><label v-if="!optimizationMode">方案名称<input v-model="sessionName" maxlength="200" required /></label><p class="local-run-notice">本轮输入、运行记录和候选结果均保存在本机。原有候选方案不会被覆盖。</p></template>
+          <p v-if="errorMessage" class="error-copy" role="alert">{{ errorMessage }}</p>
+        </div>
+        <footer class="bottom-sheet-footer run-data-sheet-footer"><button v-if="preflightStep === 1" type="button" class="btn-secondary" :disabled="busy" @click="runPreflight">刷新数据清单</button><button v-if="preflightStep > 0" type="button" class="btn-secondary" :disabled="busy" @click="preflightStep--">上一步</button><button v-if="preflightStep < 2" type="button" :disabled="busy || !Number.isInteger(timeBudgetSeconds) || timeBudgetSeconds < 10 || timeBudgetSeconds > 1800 || (preflightStep === 1 && !preflight?.ready)" @click="preflightStep++">下一步</button><button v-else type="button" :disabled="busy || !preflight?.ready || (optimizationMode && !selectedCandidateCanWarmStart) || (!optimizationMode && !sessionName.trim())" @click="confirmRun">{{ busy ? '正在启动…' : '继续排课' }}</button></footer>
+      </section>
+    </div>
+  </div>
 </template>
+<style scoped>
+.sheet-actions button {display:inline-flex;align-items:center;gap:6px;}
+.local-candidate-select {display:flex;align-items:center;gap:12px;margin:14px 0;}
+.local-run-history {grid-column:1 / -1;}
+.local-run-history-row {display:flex;flex-wrap:wrap;gap:18px;padding:12px 0;border-bottom:1px solid #e1e8e4;}
+.local-run-notice {padding:12px;background:#f2f7f4;color:#53665e;margin:12px 0;}
+.local-run-budget {display:flex;align-items:center;gap:12px;margin-top:20px;}
+.web-workflow input[type="radio"] {appearance:auto;width:18px;height:18px;padding:0;margin:0;accent-color:#2f7d6d;flex-shrink:0;}
+</style>
