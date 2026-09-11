@@ -1,0 +1,5 @@
+/* Only host isolation: web dialogs otherwise keep the upstream stylesheet. */
+.web-course-editor { font-size: 16px; line-height: normal; font-variant-numeric: normal; }
+/* The transplanted panel no longer occupies column two of the web workspace. */
+.web-course-editor .subject-editor-mask { grid-template-columns: minmax(0, 1fr); }
+.web-course-editor .subject-editor-dialog { grid-column: 1; }

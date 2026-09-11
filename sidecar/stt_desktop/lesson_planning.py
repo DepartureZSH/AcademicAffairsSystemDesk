@@ -3,7 +3,7 @@
 import json
 import re
 
-from stt_desktop.lesson_config import parse_lesson_config
+from stt_desktop.lesson_config import parse_lesson_config, parse_task_config
 from stt_desktop.storage.project import ENTITY_SPECS, ProjectError, utc_now, uuid7
 
 
@@ -22,6 +22,10 @@ def save_course_arrangement(project, data, drafts, expected_revision):
     homeroom = project.get_entity("homeroom", effective["homeroom_id"])
     if not term or not homeroom or homeroom.get("term_id") not in (None, "", term["id"]):
         raise ProjectError("班级与学期不匹配")
+    if effective.get("course_plan_id"):
+        plan = project.get_entity("course_plan", effective["course_plan_id"])
+        if not plan or any(plan[key] != effective[key] for key in ("term_id", "homeroom_id", "subject_id")):
+            raise ProjectError("课程计划不属于当前班级、学期或科目")
     old = {
         item["id"]: item
         for item in project.list_entities("task_lesson")
@@ -30,6 +34,16 @@ def save_course_arrangement(project, data, drafts, expected_revision):
     slots = {item["id"]: item for item in project.list_entities("time_slot") if item["active"]}
     schedules = {item["id"]: item for item in project.list_entities("bell_schedule")}
     rooms = {item["id"] for item in project.list_entities("room") if item["status"] == "active"}
+    try:
+        task_config = parse_task_config(effective.get("planning_config", {}))
+    except (ValueError, TypeError) as exc:
+        raise ProjectError(str(exc)) from exc
+    if task_config:
+        ids = task_config.get("room_ids", [])
+        if type(task_config.get("uses_rooms")) is not bool or not isinstance(ids, list) or len(ids) > 200:
+            raise ProjectError("默认教室设置格式无效")
+        if any(not isinstance(room, str) or room not in rooms for room in ids) or len(set(ids)) != len(ids):
+            raise ProjectError("默认教室不存在、已停用或重复")
     prepared, seen = [], set()
     for index, draft in enumerate(drafts):
         if not isinstance(draft, dict) or set(draft) - {
@@ -98,11 +112,24 @@ def save_course_arrangement(project, data, drafts, expected_revision):
         if any(lesson_id in constraint["parameters"] for lesson_id in removed):
             raise ProjectError("待删除的课次仍被约束引用，请先在约束配置中移除引用")
     values = {key: value for key, value in data.items() if key in spec.fields}
+    if "planning_config" in values:
+        values["planning_config"] = json.dumps(task_config, ensure_ascii=False)
     values["weekly_slots"] = sum(item["duration_slots"] for item in prepared if item["enabled"])
     values["duration_slots"] = prepared[0]["duration_slots"] if prepared else 1
     now = utc_now()
     project._begin_write(expected_revision)
     try:
+        plan = project.connection.execute(
+            "SELECT id FROM course_plans WHERE term_id = ? AND homeroom_id = ? AND subject_id = ?",
+            (effective["term_id"], effective["homeroom_id"], effective["subject_id"]),
+        ).fetchone()
+        plan_id = plan["id"] if plan else uuid7()
+        if not plan:
+            project.connection.execute(
+                "INSERT INTO course_plans (id, term_id, homeroom_id, subject_id, weekly_slots, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (plan_id, effective["term_id"], effective["homeroom_id"], effective["subject_id"], values["weekly_slots"], now, now),
+            )
+        values["course_plan_id"] = plan_id
         if existing:
             assignments = ", ".join(f"{key} = ?" for key in values)
             project.connection.execute(
@@ -143,6 +170,10 @@ def save_course_arrangement(project, data, drafts, expected_revision):
                     f"INSERT INTO task_lessons ({', '.join(fields)}) VALUES ({', '.join('?' for _ in fields)})",
                     list(fields.values()),
                 )  # noqa: S608
+        project.connection.execute(
+            "UPDATE course_plans SET weekly_slots = (SELECT COALESCE(SUM(weekly_slots), 0) FROM teaching_tasks WHERE course_plan_id = ? AND status = 'active'), updated_at = ? WHERE id = ?",
+            (plan_id, now, plan_id),
+        )
         revision = project._commit_write(now)
     except Exception:
         project.connection.execute("ROLLBACK")
@@ -153,3 +184,33 @@ def save_course_arrangement(project, data, drafts, expected_revision):
         [project.get_entity("task_lesson", item["id"]) for item in prepared],
         revision,
     )
+
+
+def set_course_scheduled(project, homeroom_id, subject_id, term_id, scheduled, expected_revision):
+    homeroom = project.get_entity("homeroom", homeroom_id)
+    if not homeroom or homeroom.get("term_id") not in (None, "", term_id) or not project.get_entity("subject", subject_id) or not project.get_entity("term", term_id):
+        raise ProjectError("班级、科目或学期无效")
+    tasks = [t for t in project.list_entities("teaching_task") if t["homeroom_id"] == homeroom_id and t["subject_id"] == subject_id and t["term_id"] == term_id]
+    task_ids = {t["id"] for t in tasks}
+    lessons = {l["id"] for l in project.list_entities("task_lesson") if l["teaching_task_id"] in task_ids}
+    if not scheduled and any(any(i in c["parameters"] for i in task_ids | lessons) for c in project.list_entities("constraint")):
+        raise ProjectError("授课任务或课次仍被约束引用，请先解除引用")
+    now = utc_now()
+    project._begin_write(expected_revision)
+    try:
+        if not scheduled:
+            for lesson_id in lessons:
+                project.connection.execute("DELETE FROM availability_rules WHERE entity_type = 'lesson' AND entity_id = ?", (lesson_id,))
+            for task_id in task_ids:
+                project.connection.execute("DELETE FROM teaching_tasks WHERE id = ?", (task_id,))
+        plan = project.connection.execute("SELECT id FROM course_plans WHERE term_id = ? AND homeroom_id = ? AND subject_id = ?", (term_id, homeroom_id, subject_id)).fetchone()
+        if plan:
+            project.connection.execute("UPDATE course_plans SET weekly_slots = ?, updated_at = ? WHERE id = ?", (1 if scheduled else 0, now, plan["id"]))
+        else:
+            project.connection.execute("INSERT INTO course_plans (id, term_id, homeroom_id, subject_id, weekly_slots, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (uuid7(), term_id, homeroom_id, subject_id, 1 if scheduled else 0, now, now))
+        revision = project._commit_write(now)
+    except Exception:
+        project.connection.execute("ROLLBACK")
+        raise
+    project._write_manifest_revision(revision, now)
+    return revision

@@ -31,6 +31,7 @@ def copy_class_courses(project: ProjectRepository, source_id: str, target_id: st
                       if item['teaching_task_id'] in source_task_ids]
     subjects = project.list_entities('subject')
     complete_subjects = {item['subject_id'] for item in source_tasks}
+    complete_subjects.update(item['subject_id'] for item in plans if item['homeroom_id'] == source_id and in_term(item) and item['weekly_slots'] == 0)
     if not subjects or any(item['id'] not in complete_subjects for item in subjects) or any(
         not item['primary_teacher_id'] or not any(
             lesson['teaching_task_id'] == item['id'] and lesson['enabled']
@@ -50,7 +51,8 @@ def copy_class_courses(project: ProjectRepository, source_id: str, target_id: st
                               term_id=term_id) for item in source_plans],
         'teaching_task': [clone('teaching_task', item, task_ids[item['id']], homeroom_id=target_id,
                                 term_id=term_id, course_plan_id=plan_ids.get(item['course_plan_id']),
-                                primary_teacher_id=None, fixed_room_id=None) for item in source_tasks],
+                                primary_teacher_id=None, fixed_room_id=None,
+                                planning_config={}) for item in source_tasks],
         'task_lesson': [clone('task_lesson', item, lesson_ids[item['id']],
                               teaching_task_id=task_ids[item['teaching_task_id']],
                               planning_config={**parse_lesson_config(item.get('planning_config', '{}')),

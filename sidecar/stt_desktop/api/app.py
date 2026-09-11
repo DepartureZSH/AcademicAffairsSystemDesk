@@ -35,7 +35,7 @@ from stt_desktop.storage.schema import SCHEMA_VERSION
 from stt_desktop.transfers import ExportService, ImportService
 from stt_desktop.timetable_settings import TimetableSettingsService
 from stt_desktop.planning import copy_class_courses
-from stt_desktop.lesson_planning import save_course_arrangement
+from stt_desktop.lesson_planning import save_course_arrangement, set_course_scheduled
 
 PROTOCOL_VERSION = "1"
 DEFAULT_ALLOWED_ORIGINS = frozenset(
@@ -69,6 +69,15 @@ class ClassCourseCopyRequest(BaseModel):
 
 class CourseArrangementRequest(EntityWriteRequest):
     lessons: list[dict[str, Any]] = Field(max_length=500)
+
+
+class CourseStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    homeroom_id: str
+    subject_id: str
+    term_id: str
+    scheduled: bool
+    expected_revision: int = Field(ge=0)
 
 
 class SchedulingRoundRequest(BaseModel):
@@ -476,6 +485,15 @@ def create_app(
                                               request.term_id, request.expected_revision)
         return {"counts": counts, "revision": revision,
                 "backupWarning": _daily_backup_warning(project, workspace)}
+
+    @app.post("/v1/planning/course-status")
+    async def save_course_status(request: CourseStatusRequest) -> dict[str, Any]:
+        project = state.require_project()
+        if project.revision != request.expected_revision:
+            raise RevisionConflictError(request.expected_revision, project.revision)
+        BackupService(project, workspace).create_backup(reason="pre-destructive")
+        revision = set_course_scheduled(project, request.homeroom_id, request.subject_id, request.term_id, request.scheduled, request.expected_revision)
+        return {"revision": revision}
 
     @app.put("/v1/planning/tasks")
     async def save_teaching_task_bundle(request: EntityWriteRequest) -> dict[str, Any]:

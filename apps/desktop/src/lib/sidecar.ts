@@ -231,6 +231,8 @@ export const localApi = {
       method: 'PUT', path: '/v1/planning/arrangement',
       body: { data, lessons, expected_revision: expectedRevision },
     }),
+  setCourseScheduled: (homeroomId: string, subjectId: string, termId: string, scheduled: boolean, expectedRevision: number) =>
+    sidecarRequest<{revision: number}>({method:'POST', path:'/v1/planning/course-status', body:{homeroom_id:homeroomId,subject_id:subjectId,term_id:termId,scheduled,expected_revision:expectedRevision}}),
   validateProject: () =>
     sidecarRequest<PreflightValidation>({
       method: "POST",

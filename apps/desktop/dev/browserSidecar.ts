@@ -47,7 +47,7 @@ export function browserSidecar(): Plugin {
         const editorPath = /^\/v1\/(?:timetable\/(?:settings|templates(?:\/[\w-]+)?)|data\/[a-z_]+(?:\/[\w-]+)?)(?:\?|$)/.test(url);
         const runPath = /^\/v1\/(?:validation\/preflight|scheduling\/(?:rounds(?:\/[\w-]+\/cancel)?|candidates)|timetables\/(?:[\w-]+|validate-move|manual-fork))(?:\?|$)/.test(url);
         const exportHistory = req.method === 'GET' && url === '/v1/exports';
-        const planningPath = (req.method === 'PUT' && ['/v1/planning/tasks', '/v1/planning/arrangement'].includes(url)) || (req.method === 'POST' && url === '/v1/planning/copy-class');
+        const planningPath = (req.method === 'PUT' && ['/v1/planning/tasks', '/v1/planning/arrangement'].includes(url)) || (req.method === 'POST' && ['/v1/planning/copy-class','/v1/planning/course-status'].includes(url));
         if (!editorPath && !runPath && !exportHistory && !planningPath) {
           res.statusCode = 404; res.end("此操作不在浏览器预览范围内"); return;
         }

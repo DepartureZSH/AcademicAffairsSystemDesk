@@ -808,6 +808,11 @@ class SchedulingService:
                     diagnostics["option_count"] += 1
             candidate_rooms = (config['room_ids'] if config['room_mode'] == 'custom' else
                                self._candidate_rooms(task, homeroom_by_id, rooms, room_by_id))
+            task_config = json.loads(task.get('planning_config') or '{}')
+            if task_config:
+                candidate_rooms = ([] if not task_config.get('uses_rooms', True) else
+                                   config['room_ids'] if config['room_mode'] == 'custom' else
+                                   task_config.get('room_ids', []))
             if any(room_id not in room_by_id for room_id in candidate_rooms):
                 diagnostics['errors'].append({'code': 'LESSON_ROOM_UNAVAILABLE', 'lessonId': lesson['id'],
                                               'message': f'{label} 的课次教室不存在或已停用'})

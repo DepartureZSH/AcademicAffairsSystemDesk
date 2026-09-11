@@ -4,6 +4,20 @@ import json
 import re
 
 
+def parse_task_config(raw) -> dict:
+    config = json.loads(raw) if isinstance(raw, str) else raw
+    if not isinstance(config, dict) or set(config) - {"uses_rooms", "room_ids"}:
+        raise ValueError("默认教室设置格式无效")
+    if not config:
+        return {}  # Legacy tasks retain fixed-room/classroom fallback behavior.
+    rooms = config.get("room_ids", [])
+    if type(config.get("uses_rooms")) is not bool or not isinstance(rooms, list) or len(rooms) > 200:
+        raise ValueError("默认教室设置格式无效")
+    if any(not isinstance(item, str) or not item for item in rooms) or len(set(rooms)) != len(rooms):
+        raise ValueError("默认教室不能重复或为空")
+    return {"uses_rooms": config["uses_rooms"], "room_ids": rooms if config["uses_rooms"] else []}
+
+
 def parse_lesson_config(raw) -> dict:
     config = json.loads(raw) if isinstance(raw, str) else raw
     if not isinstance(config, dict) or set(config) - {"preferred_times", "room_mode", "room_ids"}:

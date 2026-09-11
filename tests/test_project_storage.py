@@ -324,6 +324,7 @@ def _downgrade_fixture_to_v1(workspace: ProjectWorkspace) -> tuple[str, Path]:
         connection.execute("DROP TABLE timetable_template_assignments")
         connection.execute("ALTER TABLE teachers ADD COLUMN employee_no TEXT")
         connection.execute("ALTER TABLE task_lessons DROP COLUMN planning_config")
+        connection.execute("ALTER TABLE teaching_tasks DROP COLUMN planning_config")
         connection.execute(
             "UPDATE app_metadata SET value = '1' WHERE key = 'schema_version'"
         )

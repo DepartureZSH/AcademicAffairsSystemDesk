@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA_V1 = r"""
 CREATE TABLE app_metadata (
@@ -413,4 +413,5 @@ MIGRATIONS: dict[int, str] = {
 ALTER TABLE teachers DROP COLUMN employee_no;
 ALTER TABLE task_lessons ADD COLUMN planning_config TEXT NOT NULL DEFAULT '{}';
 """,
+    4: "ALTER TABLE teaching_tasks ADD COLUMN planning_config TEXT NOT NULL DEFAULT '{}';",
 }

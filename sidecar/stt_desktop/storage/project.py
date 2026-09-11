@@ -14,7 +14,7 @@ from collections.abc import Callable, Sequence
 from typing import Any, Mapping
 
 from .schema import MIGRATIONS, SCHEMA_V1, SCHEMA_VERSION
-from stt_desktop.lesson_config import parse_lesson_config
+from stt_desktop.lesson_config import parse_lesson_config, parse_task_config
 
 FORMAT_VERSION = 1
 APP_VERSION = "0.2.1"
@@ -150,7 +150,7 @@ ENTITY_SPECS: dict[str, EntitySpec] = {
     ),
     "teaching_task": EntitySpec(
         "teaching_tasks",
-        frozenset({"term_id", "course_plan_id", "homeroom_id", "subject_id", "primary_teacher_id", "weekly_slots", "duration_slots", "required_room_type", "fixed_room_id", "status", "week_bits", "day_bits"}),
+        frozenset({"term_id", "course_plan_id", "homeroom_id", "subject_id", "primary_teacher_id", "weekly_slots", "duration_slots", "required_room_type", "fixed_room_id", "status", "week_bits", "day_bits", "planning_config"}),
         frozenset({"homeroom_id", "subject_id", "weekly_slots"}),
         "homeroom_id, subject_id",
     ),
@@ -644,6 +644,13 @@ class ProjectRepository:
         now = utc_now()
         self._begin_write(expected_revision)
         try:
+            if entity_type == "teaching_task":
+                lesson_ids = [row[0] for row in self.connection.execute("SELECT id FROM task_lessons WHERE teaching_task_id = ?", (entity_id,))]
+                references = [entity_id, *lesson_ids]
+                if any(any(item in row[0] for item in references) for row in self.connection.execute("SELECT parameters FROM constraints")):
+                    raise ProjectError("授课任务或课次仍被约束引用，请先解除引用")
+                for lesson_id in lesson_ids:
+                    self.connection.execute("DELETE FROM availability_rules WHERE entity_type = 'lesson' AND entity_id = ?", (lesson_id,))
             cursor = self.connection.execute(
                 f"DELETE FROM {spec.table} WHERE id = ?",  # noqa: S608 - allowlisted
                 (entity_id,),
@@ -676,6 +683,7 @@ class ProjectRepository:
             "time_slot": ("display_config",),
             "constraint": ("parameters",),
             "task_lesson": ("planning_config",),
+            "teaching_task": ("planning_config",),
         }
         normalized = dict(values)
         for field in json_fields.get(entity_type, ()):
@@ -688,9 +696,14 @@ class ProjectRepository:
                 raise ProjectError(f"{entity_type}.{field} 必须是有效 JSON") from exc
             if not isinstance(parsed, dict):
                 raise ProjectError(f"{entity_type}.{field} 必须是 JSON 对象")
-            if field == 'planning_config':
+            if field == 'planning_config' and entity_type == 'task_lesson':
                 try:
                     parsed = parse_lesson_config(parsed)
+                except ValueError as exc:
+                    raise ProjectError(str(exc)) from exc
+            if field == 'planning_config' and entity_type == 'teaching_task':
+                try:
+                    parsed = parse_task_config(parsed)
                 except ValueError as exc:
                     raise ProjectError(str(exc)) from exc
             normalized[field] = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))

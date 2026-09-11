@@ -194,6 +194,7 @@ def test_teacher_number_migration_preserves_relations_and_backup(tmp_path):
         connection.execute("ALTER TABLE teachers ADD COLUMN employee_no TEXT")
         connection.execute("UPDATE teachers SET employee_no = 'T001'")
         connection.execute("ALTER TABLE task_lessons DROP COLUMN planning_config")
+        connection.execute("ALTER TABLE teaching_tasks DROP COLUMN planning_config")
         connection.execute("UPDATE app_metadata SET value = '2' WHERE key = 'schema_version'")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["schema_version"] = 2
@@ -233,10 +234,10 @@ def test_preference_overlap_forbidden_wins_and_default_is_all():
 
 def test_lesson_ui_contracts_and_fullscreen_mask():
     root = Path(__file__).resolve().parents[1]
-    view = (root / "apps/desktop/src/components/LessonEditor.vue").read_text(encoding="utf-8")
-    for text in ("新增课次", "复制课次", "删除课次", "选择期望时间", "课次教室", "确认期望时间"):
+    view = (root / "apps/desktop/src/web-course-editor/CourseEditor.vue").read_text(encoding="utf-8")
+    for text in ("新增课次", "复制课次", "删除课次", "选择期望时间", "课次教室", "课次期望上课时间", "新手指导", "不安排", "默认教室列表"):
         assert text in view
-    assert "@click.self" not in view
+    assert "@click.self" not in view.replace('@click.self="skipGuide"', '')
     school = (root / "apps/desktop/src/components/SchoolDataView.vue").read_text(encoding="utf-8")
     assert "employee_no" not in school and "工号" not in school
     css = (root / "scripts/web-planning-ui-overrides.css").read_text(encoding="utf-8")
