@@ -19,9 +19,12 @@ const DEVICE_CREDENTIAL: &str = "device-ed25519";
 const ENTITLEMENT_CREDENTIAL: &str = "mock-entitlement";
 const CLOCK_CREDENTIAL: &str = "license-clock-checkpoint";
 const REFRESH_MARGIN_SECONDS: i64 = 60;
+const REMEMBER_LOGIN_SECONDS: i64 = 7 * 24 * 60 * 60;
+const SESSION_REVOKED: &str = "登录状态已失效，请重新登录";
 const CLOCK_ROLLBACK_TOLERANCE_SECONDS: i64 = 300;
 const IDENTITY_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const IDENTITY_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+static SESSION_CHECK: tauri::async_runtime::Mutex<()> = tauri::async_runtime::Mutex::const_new(());
 
 #[derive(Clone, Debug, Deserialize)]
 struct RawConfig {
@@ -66,6 +69,8 @@ struct StoredSession {
     access_token: String,
     refresh_token: String,
     expires_at: i64,
+    #[serde(default)]
+    remember_until: i64,
     user: AuthUser,
 }
 
@@ -317,7 +322,10 @@ fn load_session() -> Result<Option<StoredSession>, String> {
         .transpose()
 }
 
-fn store_session(response: SupabaseSessionResponse) -> Result<StoredSession, String> {
+fn store_session(
+    response: SupabaseSessionResponse,
+    remember_until: Option<i64>,
+) -> Result<StoredSession, String> {
     let email = response
         .user
         .email
@@ -326,6 +334,7 @@ fn store_session(response: SupabaseSessionResponse) -> Result<StoredSession, Str
         access_token: response.access_token,
         refresh_token: response.refresh_token,
         expires_at: now_seconds()? + response.expires_in.max(1),
+        remember_until: remember_until.unwrap_or(now_seconds()? + REMEMBER_LOGIN_SECONDS),
         user: AuthUser {
             id: response.user.id,
             email,
@@ -438,13 +447,27 @@ async fn refresh_session(
     .await
     .map_err(|_| "身份服务网络不可用".to_string())?;
     if !response.status().is_success() {
+        if matches!(
+            response.status(),
+            StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED
+        ) {
+            return Err(SESSION_REVOKED.into());
+        }
         return Err(safe_auth_error(response.status()));
     }
     let payload = response
         .json::<SupabaseSessionResponse>()
         .await
         .map_err(|_| "身份服务返回格式无效".to_string())?;
-    store_session(payload)
+    store_session(payload, Some(session_deadline(session)))
+}
+
+fn session_deadline(session: &StoredSession) -> i64 {
+    if session.remember_until > 0 {
+        session.remember_until
+    } else {
+        session.expires_at.saturating_add(REMEMBER_LOGIN_SECONDS)
+    }
 }
 
 async fn current_auth_status(root: &Path) -> Result<AuthStatus, String> {
@@ -463,15 +486,29 @@ async fn current_auth_status(root: &Path) -> Result<AuthStatus, String> {
     let Some(session) = load_session()? else {
         return Ok(auth_status_for(None, false, None));
     };
+    if now_seconds()? >= session_deadline(&session) {
+        delete_credential(SESSION_CREDENTIAL)?;
+        account_access::clear();
+        return Ok(auth_status_for(
+            None,
+            false,
+            Some("登录已满 7 天，请重新登录".into()),
+        ));
+    }
     if session.expires_at > now_seconds()? + REFRESH_MARGIN_SECONDS {
         return Ok(auth_status_for(Some(&session), false, None));
     }
     match refresh_session(&identity_client()?, &config, &session).await {
         Ok(refreshed) => Ok(auth_status_for(Some(&refreshed), false, None)),
+        Err(message) if message == SESSION_REVOKED => {
+            delete_credential(SESSION_CREDENTIAL)?;
+            account_access::clear();
+            Ok(auth_status_for(None, false, Some(message)))
+        }
         Err(_) => Ok(auth_status_for(
             Some(&session),
             true,
-            Some("暂时无法刷新登录会话，请检查网络或重新登录".into()),
+            Some("暂时无法连接登录服务，登录状态已保留，请检查网络后重试".into()),
         )),
     }
 }
@@ -630,6 +667,11 @@ fn current_license_status(root: &Path, auth: &AuthStatus) -> Result<LicenseStatu
 }
 
 pub async fn status(root: &Path) -> Result<GateStatus, String> {
+    let _guard = SESSION_CHECK.lock().await;
+    status_unlocked(root).await
+}
+
+async fn status_unlocked(root: &Path) -> Result<GateStatus, String> {
     let auth = current_auth_status(root).await?;
     let config = license_config(root)?;
     let mut online_error = None;
@@ -662,6 +704,7 @@ pub async fn status(root: &Path) -> Result<GateStatus, String> {
 }
 
 pub async fn sign_in(root: &Path, email: String, password: String) -> Result<GateStatus, String> {
+    let _guard = SESSION_CHECK.lock().await;
     account_access::clear();
     let config = identity_config(root)?;
     let response = supabase_headers(
@@ -682,8 +725,8 @@ pub async fn sign_in(root: &Path, email: String, password: String) -> Result<Gat
         .json::<SupabaseSessionResponse>()
         .await
         .map_err(|_| "身份服务返回格式无效".to_string())?;
-    store_session(payload)?;
-    status(root).await
+    store_session(payload, None)?;
+    status_unlocked(root).await
 }
 
 pub async fn sign_up(root: &Path, email: String, password: String) -> Result<AuthStatus, String> {
@@ -706,7 +749,7 @@ pub async fn sign_up(root: &Path, email: String, password: String) -> Result<Aut
     if payload.get("access_token").is_some() {
         let session: SupabaseSessionResponse =
             serde_json::from_value(payload).map_err(|_| "身份服务返回格式无效")?;
-        let stored = store_session(session)?;
+        let stored = store_session(session, None)?;
         return Ok(auth_status_for(Some(&stored), false, None));
     }
     Ok(AuthStatus {
@@ -796,6 +839,7 @@ pub async fn complete_password_reset(
 }
 
 pub async fn sign_out(root: &Path) -> Result<GateStatus, String> {
+    let _guard = SESSION_CHECK.lock().await;
     account_access::clear();
     if let (Ok(config), Some(session)) = (identity_config(root), load_session()?) {
         let _ = supabase_headers(
@@ -809,7 +853,7 @@ pub async fn sign_out(root: &Path) -> Result<GateStatus, String> {
     }
     delete_credential(SESSION_CREDENTIAL)?;
     delete_credential(ENTITLEMENT_CREDENTIAL)?;
-    status(root).await
+    status_unlocked(root).await
 }
 
 pub async fn activate(root: &Path, enterprise_key: String) -> Result<GateStatus, String> {
@@ -849,6 +893,9 @@ pub async fn activate(root: &Path, enterprise_key: String) -> Result<GateStatus,
 
 pub fn ensure_sidecar_allowed(root: &Path) -> Result<(), String> {
     let session = load_session()?.ok_or("未登录，不能启动本地算法服务")?;
+    if now_seconds()? >= session_deadline(&session) {
+        return Err("登录已满 7 天，请重新登录".into());
+    }
     let auth = auth_status_for(Some(&session), true, None);
     let license = current_license_status(root, &auth)?;
     if license.active {
@@ -861,6 +908,59 @@ pub fn ensure_sidecar_allowed(root: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remembered_session_deadline_does_not_slide_with_token_refresh() {
+        let mut session = StoredSession {
+            access_token: "test".into(),
+            refresh_token: "test".into(),
+            expires_at: 1000,
+            remember_until: 604800,
+            user: AuthUser {
+                id: "test".into(),
+                email: "test@example.test".into(),
+            },
+        };
+        let deadline = session_deadline(&session);
+        session.expires_at += 3600;
+        assert_eq!(session_deadline(&session), deadline);
+        let restored: StoredSession =
+            serde_json::from_str(&serde_json::to_string(&session).unwrap()).unwrap();
+        assert_eq!(session_deadline(&restored), deadline);
+    }
+
+    #[test]
+    #[ignore = "Run by credential_survives_process_restart with a dedicated test entry"]
+    fn credential_reader_process() {
+        let name = std::env::var("STT_TEST_CREDENTIAL_NAME").unwrap();
+        assert_eq!(
+            read_credential(&name).unwrap().as_deref(),
+            Some("synthetic-session-test")
+        );
+    }
+
+    #[test]
+    fn credential_survives_process_restart() {
+        let name = format!(
+            "test-session-{}-{}",
+            std::process::id(),
+            now_seconds().unwrap()
+        );
+        write_credential(&name, "synthetic-session-test").unwrap();
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "access_gate::tests::credential_reader_process",
+                "--ignored",
+            ])
+            .env("STT_TEST_CREDENTIAL_NAME", &name)
+            .output();
+        delete_credential(&name).unwrap();
+        assert!(
+            child.unwrap().status.success(),
+            "separate process could not restore test credential"
+        );
+    }
 
     #[test]
     fn bundled_public_key_is_used_without_runtime_configuration() {

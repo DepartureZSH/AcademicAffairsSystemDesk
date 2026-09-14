@@ -25,6 +25,7 @@ build/evidence/
 tmp/
 output/
 test-results/
+.playwright-cli/
 *.bck
 
 .idea/

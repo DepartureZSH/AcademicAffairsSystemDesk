@@ -40,7 +40,7 @@ const forms = reactive({
   room_type: { name: "", code: "", description: "" },
   room: { name: "", room_no: "", room_type_id: "", capacity: 0, status: "active" },
   homeroom: { name: "", grade_id: "", term_id: "", head_teacher_id: "", default_room_id: "", group_name: "", student_count: 0, status: "active" },
-  subject: { name: "", code: "", category: "general", default_duration_slots: 1, requires_special_room: 0 },
+  subject: { name: "", code: "", category: "general", default_duration_slots: 1, default_duration_minutes: 40, requires_special_room: 0 },
 });
 
 watch(() => props.revision, (value) => { revision.value = value; });
@@ -67,7 +67,7 @@ const visibleKinds = computed(() => props.mode === "rooms"
 const activeLabel = computed(() => kinds.find((kind) => kind.key === activeType.value)?.label ?? "资料");
 const intro = computed(() => props.mode === "rooms" ? "维护教室类型和教室容量。" : "维护教师、班级和科目，供课程计划与排课使用。");
 const totalPages = computed(() => Math.max(1, Math.ceil((totals[activeType.value] ?? 0) / PAGE_SIZE)));
-const hasExportTemplate = computed(() => ["teacher", "homeroom", "room_type", "room"].includes(activeType.value));
+const hasExportTemplate = computed(() => ["teacher", "homeroom", "room_type"].includes(activeType.value));
 const normalTemplates = computed(() => templates.value.filter((item) => {
   try { return JSON.parse(String(item.display_config || "{}"))._web_template?.template_kind !== "special"; }
   catch { return false; }
@@ -244,7 +244,7 @@ function emptyForm(type: string): Record<string, unknown> {
     case "room_type": return { name: "", code: "", description: "" };
     case "room": return { name: "", room_no: "", room_type_id: "", capacity: 0, status: "active" };
     case "homeroom": return { name: "", grade_id: "", term_id: "", head_teacher_id: "", default_room_id: "", group_name: "", student_count: 0, status: "active" };
-    default: return { name: "", code: "", category: "general", default_duration_slots: 1, requires_special_room: 0 };
+    default: return { name: "", code: "", category: "general", default_duration_slots: 1, default_duration_minutes: 40, requires_special_room: 0 };
   }
 }
 
@@ -302,7 +302,7 @@ onMounted(loadAll);
           <thead><tr>
             <template v-if="activeType === 'teacher'"><th scope="col">姓名</th><th scope="col">分组标签</th></template>
             <template v-else-if="activeType === 'homeroom'"><th scope="col">班级</th><th scope="col" class="ledger-number-column">人数（人）</th><th scope="col">分组</th><th scope="col">班主任</th><th scope="col">默认教室</th></template>
-            <template v-else-if="activeType === 'subject'"><th scope="col">科目</th><th scope="col" class="ledger-number-column">默认课长（课时）</th></template>
+            <template v-else-if="activeType === 'subject'"><th scope="col">科目</th><th scope="col" class="ledger-number-column">默认课长</th></template>
             <template v-else-if="activeType === 'room'"><th scope="col">教室</th><th scope="col">类型</th><th scope="col" class="ledger-number-column">容量（人）</th></template>
             <template v-else><th scope="col">类型</th><th scope="col">说明</th></template>
             <th v-if="hasExportTemplate" scope="col">导出模板</th>
@@ -317,7 +317,7 @@ onMounted(loadAll);
               <td class="ledger-name-cell">{{ item.name }}</td><td class="ledger-number-column">{{ formatCount(item.student_count) }}</td><td :class="{ 'ledger-muted': !item.group_name }">{{ item.group_name || '未分组' }}</td><td :class="{ 'ledger-muted': !item.head_teacher_id }">{{ nameOf('teacher', item.head_teacher_id) }}</td><td :class="{ 'ledger-muted': !item.default_room_id }">{{ nameOf('room', item.default_room_id) }}</td>
             </template>
             <template v-else-if="activeType === 'subject'">
-              <td class="ledger-name-cell">{{ item.name }}</td><td class="ledger-number-column">{{ formatCount(item.default_duration_slots ?? 1) }}</td>
+              <td class="ledger-name-cell">{{ item.name }}</td><td class="ledger-number-column">{{ item.default_duration_minutes ? `${formatCount(item.default_duration_minutes)} 分钟` : `${formatCount(item.default_duration_slots ?? 1)} 节（原配置）` }}</td>
             </template>
             <template v-else-if="activeType === 'room'">
               <td class="ledger-name-cell">{{ item.name }}</td><td :class="{ 'ledger-muted': !item.room_type_id }">{{ nameOf('room_type', item.room_type_id) }}</td><td class="ledger-number-column">{{ formatCount(item.capacity) }}</td>
@@ -354,7 +354,7 @@ onMounted(loadAll);
             <label>班级名称<input v-model="forms.homeroom.name" placeholder="一年级 1 班" required /></label><label>人数<input v-model.number="forms.homeroom.student_count" type="number" min="0" /></label><label>分组<input v-model="forms.homeroom.group_name" placeholder="例如：一年级" /></label><label>班主任<select v-model="forms.homeroom.head_teacher_id"><option value="">未指定班主任</option><option v-for="item in records.teacher" :key="item.id" :value="item.id">{{ item.name }}</option></select></label><label>默认教室<select v-model="forms.homeroom.default_room_id"><option value="">未指定默认教室</option><option v-for="item in records.room" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
           </template>
           <template v-else>
-            <label>科目名称<input v-model="forms.subject.name" placeholder="数学" required /></label><label>默认课长<input v-model.number="forms.subject.default_duration_slots" type="number" min="1" /></label>
+            <label>科目名称<input v-model="forms.subject.name" placeholder="数学" required /></label><label>默认课长（分钟）<input v-model.number="forms.subject.default_duration_minutes" type="number" min="5" max="1440" step="5" required /></label>
           </template>
           <label v-if="hasExportTemplate" class="ledger-template-field">导出模板
             <select v-model="exportTemplateId" :disabled="busy">

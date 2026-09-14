@@ -5,7 +5,7 @@ import { fitWorksheetToPrintedPage } from './excelPrintLayout';
 import { compareNaturalClassNames, compareNaturalRoomNames } from './naturalClassNameSort';
 import { localApi, sidecarRequest, formatLocalError } from '../lib/sidecar';
 
-export function useTimetableEditor(onRevision: (revision: number) => void) {
+export function useTimetableEditor(onRevision: (revision: number) => void, onTemplateSaved: (revision: number) => void = () => {}) {
 const organizationId = ref("local");
 const projectId = ref("local");
 type TimetableEntry = {
@@ -3237,6 +3237,7 @@ async function persistTimetableTemplate(_scope: "project" | "organization" | "ma
     onRevision(result.revision);
     await loadSchoolData();
     localNotice.value = "课表模板已保存到本机";
+    onTemplateSaved(localRevision);
     return true;
   } catch(cause) { error.value = formatLocalError(cause); return false; }
   finally { loading.value = false; }
@@ -3265,5 +3266,38 @@ async function loadTemplateMarketplace() {
   ];
 }
 
-return { activeSection, addPreviewBlankColumn, addPreviewBlankRow, addPreviewHeaderRow, addPreviewRow, applySelectedBlankColumnCellMerge, applySelectedBlankRowCellMerge, applySelectedHeaderCellMerge, blankRowRenderedCells, canDeleteCurrentRow, canMovePreviewBlankColumn, canMovePreviewBlankRow, canMovePreviewHeaderRow, cancelNewTimetableTemplate, courseCellExportBottomField, courseCellExportLayout, courseCellExportTopField, courseCellSampleLines, courseCellTemplatePreviewLayout, courseCellTemplatePreviewLines, createNewTimetableTemplate, deletePreviewBlankColumn, deletePreviewBlankRow, deletePreviewHeaderRow, deleteSelectedPreviewRow, deleteTimetableTemplate, exportTimetableTemplateExcel, isPreviewBlankColumnCellSelected, isPreviewBlankColumnSelected, isPreviewBlankRowCellSelected, isPreviewBlankRowSelected, isPreviewCellSelected, isPreviewHeaderCellSelected, isTemplateWeekdayEnabled, allClassesTemplateVariant, fullTablePreviewColumnCount, fullTablePreviewDayGroups, fullTablePreviewPeriods, hasTimetableTemplateEditor, irregularPreviewColumnCount, irregularPreviewDayGroups, irregularPreviewHomerooms, loading, movePreviewBlankColumn, movePreviewBlankRow, movePreviewHeaderRow, newTemplateConfirmDescription, newTemplateConfirmStep, newTemplateConfirmTitle, previewBlankColumnCell, previewBodyColumnCount, previewHeaderCellText, previewHeaderRowRenderedCells, previewHeaderRows, previewPeriodMode, saveTimetableTemplate, schoolData, schoolDataSummary, selectNumberValue, selectPreviewBlankColumn, selectPreviewBlankColumnCell, selectPreviewBlankRow, selectPreviewBlankRowCell, selectPreviewCell, selectPreviewHeaderCell, selectTimetableTemplate, selectedPreviewBlankColumn, selectedPreviewBlankColumnCell, selectedPreviewBlankColumnCellMaxColspan, selectedPreviewBlankColumnCellMaxRowspan, selectedPreviewBlankRow, selectedPreviewBlankRowCell, selectedPreviewBlankRowCellMaxColspan, selectedPreviewBlankRowCellMaxRowspan, selectedPreviewCell, selectedPreviewHeaderCell, selectedPreviewHeaderCellMaxColspan, selectedPreviewHeaderCellMaxRowspan, selectedPreviewPeriod, selectedTemplateId, setTemplateWeekdayEnabled, showNewTimetableTemplateConfirm, showTimetableTimeAxis, splitSelectedBlankColumnCell, splitSelectedBlankRowCell, splitSelectedHeaderCell, specialTimetableTemplatePresetsLoading, templateDisplayConfig, termForm, timetable, timetablePresetLibraryLoading, timetablePreviewColumns, timetablePreviewDays, timetablePreviewRowFlow, timetableTemplateForm, timetableTemplateKind, timetableTemplateLayoutKind, templateCreatePlanningMode, templateMarketplaceSearch, templateMarketplaceFilters, filteredTemplateMarketplaceItems, selectedTemplateMarketplaceKey, previewTemplateMarketplaceItem, chooseTemplatePlanningMode, backNewTemplateStep, selectTemplateMarketplaceItem, openTemplateMarketplacePreview, closeTemplateMarketplacePreview, continueTemplateMarketplace, confirmNewTemplateFromMarketplace, beginPeriodTimeEdit, commitPeriodTimeDraft, commitPeriodTimeOnEnter, nextPeriodStartTime, periodTimeDraftValue, periodTimeError, previousPeriodEndTime, previewPeriodExportStyle, selectedPeriodMergeSpanCount, setPreviewPeriodExportStyle, setPreviewPeriodMode, updatePeriodTimeDraft, updateActiveTerm, syncTimetableTemplateForms, error, periodDraftPayload, validateAllPeriodTimes, persistTimetableTemplate, loadSchoolData, periodTimeDrafts, periodTimeErrors, timetableTemplatePeriodSourceId, timetableTemplatePeriodsLocked, previewBlankRows, previewBlankColumns, localNotice };
+// AI_DRAFT_BEGIN
+function applyAiTimetableDraft(result: import('../web-ai/utils/timetableAi').TimetableAiResult, options: import('../web-ai/utils/timetableAi').TimetableAiOptions, targetId = '') {
+    resetNewTimetableTemplateDraft();
+    const draft = result.draft;
+    const config = draft.display_config;
+    timetableTemplateForm.value.name = draft.name;
+    if (targetId) {
+      const target = schoolData.value.weekly_timetable_templates.find(t => String(t.id) === targetId);
+      if (!target) throw new Error('待修改模板已不存在，请重新选择');
+      timetableTemplateForm.value.id = targetId;
+      timetableTemplateForm.value.is_default = Boolean(target.is_default);
+      selectedTemplateId.value = targetId;
+    }
+    weeklyPeriodDrafts.value = draft.periods.map(period => ({
+      weekday: Number(period.weekday), period_index: Number(period.period_index), label: String(period.label || ''),
+      start_time: minutesToClock(Number(period.start_time_minutes)), end_time: minutesToClock(Number(period.end_time_minutes)),
+      active: period.active !== false, align: 'center' as const, colspan: 1, ...periodDraftDisplayFields(period),
+    }));
+    enabledWeekdays.value = normalizeEnabledWeekdays(config.enabled_weekdays);
+    previewHeaderRows.value = normalizePreviewHeaderRows(config.header_rows);
+    previewBlankRows.value = normalizePreviewBlankRows(config.blank_rows);
+    previewBlankColumns.value = normalizePreviewBlankColumns(config.blank_columns);
+    showTimetableTimeAxis.value = config.show_time_axis === true;
+    timetableTimeMode.value = options.fixed ? 'fixed' : 'variable';
+    timetableTemplateLayoutKind.value = normalizeTimetableTemplateLayoutKind(config.layout_kind);
+    allClassesTemplateVariant.value = normalizeAllClassesTemplateVariant(config.all_classes_variant);
+    timetableTemplateKind.value = options.regular ? 'normal' : 'special';
+    timetableTemplateForm.value.is_default = options.regular && timetableTemplateForm.value.is_default;
+    timetableTemplatePeriodSourceId.value = options.planning_mode === 'reuse' ? result.default_template_id : '';
+    timetableTemplatePeriodsLocked.value = options.planning_mode === 'reuse';
+    timetableTemplateDraftActive.value = true;
+  }
+// AI_DRAFT_END
+return { applyAiTimetableDraft, activeSection, addPreviewBlankColumn, addPreviewBlankRow, addPreviewHeaderRow, addPreviewRow, applySelectedBlankColumnCellMerge, applySelectedBlankRowCellMerge, applySelectedHeaderCellMerge, blankRowRenderedCells, canDeleteCurrentRow, canMovePreviewBlankColumn, canMovePreviewBlankRow, canMovePreviewHeaderRow, cancelNewTimetableTemplate, courseCellExportBottomField, courseCellExportLayout, courseCellExportTopField, courseCellSampleLines, courseCellTemplatePreviewLayout, courseCellTemplatePreviewLines, createNewTimetableTemplate, deletePreviewBlankColumn, deletePreviewBlankRow, deletePreviewHeaderRow, deleteSelectedPreviewRow, deleteTimetableTemplate, exportTimetableTemplateExcel, isPreviewBlankColumnCellSelected, isPreviewBlankColumnSelected, isPreviewBlankRowCellSelected, isPreviewBlankRowSelected, isPreviewCellSelected, isPreviewHeaderCellSelected, isTemplateWeekdayEnabled, allClassesTemplateVariant, fullTablePreviewColumnCount, fullTablePreviewDayGroups, fullTablePreviewPeriods, hasTimetableTemplateEditor, irregularPreviewColumnCount, irregularPreviewDayGroups, irregularPreviewHomerooms, loading, movePreviewBlankColumn, movePreviewBlankRow, movePreviewHeaderRow, newTemplateConfirmDescription, newTemplateConfirmStep, newTemplateConfirmTitle, previewBlankColumnCell, previewBodyColumnCount, previewHeaderCellText, previewHeaderRowRenderedCells, previewHeaderRows, previewPeriodMode, saveTimetableTemplate, schoolData, schoolDataSummary, selectNumberValue, selectPreviewBlankColumn, selectPreviewBlankColumnCell, selectPreviewBlankRow, selectPreviewBlankRowCell, selectPreviewCell, selectPreviewHeaderCell, selectTimetableTemplate, selectedPreviewBlankColumn, selectedPreviewBlankColumnCell, selectedPreviewBlankColumnCellMaxColspan, selectedPreviewBlankColumnCellMaxRowspan, selectedPreviewBlankRow, selectedPreviewBlankRowCell, selectedPreviewBlankRowCellMaxColspan, selectedPreviewBlankRowCellMaxRowspan, selectedPreviewCell, selectedPreviewHeaderCell, selectedPreviewHeaderCellMaxColspan, selectedPreviewHeaderCellMaxRowspan, selectedPreviewPeriod, selectedTemplateId, setTemplateWeekdayEnabled, showNewTimetableTemplateConfirm, showTimetableTimeAxis, splitSelectedBlankColumnCell, splitSelectedBlankRowCell, splitSelectedHeaderCell, specialTimetableTemplatePresetsLoading, templateDisplayConfig, termForm, timetable, timetablePresetLibraryLoading, timetablePreviewColumns, timetablePreviewDays, timetablePreviewRowFlow, timetableTemplateForm, timetableTemplateKind, timetableTemplateLayoutKind, templateCreatePlanningMode, templateMarketplaceSearch, templateMarketplaceFilters, filteredTemplateMarketplaceItems, selectedTemplateMarketplaceKey, previewTemplateMarketplaceItem, chooseTemplatePlanningMode, backNewTemplateStep, selectTemplateMarketplaceItem, openTemplateMarketplacePreview, closeTemplateMarketplacePreview, continueTemplateMarketplace, confirmNewTemplateFromMarketplace, beginPeriodTimeEdit, commitPeriodTimeDraft, commitPeriodTimeOnEnter, nextPeriodStartTime, periodTimeDraftValue, periodTimeError, previousPeriodEndTime, previewPeriodExportStyle, selectedPeriodMergeSpanCount, setPreviewPeriodExportStyle, setPreviewPeriodMode, updatePeriodTimeDraft, updateActiveTerm, syncTimetableTemplateForms, error, periodDraftPayload, validateAllPeriodTimes, persistTimetableTemplate, loadSchoolData, periodTimeDrafts, periodTimeErrors, timetableTemplatePeriodSourceId, timetableTemplatePeriodsLocked, previewBlankRows, previewBlankColumns, localNotice };
 }

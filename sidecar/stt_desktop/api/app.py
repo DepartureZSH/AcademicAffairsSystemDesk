@@ -259,6 +259,8 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.sidecar = state
+    from stt_desktop.agent.routes import build_agent_router
+    app.include_router(build_agent_router(state, workspace))
 
     @app.middleware("http")
     async def secure_local_request(request: Request, call_next):

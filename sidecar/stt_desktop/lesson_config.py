@@ -20,8 +20,11 @@ def parse_task_config(raw) -> dict:
 
 def parse_lesson_config(raw) -> dict:
     config = json.loads(raw) if isinstance(raw, str) else raw
-    if not isinstance(config, dict) or set(config) - {"preferred_times", "room_mode", "room_ids"}:
+    if not isinstance(config, dict) or set(config) - {"preferred_times", "room_mode", "room_ids", "duration_minutes"}:
         raise ValueError("课次设置格式无效")
+    minutes = config.get("duration_minutes")
+    if minutes is not None and (type(minutes) is not int or not 5 <= minutes <= 1440 or minutes % 5):
+        raise ValueError("课长必须为 5–1440 分钟，且为 5 分钟的整数倍")
     mode = config.get("room_mode", "default")
     rooms = config.get("room_ids", [])
     rules = config.get("preferred_times", [])
@@ -52,6 +55,7 @@ def parse_lesson_config(raw) -> dict:
             raise ValueError("同一周频率和课节只能设置一种优先级")
         seen.add(key)
     return {
+        **({"duration_minutes": minutes} if minutes is not None else {}),
         "room_mode": mode,
         "room_ids": rooms if mode == "custom" else [],
         "preferred_times": rules,

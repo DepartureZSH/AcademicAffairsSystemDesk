@@ -1,6 +1,6 @@
 [project]
 name = "karios-stt-desktop"
-version = "0.2.1"
+version = "0.2.5"
 description = "Local-first desktop timetable scheduling application"
 requires-python = ">=3.12,<3.14"
 dependencies = [
@@ -42,3 +42,7 @@ addopts = "-ra"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint.per-file-ignores]
+# Preserve mechanically vendored web formatting; undefined names remain errors.
+"sidecar/stt_desktop/agent/upstream/*.py" = ["E402", "E701", "E731", "E741", "F401", "F811"]

@@ -181,8 +181,8 @@ def test_application_version_is_consistent_across_build_systems() -> None:
         tauri["version"],
     }
 
-    assert versions == {"0.2.1"}
-    assert 'APP_VERSION = "0.2.1"' in project_source
+    assert len(versions) == 1
+    assert f'APP_VERSION = "{tauri["version"]}"' in project_source
 
 
 def test_desktop_and_browser_share_the_official_icon() -> None:
@@ -336,7 +336,7 @@ def test_frozen_sidecar_windows_metadata_matches_tauri_product() -> None:
     assert f"filevers={windows_version}" in rendered
     assert f"prodvers={windows_version}" in rendered
     assert "StringStruct('ProductName', '时奕教务排课')" in rendered
-    assert "StringStruct('ProductVersion', '0.2.1')" in rendered
+    assert f"StringStruct('ProductVersion', '{config['version']}')" in rendered
     assert "StringStruct('CompanyName', '杭州格若时科技有限公司')" in rendered
     assert "StringStruct('OriginalFilename', 'stt-sidecar.exe')" in rendered
 

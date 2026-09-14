@@ -1,5 +1,7 @@
 mod access_gate;
 mod account_access;
+mod ai_settings;
+mod ai_stream;
 mod app_updates;
 mod purchase;
 
@@ -516,9 +518,17 @@ async fn sidecar_request(
     request: ProxyRequest,
 ) -> Result<Value, String> {
     let method = validate_proxy_request(&request)?;
-    if let Err(error) = access_gate::ensure_sidecar_allowed(&runtime_root(&app)?) {
-        terminate_managed_sidecar(&app);
-        return Err(error);
+    let root = runtime_root(&app)?;
+    if let Err(error) = access_gate::ensure_sidecar_allowed(&root) {
+        // Background WebView timers can be suspended. Refresh the short-lived
+        // membership check before treating its cache expiry as a denial.
+        if !access_gate::status(&root)
+            .await
+            .is_ok_and(|gate| gate.can_start_sidecar)
+        {
+            terminate_managed_sidecar(&app);
+            return Err(error);
+        }
     }
     let (url, token) = {
         let manager = state.lock();
@@ -623,6 +633,14 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            ai_settings::ai_connection_status,
+            ai_settings::ai_save_connection,
+            ai_settings::ai_clear_connection,
+            ai_settings::ai_test_connection,
+            ai_settings::ai_chat,
+            ai_settings::ai_complete,
+            ai_settings::ai_stream_complete,
+            ai_settings::ai_specialist_complete,
             runtime_status,
             access_gate_status,
             auth_sign_in,

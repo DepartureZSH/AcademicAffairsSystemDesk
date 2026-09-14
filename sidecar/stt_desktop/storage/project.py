@@ -17,7 +17,7 @@ from .schema import MIGRATIONS, SCHEMA_V1, SCHEMA_VERSION
 from stt_desktop.lesson_config import parse_lesson_config, parse_task_config
 
 FORMAT_VERSION = 1
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.2.5"
 ALGORITHM_PROTOCOL_VERSION = "1"
 
 
@@ -94,7 +94,7 @@ class EntitySpec:
     order_by: str
 
 
-LEDGER_TEMPLATE_TYPES = frozenset({"teacher", "homeroom", "room", "room_type"})
+LEDGER_TEMPLATE_TYPES = frozenset({"teacher", "homeroom", "room_type"})
 
 ENTITY_SPECS: dict[str, EntitySpec] = {
     "academic_year": EntitySpec(
@@ -138,7 +138,7 @@ ENTITY_SPECS: dict[str, EntitySpec] = {
     ),
     "subject": EntitySpec(
         "subjects",
-        frozenset({"name", "code", "category", "default_duration_slots", "requires_special_room"}),
+        frozenset({"name", "code", "category", "default_duration_slots", "default_duration_minutes", "requires_special_room"}),
         frozenset({"name"}),
         "name",
     ),
@@ -414,6 +414,8 @@ class ProjectRepository:
     ) -> tuple[dict[str, Any], int]:
         spec = self._entity_spec(entity_type)
         virtual_fields = {"export_template_id"} if entity_type in LEDGER_TEMPLATE_TYPES else set()
+        if entity_type == "room" and "export_template_id" in payload:
+            raise ProjectError("教室的导出模板沿用教室类型，请在教室类型中设置")
         unknown = sorted(set(payload) - spec.fields - {"id"} - virtual_fields)
         if unknown:
             raise ProjectError(f"{entity_type} 包含未知字段: {', '.join(unknown)}")
@@ -711,6 +713,8 @@ class ProjectRepository:
 
     def _validate_timetable_template_assignment(self, values: dict[str, Any]) -> None:
         entity_type = str(values.get("entity_type") or "")
+        if entity_type == "room":
+            raise ProjectError("教室的导出模板沿用教室类型，请在教室类型中设置")
         entity_id = values.get("entity_id")
         if entity_type == "all":
             return

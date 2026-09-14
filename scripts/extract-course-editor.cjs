@@ -37,7 +37,15 @@ function add(name) {
   visit(statement);
 }
 [...roots, ...[...byName.keys()].filter(n=>new RegExp('\\b'+n+'\\b').test(adapter)), 'courseLessonDrafts','teachingTaskForm','selectedTeachingTaskId','error','showLessonEditorSheet','showCoursePreferredPicker','selectedSubject','schoolData','planningData','coursePreferredRuleKey','newCourseLessonDraft','lessonEditorSessionSnapshot','cloneLessonEditorDrafts','subjectEditorOpen'].forEach(add);
-const body = fn.body.statements.filter(s=>selected.has(s)).map(s=>s.getText(source)).join('\n\n');
+const body = fn.body.statements.filter(s=>selected.has(s)).map(s=>s.getText(source)).join('\n\n')
+  .replace(/const defaultRules = Array\.from\([\s\S]*?forbidden: false,\s*\}\)\);/, `const defaultRules = selectedTemplatePeriods.value
+        .filter(period => !isCoursePreferredPeriodDisabled(Number(period.period_index), period))
+        .map(period => ({
+          key: coursePreferredRuleKey(),
+          week_bits: "1".repeat(termWeekCount.value),
+          day_bits: bitsFromNumbers([Number(period.weekday)], termDayCount.value),
+          period_index: Number(period.period_index), penalty: 0, forbidden: false,
+        }));`);
 const target=path.join(root,'apps/desktop/src/web-course-editor');
 fs.mkdirSync(target,{recursive:true});
 const guideSteps = Object.fromEntries(['lesson_editor_sheet','course_preferred_sheet'].map(name=>{
@@ -58,7 +66,7 @@ const scoped=planning.match(/<style scoped>([\s\S]*?)<\/style>/)?.[1]||'';
 const css=postcss.parse(fs.readFileSync(path.join(web,'styles.css'),'utf8')+'\n'+scoped.replace(/:deep\(([^)]+)\)/g,'$1'));
 const tokens = new Set((template+select+body+adapter+' planning-workspace-modal-open').match(/[a-zA-Z_][\w-]*/g));
 const prefixes = [...tokens].filter(t=>t.endsWith('-'));
-css.walkRules(rule=>{if(rule.parent.type==='atrule' && /keyframes/.test(rule.parent.name))return;const used=rule.selectors.filter(s=>[...s.matchAll(/\.([a-zA-Z_][\w-]*)/g)].every(([,name])=>tokens.has(name)||prefixes.some(p=>name.startsWith(p))));if(!used.length){rule.remove();return;}rule.selectors=used.map(s=>s===':root'||s==='body'?'.web-course-editor':s.startsWith('body.planning-workspace-modal-open')?s.replace('body.planning-workspace-modal-open','.web-course-editor'):`.web-course-editor ${s}`);});
+css.walkRules(rule=>{if(rule.parent.type==='atrule' && /keyframes/.test(rule.parent.name))return;rule.selectors=rule.selectors.map(s=>s===':root'||s==='body'?'.web-course-editor':s.startsWith('body.planning-workspace-modal-open')?s.replace('body.planning-workspace-modal-open','.web-course-editor'):`.web-course-editor ${s}`);});
 css.walkAtRules(rule=>{if(rule.nodes&&!rule.nodes.length)rule.remove();});
 fs.writeFileSync(path.join(target,'web-course-editor.css'),css.toString()+'\n'+(fs.existsSync(path.join(__dirname,'course-editor-local.css'))?fs.readFileSync(path.join(__dirname,'course-editor-local.css'),'utf8'):''));
 console.log(`Generated web course dialogs with ${selected.size} declarations (${body.split('\n').length} lines).`);

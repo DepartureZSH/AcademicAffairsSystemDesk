@@ -26,6 +26,8 @@ import RunsWorkspace from "./components/RunsWorkspace.vue";
 import BackupsView from "./components/BackupsView.vue";
 import ImportView from "./components/ImportView.vue";
 import AboutView from "./components/AboutView.vue";
+import AiSettingsView from "./components/AiSettingsView.vue";
+import AiAssistantView from "./components/AiAssistantView.vue";
 import { accessGate, type GateStatus } from "./lib/accessGate";
 import { updater, type UpdateStatus } from "./lib/updater";
 import { savedWorkspacePath, saveWorkspacePath } from "./lib/workspaceSettings";
@@ -34,6 +36,7 @@ import {
   formatLocalError,
   startSidecar,
   stopSidecar,
+  runtimeStatus,
   type HealthStatus,
   type ProjectInfo,
   type RuntimeStatus,
@@ -50,6 +53,8 @@ const navItems: NavItem[] = [
   { key: "planning", label: "课程计划", icon: NotebookPen },
   { key: "constraints", label: "约束配置", icon: SlidersHorizontal },
   { key: "runs", label: "排课运行", icon: Activity },
+  { key: "ai-settings", label: "AI 设置", icon: SlidersHorizontal },
+  { key: "agent", label: "AI 助手", icon: NotebookPen },
 ];
 
 const gate = ref<GateStatus | null>(null);
@@ -83,6 +88,8 @@ const workflowCounts = ref<Record<string, number>>({});
 const workflowBusy = ref(false);
 
 const pageTitle = computed(() => {
+  if (activeView.value === "agent") return "AI 助手";
+  if (activeView.value === "ai-settings") return "AI 设置";
   if (activeView.value === "about") return "软件信息";
   if (!gate.value?.canStartSidecar) return "身份与设备授权";
   if (activeView.value === "timetable") return "课表设置";
@@ -148,13 +155,21 @@ async function refreshProjects() {
 }
 
 async function bootstrapWorkspace() {
+  if (workspaceBusy.value) return;
   workspaceBusy.value = true;
   workspaceError.value = "";
   try {
     runtime.value = await startSidecar(preferredWorkspacePath.value || undefined);
     health.value = await localApi.health();
     await refreshProjects();
+    if (currentProject.value) {
+      const reopened = await localApi.openProject(currentProject.value.id);
+      currentProject.value = reopened.project;
+      projectRevision.value = reopened.revision;
+    }
   } catch (error) {
+    runtime.value = null;
+    health.value = null;
     workspaceError.value = formatLocalError(error);
   } finally {
     workspaceBusy.value = false;
@@ -173,6 +188,22 @@ async function bootstrapGate() {
   } finally {
     gateBusy.value = false;
   }
+}
+
+async function restartLocalService() {
+  if (workspaceBusy.value || gateBusy.value) return;
+  accountMenuOpen.value = false;
+  workspaceBusy.value = true;
+  workspaceError.value = "";
+  try {
+    await stopSidecar();
+    runtime.value = null;
+    health.value = null;
+  } catch (error) {
+    workspaceError.value = formatLocalError(error);
+    return;
+  } finally { workspaceBusy.value = false; }
+  await bootstrapGate();
 }
 
 async function submitAuth() {
@@ -502,17 +533,21 @@ function applyRestoredProject(project: ProjectInfo, revision: number) {
 let membershipTimer: ReturnType<typeof setInterval> | undefined;
 let membershipChecking = false;
 async function checkRunningMembership() {
-  if (gateBusy.value || membershipChecking || !gate.value?.auth.authenticated) return;
+  if (gateBusy.value || workspaceBusy.value || membershipChecking || !gate.value?.auth.authenticated) return;
   membershipChecking = true;
+  const checkedUser = gate.value.auth.user?.id;
   try {
     const next = await accessGate.status();
     // Login/logout may have completed while the check was in flight.
-    if (gateBusy.value || gate.value?.auth.user?.id !== next.auth.user?.id) return;
+    if (gateBusy.value || gate.value?.auth.user?.id !== checkedUser) return;
     gate.value = next;
     if (!next.canStartSidecar) {
       runtime.value = null;
       health.value = null;
       gateNotice.value = next.license.message ?? next.auth.message ?? "请重新检查会员权益";
+    } else {
+      runtime.value = await runtimeStatus();
+      if (!runtime.value.running) await bootstrapWorkspace();
     }
   } catch (error) {
     if (!gateBusy.value && gate.value) {
@@ -577,6 +612,7 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
               <button :disabled="!currentProject" @click="navigate('backups')"><DatabaseBackup :size="16" />数据备份</button>
               <button @click="navigate('about')"><Info :size="16" />软件信息</button>
               <button :disabled="updateBusy" @click="checkForUpdate"><RefreshCw :size="16" />{{ updateBusy ? "检查中…" : "检查更新" }}</button>
+              <button :disabled="workspaceBusy || gateBusy" @click="restartLocalService"><RefreshCw :size="16" />重启本地服务</button>
               <button :disabled="gateBusy" @click="signOut"><LogOut :size="16" />退出登录</button>
             </div>
           </div>
@@ -588,6 +624,8 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
       </div>
 
       <AboutView v-else-if="activeView === 'about'" />
+      <AiSettingsView v-else-if="activeView === 'ai-settings'" />
+      <AiAssistantView v-else-if="activeView === 'agent'" :project-id="currentProject?.id || ''" :project-name="currentProject?.name || ''" @navigate="navigate" />
 
       <section v-else-if="!gate?.auth.configured" class="auth-layout">
         <article class="auth-card warning-card">
@@ -603,7 +641,7 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
         <article class="auth-card">
           <p class="eyebrow">账号登录</p>
           <h2>{{ authMode === "signin" ? "登录时奕桌面版" : authMode === "signup" ? "注册账号" : authMode === "reset" ? "申请重置密码" : "设置新密码" }}</h2>
-          <p class="form-copy">使用网页版的同一账号登录，会员权益自动核验。</p>
+          <p class="form-copy">使用网页版的同一账号登录，会员权益自动核验。登录后 7 天内自动登录，退出账号后需重新登录。</p>
           <form @submit.prevent="submitAuth">
             <template v-if="authMode !== 'recover'">
               <label for="auth-email">邮箱</label>
@@ -659,6 +697,11 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
         </aside>
       </section>
 
+      <section v-else-if="!runtime?.running" class="state-panel error-panel">
+        <h2>{{ workspaceBusy ? '正在启动本地服务' : '本地服务尚未启动' }}</h2>
+        <p>{{ workspaceBusy ? '请稍候，正在恢复工作区。' : workspaceError || '请重新启动本地服务，已保存的项目数据不会丢失。' }}</p>
+        <button class="primary-button" :disabled="workspaceBusy || gateBusy" @click="restartLocalService">{{ workspaceBusy ? '正在启动…' : '重新启动本地服务' }}</button>
+      </section>
       <CalendarView v-else-if="activeView === 'timetable' && currentProject" :revision="projectRevision" @revision="applyProjectRevision" />
       <SchoolDataView v-else-if="activeView === 'rooms' && currentProject" mode="rooms" :revision="projectRevision" @revision="applyProjectRevision" />
       <SchoolDataView v-else-if="activeView === 'school' && currentProject" mode="school" :revision="projectRevision" @revision="applyProjectRevision" />
@@ -689,7 +732,7 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
           <p v-if="workspaceNotice" class="form-message notice-copy">{{ workspaceNotice }}</p>
           <section class="home-grid">
             <article class="panel projects-panel">
-              <div class="panel-heading"><div><h2>我的排课项目</h2><p>项目资料只保存在这台电脑。</p></div><span>{{ projects.length }} 个</span></div>
+              <div class="panel-heading"><div><h2>我的排课项目</h2><p>项目资料保存在这台电脑；主动使用 AI 时，相关内容会发送至你配置的服务。</p></div><span>{{ projects.length }} 个</span></div>
               <div class="quick-create">
                 <input id="project-name" v-model="projectName" maxlength="200" placeholder="输入项目名称，如：2026 学年第一学期" @keyup.enter="createProject" />
                 <button class="primary-button" :disabled="workspaceBusy || !projectName.trim()" @click="createProject">新建项目</button>

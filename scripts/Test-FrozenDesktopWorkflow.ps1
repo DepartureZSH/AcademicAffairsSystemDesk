@@ -226,6 +226,26 @@ try {
     if (@($taskSaved.lessons).Count -ne 2) { throw '教学任务没有原子生成两条课次。' }
     Write-Output 'PASS 项目、基础数据与课程计划持久化'
 
+    foreach ($scene in @('timetable', 'rooms', 'school', 'planning', 'constraints')) {
+        $turn = Invoke-SidecarApi -Method POST -Path '/v1/ai/turns' -Body @{
+            project_id = $sourceProjectId; scene = $scene; content = '请检查当前资料'
+        }
+        if (-not $turn.providerRequest.tools -or -not $turn.providerRequest.messages) {
+            throw "冻结 AI 场景缺少提示或工具：$scene"
+        }
+    }
+    foreach ($scene in @('rooms', 'school', 'planning', 'constraints')) {
+        $book = Invoke-SidecarApi -Method POST -Path '/v1/ai/workbook' -Body @{ scene = $scene }
+        if ([Convert]::FromBase64String($book.data).Length -lt 1000) {
+            throw "冻结 AI 模板生成失败：$scene"
+        }
+    }
+    $rules = Invoke-SidecarApi -Method POST -Path '/v1/ai/workflows' -Body @{
+        project_id = $sourceProjectId; flow = 'constraints/workbooks'; payload = @{}
+    }
+    if (@($rules.result.items).Count -ne 4) { throw '冻结约束模板目录不完整。' }
+    Write-Output 'PASS 冻结 AI 五场景提示/工具与四场景 Excel 模板（无外部 AI 调用）'
+
     $preflight = Invoke-SidecarApi -Method POST -Path '/v1/validation/preflight'
     if (-not $preflight.ready -or $preflight.summary.activeLessonCount -ne 2 -or @($preflight.errors).Count -ne 0) {
         throw '排课预检未通过。'

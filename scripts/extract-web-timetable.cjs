@@ -94,3 +94,4 @@ css.walkRules(rule => {
 css.walkAtRules(rule => { if(rule.nodes && !rule.nodes.length) rule.remove(); });
 fs.writeFileSync(path.join(target,'web-timetable.css'),css.toString()+'\n'+fs.readFileSync(path.join(__dirname,'web-timetable-ui-overrides.css'),'utf8'));
 console.log(`Extracted ${selected.size} declarations (${body.split('\n').length} lines) and the current web template.`);
+require('./sync-ai-timetable.cjs');

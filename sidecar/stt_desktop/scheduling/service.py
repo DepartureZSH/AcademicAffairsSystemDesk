@@ -773,6 +773,14 @@ class SchedulingService:
             emitted_times: list[tuple[dict[str, str], set[str]]] = []
             for slot, window in _slot_windows(slots, duration):
                 weekday = int(slot["weekday"])
+                display = json.loads(schedule.get("display_config") or "{}") if schedule else {}
+                metadata = display.get("_web_template", display)
+                visible_days = display.get("enabled_weekdays", metadata.get("display_config", metadata).get("enabled_weekdays"))
+                if visible_days is not None and weekday not in visible_days:
+                    continue
+                minutes = config.get("duration_minutes")
+                if minutes is not None and int(slot["end_time_minutes"]) - int(slot["start_time_minutes"]) < minutes:
+                    continue
                 period_index = int(slot["period_index"])
                 if not _day_enabled(str(lesson.get("day_bits") or task.get("day_bits") or ""), weekday):
                     continue
@@ -993,7 +1001,7 @@ class SchedulingService:
                             resource_type,
                         )
                         diagnostics["compiled_limit_count"] += 1
-            elif constraint["type"] in {"NotOverlap", "SameRoom", "DifferentTime", "DifferentDays", "DifferentWeeks", "SameDays", "SameStart", "SameTime", "Precedence", "Consecutive"} and len(lesson_ids) >= 2:
+            elif self._is_distribution(constraint["type"], lesson_ids):
                 self._distribution(node, f"user-{constraint['id']}", constraint["type"], lesson_ids, required, penalty, constraint["name"], "custom")
             else:
                 diagnostics["warnings"].append({"code": "CONSTRAINT_NOT_COMPILED", "constraintId": constraint["id"], "message": f"约束 {constraint['name']} 当前未生成求解条件"})
@@ -1028,6 +1036,20 @@ class SchedulingService:
         hard_issues: list[dict[str, Any]] = []
         soft_issues: list[dict[str, Any]] = []
         soft_penalty = 0
+        # Whole-group rules cannot be validated as independent lesson pairs. This
+        # also gates manual moves using the exact semantics used by the solver.
+        from stt_desktop.agent.upstream.distributions import GROUP_TYPES, Placement, parse_distribution, group_excess
+        placements = {node.attrib.get('id'): Placement(int(node.attrib.get('start', 0)), int(node.attrib.get('length', 1)), node.attrib.get('days', ''), node.attrib.get('weeks', ''), node.attrib.get('room')) for node in fromstring(solution_xml).findall('.//class')}
+        for constraint in constraints:
+            try:
+                kind, arguments = parse_distribution(constraint['type'])
+            except ValueError:
+                continue
+            if kind not in GROUP_TYPES or constraint['severity'] != 'hard':
+                continue
+            ids = json.loads(constraint['parameters'] or '{}').get('lessonIds', [])
+            if group_excess(kind, arguments, [placements[key] for key in ids if key in placements]):
+                hard_issues.append({'code': 'HARD_DISTRIBUTION_GROUP', 'constraintId': constraint['id'], 'message': f"课次组合违反约束：{constraint['name']}"})
         for constraint in constraints:
             if constraint["type"] not in {"max_daily_lessons", "consecutive_limit"}:
                 continue
@@ -1105,9 +1127,19 @@ class SchedulingService:
         return {"hardIssues": hard_issues, "softIssues": soft_issues, "softPenalty": soft_penalty}
 
     @staticmethod
+    def _is_distribution(kind: str, lesson_ids: Iterable[str]) -> bool:
+        from stt_desktop.agent.upstream.distributions import parse_distribution, GROUP_TYPES
+        try:
+            name, _ = parse_distribution(kind)
+            return len(set(lesson_ids)) >= (1 if name in GROUP_TYPES else 2)
+        except ValueError:
+            return False
+
+    @staticmethod
     def _distribution(node: Element, distribution_id: str, kind: str, lesson_ids: Iterable[str], required: bool, penalty: int, name: str, scope: str) -> None:
         unique = list(dict.fromkeys(lesson_ids))
-        if len(unique) < 2:
+        from stt_desktop.agent.upstream.distributions import parse_distribution, GROUP_TYPES
+        if len(unique) < (1 if parse_distribution(kind)[0] in GROUP_TYPES else 2):
             return
         attrs = {"id": distribution_id, "type": kind, "required": str(required).lower(), "name": name, "scope": scope}
         if not required:

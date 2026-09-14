@@ -7,7 +7,7 @@ from stt_desktop.lesson_config import parse_lesson_config, parse_task_config
 from stt_desktop.storage.project import ENTITY_SPECS, ProjectError, utc_now, uuid7
 
 
-def save_course_arrangement(project, data, drafts, expected_revision):
+def save_course_arrangement(project, data, drafts, expected_revision, *, preallocated_ids=None):
     if not isinstance(drafts, list) or len(drafts) > 500:
         raise ProjectError("每条授课任务最多配置 500 个课次")
     task_id = str(data.get("id") or uuid7())
@@ -57,7 +57,8 @@ def save_course_arrangement(project, data, drafts, expected_revision):
         }:
             raise ProjectError("课次包含未知字段")
         lesson_id = str(draft.get("id") or uuid7())
-        if lesson_id in seen or (draft.get("id") and lesson_id not in old):
+        new_reserved = lesson_id in (preallocated_ids or set()) and not project.get_entity('task_lesson', lesson_id)
+        if lesson_id in seen or (draft.get("id") and lesson_id not in old and not new_reserved):
             raise ProjectError("课次 ID 重复或不属于当前授课任务")
         seen.add(lesson_id)
         duration = draft.get("duration_slots", 1)
@@ -192,7 +193,7 @@ def set_course_scheduled(project, homeroom_id, subject_id, term_id, scheduled, e
         raise ProjectError("班级、科目或学期无效")
     tasks = [t for t in project.list_entities("teaching_task") if t["homeroom_id"] == homeroom_id and t["subject_id"] == subject_id and t["term_id"] == term_id]
     task_ids = {t["id"] for t in tasks}
-    lessons = {l["id"] for l in project.list_entities("task_lesson") if l["teaching_task_id"] in task_ids}
+    lessons = {lesson["id"] for lesson in project.list_entities("task_lesson") if lesson["teaching_task_id"] in task_ids}
     if not scheduled and any(any(i in c["parameters"] for i in task_ids | lessons) for c in project.list_entities("constraint")):
         raise ProjectError("授课任务或课次仍被约束引用，请先解除引用")
     now = utc_now()

@@ -4,7 +4,7 @@ const root = path.resolve(__dirname, '..');
 const version = process.argv[2];
 if (!/^\d+\.\d+\.\d+$/.test(version || '')) throw new Error('Expected x.y.z version');
 const previous = JSON.parse(fs.readFileSync(path.join(root,'apps/desktop/package.json'),'utf8')).version;
-for (const file of ['apps/desktop/package.json','apps/desktop/package-lock.json','apps/desktop/src-tauri/Cargo.toml','apps/desktop/src-tauri/Cargo.lock','apps/desktop/src-tauri/tauri.conf.json','apps/desktop/src/components/AboutView.vue','apps/desktop/src/DevApp.vue','pyproject.toml','uv.lock','sidecar/stt_desktop/storage/project.py','tests/test_release_evidence.py']) {
+for (const file of ['apps/desktop/package.json','apps/desktop/package-lock.json','apps/desktop/src-tauri/Cargo.toml','apps/desktop/src-tauri/Cargo.lock','apps/desktop/src-tauri/tauri.conf.json','apps/desktop/src/components/AboutView.vue','apps/desktop/src/DevApp.vue','pyproject.toml','uv.lock','sidecar/stt_desktop/storage/project.py']) {
   const target = path.join(root,file), text = fs.readFileSync(target,'utf8');
   if (!text.includes(previous)) throw new Error(`Previous version not present: ${file}`);
   let updated;

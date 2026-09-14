@@ -2,7 +2,7 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { onMounted, ref } from "vue";
 
-const version = ref("0.2.1");
+const version = ref("0.2.5");
 
 onMounted(async () => {
   try {
@@ -21,7 +21,7 @@ onMounted(async () => {
     </div>
 
     <div class="about-simple-grid">
-      <article class="panel"><h3>教务数据保存在本机</h3><p>学校、教师、班级、课程和课表不会上传。请定期在“数据备份”中创建备份。</p></article>
+      <article class="panel"><h3>教务数据保存在本机</h3><p>普通排课在本地完成；主动使用 AI 时，相关内容会发送至你配置的 AI 服务，请先阅读 AI 页面的数据提示。请定期在“数据备份”中创建备份。</p></article>
       <article class="panel"><h3>适用于 Windows 10 / 11</h3><p>桌面版会自动保存项目内容，关闭软件后再次打开即可继续。</p></article>
       <article class="panel"><h3>遇到问题</h3><p>请记录出现问题前的操作和提示内容，再联系时奕教务技术支持。</p></article>
     </div>

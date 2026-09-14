@@ -195,6 +195,8 @@ def test_teacher_number_migration_preserves_relations_and_backup(tmp_path):
         connection.execute("UPDATE teachers SET employee_no = 'T001'")
         connection.execute("ALTER TABLE task_lessons DROP COLUMN planning_config")
         connection.execute("ALTER TABLE teaching_tasks DROP COLUMN planning_config")
+        connection.execute("ALTER TABLE subjects DROP COLUMN default_duration_minutes")
+        connection.execute("DROP TABLE ai_documents")
         connection.execute("UPDATE app_metadata SET value = '2' WHERE key = 'schema_version'")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["schema_version"] = 2

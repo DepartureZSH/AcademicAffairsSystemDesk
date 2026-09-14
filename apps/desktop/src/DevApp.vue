@@ -6,19 +6,23 @@ import SchoolDataView from './components/SchoolDataView.vue';
 import ConstraintsView from './components/ConstraintsView.vue';
 import RunsWorkspace from './components/RunsWorkspace.vue';
 import PlanningView from './components/PlanningView.vue';
+import AiSettingsView from './components/AiSettingsView.vue';
+import AiAssistantView from './components/AiAssistantView.vue';
 const revision = ref(0);
 const active = ref('calendar');
 const pages = [{id:'calendar',label:'课表设置',icon:CalendarDays},{id:'rooms',label:'教室设置',icon:DoorOpen},{id:'school',label:'学校数据',icon:Users},{id:'planning',label:'课程计划',icon:CalendarDays},{id:'constraints',label:'约束配置',icon:SlidersHorizontal},{id:'runs',label:'排课运行',icon:Play}];
+pages.push({id:'ai-settings',label:'AI 设置',icon:SlidersHorizontal});
+pages.push({id:'agent',label:'AI 助手',icon:Users});
 </script>
 <template>
   <div class="browser-preview">
     <header class="browser-preview-header">
-      <img src="/app-icon.png" alt="" width="32" height="32" /><strong>时奕教务排课</strong><span>本地开发预览 · v0.2.1</span>
+      <img src="/app-icon.png" alt="" width="32" height="32" /><strong>时奕教务排课</strong><span>本地开发预览 · v0.2.5</span>
       <small>独立测试项目 · 修改自动保留在本机（模板需点击保存）</small>
     </header>
     <div class="browser-preview-body">
       <aside class="browser-preview-nav"><button v-for="page in pages" :key="page.id" :class="{active:active === page.id}" @click="active = page.id"><component :is="page.icon" :size="18" />{{ page.label }}</button></aside>
-      <main><CalendarView v-if="active === 'calendar'" :revision="revision" @revision="revision = $event" /><SchoolDataView v-else-if="active === 'rooms' || active === 'school'" :key="active" :mode="active === 'rooms' ? 'rooms' : 'school'" :revision="revision" @revision="revision = $event" /><PlanningView v-else-if="active === 'planning'" :revision="revision" @revision="revision = $event" /><ConstraintsView v-else-if="active === 'constraints'" :revision="revision" @revision="revision = $event" /><RunsWorkspace v-else :revision="revision" @revision="revision = $event" /></main>
+      <main><AiAssistantView v-if="active === 'agent'" project-id="browser-preview" project-name="本地开发项目" @navigate="active = $event === 'workspace' ? 'calendar' : $event" /><AiSettingsView v-else-if="active === 'ai-settings'" /><CalendarView v-else-if="active === 'calendar'" :revision="revision" @revision="revision = $event" /><SchoolDataView v-else-if="active === 'rooms' || active === 'school'" :key="active" :mode="active === 'rooms' ? 'rooms' : 'school'" :revision="revision" @revision="revision = $event" /><PlanningView v-else-if="active === 'planning'" :revision="revision" @revision="revision = $event" /><ConstraintsView v-else-if="active === 'constraints'" :revision="revision" @revision="revision = $event" /><RunsWorkspace v-else :revision="revision" @revision="revision = $event" /></main>
     </div>
   </div>
 </template>

@@ -48,7 +48,8 @@ export function browserSidecar(): Plugin {
         const runPath = /^\/v1\/(?:validation\/preflight|scheduling\/(?:rounds(?:\/[\w-]+\/cancel)?|candidates)|timetables\/(?:[\w-]+|validate-move|manual-fork))(?:\?|$)/.test(url);
         const exportHistory = req.method === 'GET' && url === '/v1/exports';
         const planningPath = (req.method === 'PUT' && ['/v1/planning/tasks', '/v1/planning/arrangement'].includes(url)) || (req.method === 'POST' && ['/v1/planning/copy-class','/v1/planning/course-status'].includes(url));
-        if (!editorPath && !runPath && !exportHistory && !planningPath) {
+        const aiPath = /^\/v1\/ai\/(?:session\?|attachments$|workflows(?:\/[\w-]+)?$|scope-search(?:\/[\w-]+)?$|expected-times(?:\?|$)|clear$|turns(?:\/[\w-]+\/step)?$|actions\/[\w-]+\/(?:confirm|reject)$|workbook$)/.test(url) || url === '/v1/projects/current';
+        if (!editorPath && !runPath && !exportHistory && !planningPath && !aiPath) {
           res.statusCode = 404; res.end("此操作不在浏览器预览范围内"); return;
         }
         try {
@@ -58,8 +59,11 @@ export function browserSidecar(): Plugin {
           let size = 0;
           for await (const chunk of req) {
             size += chunk.length;
-            if (size > 2 * 1024 * 1024) throw new Error("请求过大");
+            if (size > (url.startsWith('/v1/ai/workflows') || url === '/v1/ai/attachments' ? 8 : 2) * 1024 * 1024) throw new Error("请求过大");
             chunks.push(Buffer.from(chunk));
+          }
+          if (url === '/v1/ai/workbook' && chunks.length && JSON.parse(Buffer.concat(chunks).toString()).destination) {
+            res.statusCode = 403; res.end('浏览器预览不允许指定本地文件路径'); return;
           }
           const response = await fetch(`http://127.0.0.1:${port}${url}`, {
             method: req.method, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },

@@ -12,6 +12,29 @@ from test_scheduling import seed_project
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_minutes_and_hidden_weekdays_reach_solver(tmp_path):
+    project, task, lessons = seed_project(tmp_path)
+    with project:
+        schedule = project.list_entities('bell_schedule')[0]
+        project.save_entity('bell_schedule', {'id': schedule['id'], 'display_config': {'enabled_weekdays': [1]}}, project.revision)
+        slot = project.list_entities('time_slot')[0]
+        project.save_entity('time_slot', {**{k: slot[k] for k in ('bell_schedule_id', 'period_index', 'label', 'start_slot', 'length_slots', 'start_time_minutes', 'end_time_minutes')}, 'weekday': 6}, project.revision)
+        drafts = drafts_for(lessons)
+        for draft in drafts:
+            draft['planning_config'] = {'duration_minutes': 40}
+            draft['day_bits'] = '1111111'
+        saved, _, _ = save_course_arrangement(project, task_data(task), drafts, project.revision)
+        xml, diagnostics = problem(project)
+        assert xml.findall('classes/class/time')
+        assert all(t.get('days') == '1000000' for t in xml.findall('classes/class/time'))
+        for draft in drafts:
+            draft['planning_config'] = {'duration_minutes': 45}
+        save_course_arrangement(project, task_data(saved), drafts, project.revision)
+        xml, diagnostics = problem(project)
+        assert not xml.findall('classes/class/time')
+        assert any(e['code'] == 'LESSON_HAS_NO_TIME_OPTION' for e in diagnostics['errors'])
+
+
 def test_course_dialog_template_provenance_and_components():
     folder = ROOT / 'apps/desktop/src/web-course-editor'
     provenance = json.loads((folder / 'provenance.json').read_text(encoding='utf-8'))

@@ -21,7 +21,12 @@ const selectedTemplatePeriods = computed<any[]>(() => {
     if(selected)break;
   }
   selected ||= schedules.find((s:any)=>s.is_default && all.some((p:any)=>p.bell_schedule_id===s.id&&p.active)) || schedules.find((s:any)=>all.some((p:any)=>p.bell_schedule_id===s.id&&p.active));
-  return (selected?all.filter((p:any)=>p.bell_schedule_id===selected.id&&p.active):props.context.slots).map((s:any)=>({...s,period_index:Number(s.period_index)+1}));
+  const metadata = localConfig(selected?.display_config);
+  const template = metadata._web_template || metadata;
+  const visibleDays = metadata.enabled_weekdays || template.display_config?.enabled_weekdays || template.enabled_weekdays;
+  return (selected?all.filter((p:any)=>p.bell_schedule_id===selected.id&&p.active):props.context.slots)
+    .filter((s:any)=>!Array.isArray(visibleDays)||visibleDays.includes(Number(s.weekday)))
+    .map((s:any)=>({...s,period_index:Number(s.period_index)+1}));
 });
 const enabledWeekdays = computed<number[]>(() => [...new Set<number>(selectedTemplatePeriods.value.map(p=>Number(p.weekday)))].sort());
 const lessonImportTaskOptions = computed<any[]>(() => planningData.value.teaching_tasks.filter((t: any) => t.id !== selectedTeachingTaskId.value && t.term_id === props.context.term.id && lessonsForTask(t.id).length));
@@ -38,11 +43,12 @@ function coursePlanningPeriodsForHomeroom(_id?: unknown) { return selectedTempla
 function lessonsForTask(id: unknown): any[] { return planningData.value.task_lessons.filter((l: any)=>l.teaching_task_id===id).sort((a:any,b:any)=>a.lesson_index-b.lesson_index); }
 function taskLessonCount(id: unknown) { return lessonsForTask(id).filter(l=>l.enabled!==false && l.enabled!==0).length; }
 function isTeachingTaskActive(id: unknown) {return selectedTeachingTaskId.value===String(id);}
-function selectedSubjectDurationSlots() { return Number(selectedSubject.value.default_duration_slots || 1); }
-function unitsToMinutes(units: unknown) { return selectedTemplatePeriods.value.filter(p=>Number(p.weekday)===enabledWeekdays.value[0]).slice(0,Number(units)||1).reduce((n,p)=>n+Number(p.end_time_minutes)-Number(p.start_time_minutes),0); }
+function legacyDurationMinutes(slots: unknown) { return selectedTemplatePeriods.value.filter(p=>Number(p.weekday)===enabledWeekdays.value[0]).slice(0,Number(slots)||1).reduce((n,p)=>n+Number(p.end_time_minutes)-Number(p.start_time_minutes),0) || 40; }
+function selectedSubjectDurationSlots() { return Number(selectedSubject.value.default_duration_minutes || legacyDurationMinutes(selectedSubject.value.default_duration_slots)) / 5; }
+function unitsToMinutes(units: unknown) { return Number(units || 0) * 5; }
 function isCoursePreferredPeriodDisabled(index: number, period?: any): boolean {
-  const duration = activeCoursePreferredLesson()?.duration_slots || 1;
-  const fits = (p:any) => {const slots=selectedTemplatePeriods.value.filter(s=>s.weekday===p.weekday).sort((a,b)=>a.period_index-b.period_index);const start=slots.findIndex(s=>s.id===p.id);const window=slots.slice(start,start+duration);return window.length===duration && window.every((s,i)=>!i||s.period_index===window[i-1].period_index+1);};
+  const duration = unitsToMinutes(activeCoursePreferredLesson()?.duration_slots);
+  const fits = (p:any) => Number(p.end_time_minutes)-Number(p.start_time_minutes)>=duration;
   return period ? !fits(period) : !selectedTemplatePeriods.value.filter(p=>p.period_index===index).some(fits);
 }
 function closeSubjectEditor() { if(!courseArrangementSaving.value) emit('close'); }
@@ -60,7 +66,7 @@ function localConfig(raw: any) { try {return typeof raw==='string'?JSON.parse(ra
 function localRules(lesson: any): CoursePreferredRuleDraft[] {
   return (localConfig(lesson.planning_config).preferred_times||[]).map((r:any)=>{const p=selectedTemplatePeriods.value.find(p=>p.id===r.time_slot_id);const original=(props.context.allSlots||[]).find((p:any)=>p.id===r.time_slot_id);return {key:coursePreferredRuleKey(),week_bits:r.week_bits,day_bits:p||original?bitsFromNumbers([Number((p||original).weekday)],termDayCount.value):'0000000',period_index:p?.period_index??(original?Number(original.period_index)+1:-1),penalty:r.penalty,forbidden:r.penalty<0};});
 }
-function localDraft(lesson:any): CourseLessonDraft {const cfg=localConfig(lesson.planning_config), rules=localRules(lesson), slots=coursePreferredSlotsFromRules(rules);return {id:lesson.id,key:lesson.id||crypto.randomUUID(),label:lesson.label||recordName(selectedSubject.value),duration_slots:Number(lesson.duration_slots)||1,enabled:lesson.enabled!==0 && lesson.enabled!==false,room_mode:cfg.room_mode||'default',room_ids:cfg.room_ids||[],preferred_rules:rules,preferred_slots:slots,preferred_period_ids:[...new Set(slots.map(s=>s.period_id))]};}
+function localDraft(lesson:any): CourseLessonDraft {const cfg=localConfig(lesson.planning_config), rules=localRules(lesson), slots=coursePreferredSlotsFromRules(rules);return {id:lesson.id,key:lesson.id||crypto.randomUUID(),label:lesson.label||recordName(selectedSubject.value),duration_slots:Number(cfg.duration_minutes || legacyDurationMinutes(lesson.duration_slots))/5,enabled:lesson.enabled!==0 && lesson.enabled!==false,room_mode:cfg.room_mode||'default',room_ids:cfg.room_ids||[],preferred_rules:rules,preferred_slots:slots,preferred_period_ids:[...new Set(slots.map(s=>s.period_id))]};}
 function selectTeachingTask(task: any) {
   selectedTeachingTaskId.value=task.id||'';
   const cfg=localConfig(task.planning_config), fallback=task.fixed_room_id||props.context.homeroom.default_room_id;
@@ -91,7 +97,9 @@ async function saveCourseArrangement() {
     const serialized=courseLessonDrafts.value.map(lesson=>{
       if(lesson.preferred_rules.some(rule=>rule.period_index<1 || !selectedTemplatePeriods.value.some(p=>Number(p.period_index)===rule.period_index && rule.day_bits[Number(p.weekday)-1]==='1'))) throw new Error('部分期望时间已不在当前课表中，请在课次编辑中清空该课次的时间后重新选择。');
       const preferred_times=lesson.preferred_rules.flatMap(rule=>selectedTemplatePeriods.value.filter(p=>Number(p.period_index)===Number(rule.period_index)&&rule.day_bits[Number(p.weekday)-1]==='1').map(p=>({time_slot_id:p.id,week_bits:rule.week_bits,penalty:rule.forbidden?-1:rule.penalty})));
-      return {id:lesson.id,label:lesson.label,enabled:lesson.enabled,duration_slots:lesson.duration_slots,week_bits:teachingTaskForm.value.week_bits,day_bits:teachingTaskForm.value.day_bits,planning_config:{room_mode:lesson.room_mode,room_ids:lesson.room_ids,preferred_times}};
+      const original=lessonsForTask(selectedTeachingTaskId.value).find(l=>l.id===lesson.id);
+      const keepLegacy=original && !localConfig(original.planning_config).duration_minutes && unitsToMinutes(lesson.duration_slots)===legacyDurationMinutes(original.duration_slots);
+      return {id:lesson.id,label:lesson.label,enabled:lesson.enabled,duration_slots:keepLegacy?original.duration_slots:1,week_bits:teachingTaskForm.value.week_bits,day_bits:teachingTaskForm.value.day_bits,planning_config:{...(!keepLegacy?{duration_minutes:unitsToMinutes(lesson.duration_slots)}:{}),room_mode:lesson.room_mode,room_ids:lesson.room_ids,preferred_times}};
     });
     const result=await localApi.saveCourseArrangement({...(selectedTeachingTaskId.value?{id:selectedTeachingTaskId.value}:{}),term_id:props.context.term.id,homeroom_id:props.context.homeroom.id,subject_id:props.context.subject.id,primary_teacher_id:teacher||null,fixed_room_id:null,required_room_type:null,status:'active',week_bits:teachingTaskForm.value.week_bits,day_bits:teachingTaskForm.value.day_bits,planning_config:{uses_rooms:teachingTaskForm.value.uses_rooms,room_ids:teachingTaskForm.value.room_ids}},serialized,localRevision.value);
     await loadSchoolData();selectTeachingTask(result.task);lessonEditorSessionSnapshot.value=cloneLessonEditorDrafts(courseLessonDrafts.value);showLessonEditorSheet.value=false;courseArrangementNotice.value='授课任务已保存';emit('saved',localRevision.value);
@@ -117,7 +125,7 @@ function previousGuideStep() {activeGuideStepIndex.value=Math.max(0,activeGuideS
 function restartGuide() {activeGuideStepIndex.value=0;void updateGuideTarget(true);}
 function localGuidePosition() {if(showGuide.value)void updateGuideTarget();}
 onMounted(()=>watch(error, message=>{if(message)window.alert(message);}));
-onMounted(async()=>{document.body.style.overflow='hidden';syncCourseCandidateScale();window.addEventListener('resize',syncCourseCandidateScale);window.addEventListener('resize',localGuidePosition);window.addEventListener('scroll',localGuidePosition,true);try{await loadSchoolData();selectTeachingTask(planningData.value.teaching_tasks.find((t:any)=>t.id===props.context.taskId)||selectedCoursePlanTasks.value[0]||{});subjectEditorOpen.value=true;await nextTick();subjectEditorPanel.value?.querySelector<HTMLElement>('button')?.focus();}catch(e){window.alert(formatLocalError(e));emit('close');}});
+onMounted(async()=>{document.body.style.overflow='hidden';syncCourseCandidateScale();window.addEventListener('resize',syncCourseCandidateScale);window.addEventListener('resize',localGuidePosition);window.addEventListener('scroll',localGuidePosition,true);try{await loadSchoolData();selectTeachingTask(planningData.value.teaching_tasks.find((t:any)=>t.id===props.context.taskId)||selectedCoursePlanTasks.value[0]||{});if(props.context.pickerDraft){externalCoursePreferredDraft.value=props.context.pickerDraft;coursePreferredPickerTitle.value='专项期望时间设置';prepareCoursePreferredPicker();watch(showCoursePreferredPicker,open=>{if(!open)emit('close');});return;}subjectEditorOpen.value=true;await nextTick();subjectEditorPanel.value?.querySelector<HTMLElement>('button')?.focus();}catch(e){window.alert(formatLocalError(e));emit('close');}});
 onBeforeUnmount(()=>{document.body.style.overflow=localOriginalOverflow;window.removeEventListener('resize',syncCourseCandidateScale);window.removeEventListener('resize',localGuidePosition);window.removeEventListener('scroll',localGuidePosition,true);localReturnFocus?.focus();});
 
 type PlanningViewMode = "class" | "subject" | "teacher";
@@ -953,15 +961,13 @@ function prepareCoursePreferredPicker() {
     coursePreferredRuleSnapshot.value = activeCoursePreferredRuleList().map((rule) => ({ ...rule }));
     if (!activeCoursePreferredRuleList().length && !activeCoursePreferredLesson()?.preferred_slots.length) {
       const defaultDayBits = defaultCoursePlanningDayBits();
-      const defaultRules = Array.from(new Set(selectedTemplatePeriods.value.map((period) => Number(period.period_index || 0))))
-        .filter(Boolean)
-        .map((periodIndex) => ({
-          key: `default-course-preference-${periodIndex}`,
+      const defaultRules = selectedTemplatePeriods.value
+        .filter(period => !isCoursePreferredPeriodDisabled(Number(period.period_index), period))
+        .map(period => ({
+          key: coursePreferredRuleKey(),
           week_bits: "1".repeat(termWeekCount.value),
-          day_bits: defaultDayBits,
-          period_index: periodIndex,
-          penalty: 0,
-          forbidden: false,
+          day_bits: bitsFromNumbers([Number(period.weekday)], termDayCount.value),
+          period_index: Number(period.period_index), penalty: 0, forbidden: false,
         }));
       setActiveCoursePreferredRules(defaultRules);
     }

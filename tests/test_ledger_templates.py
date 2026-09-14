@@ -19,7 +19,7 @@ def save(project, kind, **data):
     return project.save_entity(kind, data, project.revision)[0]
 
 
-@pytest.mark.parametrize("kind", ["teacher", "homeroom", "room", "room_type"])
+@pytest.mark.parametrize("kind", ["teacher", "homeroom", "room_type"])
 def test_ledger_template_atomic_create_change_clear_and_reload(project, kind):
     first = save(project, "bell_schedule", name="第一份")
     second = save(project, "bell_schedule", name="第二份")
@@ -98,3 +98,16 @@ def test_ledger_ui_has_template_column_and_defaults():
     assert "data.export_template_id = exportTemplateId.value || null" in source
     assert "assignedTemplateId(activeType.value, item.id)" in source
     assert 'loadTemplateLookup("timetable_template_assignment")' in source
+
+
+def test_room_cannot_override_type_template(project):
+    template = save(project, 'bell_schedule', name='类型模板')
+    room_type = save(project, 'room_type', name='普通教室', export_template_id=template['id'])
+    room = save(project, 'room', name='一号教室', room_type_id=room_type['id'])
+    before = project.revision
+    with pytest.raises(ProjectError, match='沿用教室类型'):
+        save(project, 'room', id=room['id'], export_template_id=template['id'])
+    with pytest.raises(ProjectError, match='沿用教室类型'):
+        save(project, 'timetable_template_assignment', entity_type='room', entity_id=room['id'], bell_schedule_id=template['id'])
+    assert project.revision == before
+    assert project.list_entities('timetable_template_assignment')[0]['entity_id'] == room_type['id']

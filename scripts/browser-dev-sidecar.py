@@ -13,7 +13,7 @@ from stt_desktop.service_config import AppServiceConfig
 from stt_desktop.storage import ProjectWorkspace
 
 root = Path(__file__).resolve().parents[1]
-workspace = ProjectWorkspace(root / ".local" / "browser-dev")
+workspace = ProjectWorkspace(Path(os.environ.pop("STT_BROWSER_WORKSPACE", str(root / ".local" / "browser-dev"))).resolve())
 app = create_app(
     workspace=workspace,
     services=AppServiceConfig(1, "development", True, {}),
