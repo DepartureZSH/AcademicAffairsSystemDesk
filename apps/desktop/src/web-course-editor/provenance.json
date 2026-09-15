@@ -1,0 +1,18 @@
+{
+  "source": "../STT/apps/web-admin/src",
+  "adaptations": [
+    "local SQLite API and period units",
+    "namespaced CSS/Teleport wrappers",
+    "disable editor backdrop dismissal",
+    "local guide lifecycle"
+  ],
+  "templateSha256": "509c7a7f568d6f1ac73e36594ef3ce54b4d8804fb92f7674caaee42283a8a549",
+  "sources": {
+    "components/PlanningView.vue": "476bd387e1e881ef285fa87c60478fe075fcff27ee7a0623fa2992fc080be6ad",
+    "components/TimetableSettingsView.vue": "7e6fd627b3f1e8a5de9a3b3742da1c75a2da38af03994b03e329842fb41ab657",
+    "components/GlobalOverlays.vue": "c5a1b30cdcdf894f6e4d7540910c558ff8c836219d9427a5cda7fd1f82663281",
+    "components/common/SearchableSelect.vue": "f544ad55bd1f839f61ed67bb4c2a4e4f299ed1b0e2f8e4405c18d6a72418f521",
+    "composables/useAppController.ts": "75d4aa8d0b9c38d95ca71f67e814ef373ab2d8cdaf781b1e6ceca5b383c35ed3",
+    "styles.css": "5dda7bb853c99f4ff2e1e14b6cf218bccf8015286c1cd3266eeb022a928cbdf8"
+  }
+}

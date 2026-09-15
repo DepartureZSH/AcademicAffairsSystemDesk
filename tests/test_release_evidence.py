@@ -181,8 +181,185 @@ def test_application_version_is_consistent_across_build_systems() -> None:
         tauri["version"],
     }
 
-    assert versions == {"0.1.5"}
-    assert 'APP_VERSION = "0.1.5"' in project_source
+    assert len(versions) == 1
+    assert f'APP_VERSION = "{tauri["version"]}"' in project_source
+
+
+def test_desktop_and_browser_share_the_official_icon() -> None:
+    root = Path(__file__).resolve().parents[1]
+    desktop = root / "apps" / "desktop"
+    assert (desktop / "public/app-icon.ico").read_bytes() == (desktop / "src-tauri/icons/icon.ico").read_bytes()
+    assert 'src="/app-icon.png"' in (desktop / "src/App.vue").read_text(encoding="utf-8")
+    assert 'href="/app-icon.ico"' in (desktop / "index.html").read_text(encoding="utf-8")
+    config = json.loads((desktop / "src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+    assert config["bundle"]["windows"]["nsis"]["installerIcon"] == "icons/icon.ico"
+    assert config["bundle"]["windows"]["nsis"]["uninstallerIcon"] == "icons/icon.ico"
+    assert "--icon (Join-Path $tauriDirectory 'icons\\icon.ico')" in (root / "scripts/build-sidecar.ps1").read_text(encoding="utf-8")
+
+
+def test_end_user_login_view_avoids_implementation_jargon() -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "apps" / "desktop" / "src" / "App.vue").read_text(encoding="utf-8")
+
+    assert "Supabase" not in source
+    assert "WebView" not in source
+    assert "STT_SUPABASE_PUBLISHABLE_KEY" not in source
+    assert "账号联网，教务数据留在本机" in source
+    assert "登录状态由系统安全保存" in source
+
+
+def test_desktop_navigation_matches_web_workflow() -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "apps" / "desktop" / "src" / "App.vue").read_text(
+        encoding="utf-8"
+    )
+    expected = [
+        'label: "工作台"',
+        'label: "课表设置"',
+        'label: "教室设置"',
+        'label: "学校数据"',
+        'label: "课程计划"',
+        'label: "约束配置"',
+        'label: "排课运行"',
+    ]
+
+    positions = [source.index(label) for label in expected]
+    assert positions == sorted(positions)
+    assert 'label: "批量导入"' not in source
+    assert 'label: "关于与开源"' not in source
+    assert 'label: "备份恢复"' not in source
+
+
+def test_primary_desktop_pages_avoid_internal_english_headings() -> None:
+    root = Path(__file__).resolve().parents[1]
+    component_root = root / "apps" / "desktop" / "src" / "components"
+    source = "\n".join(
+        path.read_text(encoding="utf-8") for path in component_root.glob("*.vue")
+    )
+
+    for jargon in (
+        "LOCAL CP-SAT",
+        "DATA PREFLIGHT",
+        "OPTIMIZATION ROUND",
+        "SCHOOL DIRECTORY",
+        "LOCAL RECORDS",
+        "BACKUP & RECOVERY",
+        "ABOUT &amp; OPEN SOURCE",
+        "Warm start",
+    ):
+        assert jargon not in source
+
+
+def test_primary_desktop_pages_keep_web_workbench_structure_without_ai() -> None:
+    root = Path(__file__).resolve().parents[1]
+    component_root = root / "apps" / "desktop" / "src" / "components"
+    expected_markers = {
+        "CalendarView.vue": (
+            "TimetableSettingsView",
+            "useTimetableEditor",
+            "provide(APP_CONTEXT_KEY, editor)",
+        ),
+        "SchoolDataView.vue": ("data-workbench", "subnav", "data-table-panel"),
+        "PlanningView.vue": (
+            "official-class-flow",
+            "planning-class-workbench",
+            "subject-plan-panel",
+        ),
+        "ConstraintsView.vue": (
+            "constraint-toolbar",
+            "constraint-workbench-v2",
+            "constraint-detail-panel",
+        ),
+        "SchedulingView.vue": (
+            "runs-dashboard",
+            "RunDashboardCards",
+            "run-preflight-steps",
+            "run-timetable-card",
+        ),
+    }
+
+    sources = {}
+    for filename, markers in expected_markers.items():
+        source = (component_root / filename).read_text(encoding="utf-8")
+        sources[filename] = source
+        for marker in markers:
+            assert marker in source
+
+    timetable_source = (component_root.parent / "web-timetable" / "TimetableSettingsView.vue").read_text(encoding="utf-8")
+    for marker in ("timetable-settings-layout", "template-preview-workbench", "CoursePeriodInspector",
+                   "新建自定义表头", "新建自定义列", "合并单元格", "TemplatePlanningMode"):
+        assert marker in timetable_source
+    assert "weekday-drawers" not in timetable_source
+    assert "showTimetableSaveChoice" not in timetable_source
+    sources["TimetableSettingsView.vue"] = timetable_source
+    user_interface = "\n".join(source.split("<template>", 1)[-1] for source in sources.values())
+    assert "AI 助手" not in user_interface
+    assert "AI 生成" not in user_interface
+
+
+def test_release_desktop_uses_windows_gui_subsystem() -> None:
+    root = Path(__file__).resolve().parents[1]
+    main_source = (
+        root / "apps" / "desktop" / "src-tauri" / "src" / "main.rs"
+    ).read_text(encoding="utf-8")
+    build_script = (root / "scripts" / "build-windows.ps1").read_text(
+        encoding="utf-8"
+    )
+    release_check = (root / "scripts" / "Test-WindowsRelease.ps1").read_text(
+        encoding="utf-8"
+    )
+    clean_install_check = (
+        root / "scripts" / "Test-CleanWindowsInstall.ps1"
+    ).read_text(encoding="utf-8")
+    subsystem_check = (
+        root / "scripts" / "Test-WindowsGuiExecutable.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert '#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]' in main_source
+    assert "Test-WindowsGuiExecutable.ps1" in build_script
+    assert "Test-WindowsGuiExecutable.ps1" in release_check
+    assert "Test-WindowsGuiExecutable.ps1" in clean_install_check
+    assert "$subsystem -ne 2" in subsystem_check
+
+
+def test_windows_entry_names_and_uninstall_registration_are_localized() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads((root / "apps/desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+    assert config["mainBinaryName"] == "时奕排课入口"
+    assert config["bundle"]["externalBin"] == ["binaries/时奕排课后台服务"]
+    windows_config = json.loads((root / "apps/desktop/src-tauri/tauri.windows.conf.json").read_text(encoding="utf-8"))
+    assert windows_config["bundle"]["externalBin"] == []
+    assert windows_config["bundle"]["resources"]["binaries/时奕排课后台服务-x86_64-pc-windows-msvc.exe"] == "时奕排课后台服务.exe"
+    assert windows_config["bundle"]["resources"]["binaries/_internal/"] == "_internal/"
+    build_script = (root / "scripts/build-sidecar.ps1").read_text(encoding="utf-8")
+    assert "--onedir" in build_script
+    assert "--onefile" not in build_script
+    installer = (root / "apps/desktop/src-tauri/nsis/installer.nsi").read_text(encoding="utf-8")
+    assert 'WriteUninstaller "$INSTDIR\\卸载.exe"' in installer
+    uninstall_registration = next(line for line in installer.splitlines() if '"UninstallString"' in line and 'WriteRegStr' in line)
+    assert '卸载.exe' in uninstall_registration
+    assert 'uninstall.exe' not in uninstall_registration
+    assert 'Delete "$INSTDIR\\stt-sidecar.exe"' in installer
+    assert 'WriteRegStr SHCTX "${UNINSTKEY}" "MainBinaryName" "${MAINBINARYNAME}.exe"' in installer
+    runtime = (root / "apps/desktop/src-tauri/src/lib.rs").read_text(encoding="utf-8")
+    assert '"时奕排课后台服务.exe"' in runtime
+
+
+def test_release_excludes_mock_purchase_and_cleans_only_legacy_fixture() -> None:
+    root = Path(__file__).resolve().parents[1]
+    for filename in ("tauri.conf.json", "tauri.windows.conf.json"):
+        config = json.loads((root / "apps/desktop/src-tauri" / filename).read_text(encoding="utf-8"))
+        resources = config["bundle"]["resources"]
+        for path in (*resources.keys(), *resources.values()):
+            assert "mock" not in path.lower()
+            assert "purchase.html" not in path.lower()
+    assert (root / "fixtures/mock/purchase.html").is_file()
+    installer = (root / "apps/desktop/src-tauri/nsis/installer.nsi").read_text(encoding="utf-8")
+    assert 'Delete "$INSTDIR\\mock\\purchase.html"' in installer
+    assert 'RMDir "$INSTDIR\\mock"' in installer
+    assert 'RMDir /r "$INSTDIR\\mock"' not in installer
+    purchase = (root / "apps/desktop/src-tauri/src/purchase.rs").read_text(encoding="utf-8")
+    assert 'root.join("mock/purchase.html")' not in purchase
 
 
 def test_frozen_sidecar_windows_metadata_matches_tauri_product() -> None:
@@ -195,12 +372,13 @@ def test_frozen_sidecar_windows_metadata_matches_tauri_product() -> None:
 
     rendered = VERSION_INFO_MODULE.render_version_info(config)
 
-    assert "filevers=(0, 1, 5, 0)" in rendered
-    assert "prodvers=(0, 1, 5, 0)" in rendered
+    windows_version = tuple(int(part) for part in config['version'].split('.')) + (0,)
+    assert f"filevers={windows_version}" in rendered
+    assert f"prodvers={windows_version}" in rendered
     assert "StringStruct('ProductName', '时奕教务排课')" in rendered
-    assert "StringStruct('ProductVersion', '0.1.5')" in rendered
+    assert f"StringStruct('ProductVersion', '{config['version']}')" in rendered
     assert "StringStruct('CompanyName', '杭州格若时科技有限公司')" in rendered
-    assert "StringStruct('OriginalFilename', 'stt-sidecar.exe')" in rendered
+    assert "StringStruct('OriginalFilename', '时奕排课后台服务.exe')" in rendered
 
     build_script = (root / "scripts" / "build-sidecar.ps1").read_text(encoding="utf-8")
     assert "generate_windows_version_info.py" in build_script

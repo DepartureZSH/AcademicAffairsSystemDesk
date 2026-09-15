@@ -1,15 +1,34 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import { confirm, open, save } from "@tauri-apps/plugin-dialog";
+import {
+  Activity,
+  CalendarDays,
+  ChevronDown,
+  DatabaseBackup,
+  DoorOpen,
+  Info,
+  LayoutDashboard,
+  LogOut,
+  NotebookPen,
+  PanelLeftClose,
+  PanelLeftOpen,
+  RefreshCw,
+  SlidersHorizontal,
+  Upload,
+  UsersRound,
+} from "lucide-vue-next";
 import CalendarView from "./components/CalendarView.vue";
 import ConstraintsView from "./components/ConstraintsView.vue";
 import PlanningView from "./components/PlanningView.vue";
 import SchoolDataView from "./components/SchoolDataView.vue";
-import SchedulingView from "./components/SchedulingView.vue";
-import TimetableView from "./components/TimetableView.vue";
+import RunsWorkspace from "./components/RunsWorkspace.vue";
 import BackupsView from "./components/BackupsView.vue";
 import ImportView from "./components/ImportView.vue";
 import AboutView from "./components/AboutView.vue";
+import AiSettingsView from "./components/AiSettingsView.vue";
+import AiAssistantView from "./components/AiAssistantView.vue";
 import { accessGate, type GateStatus } from "./lib/accessGate";
 import { updater, type UpdateStatus } from "./lib/updater";
 import { savedWorkspacePath, saveWorkspacePath } from "./lib/workspaceSettings";
@@ -18,25 +37,27 @@ import {
   formatLocalError,
   startSidecar,
   stopSidecar,
+  runtimeStatus,
   type HealthStatus,
   type ProjectInfo,
   type RuntimeStatus,
 } from "./lib/sidecar";
 
-type NavItem = { key: string; label: string; enabled: boolean };
+type NavItem = { key: string; label: string; icon: typeof LayoutDashboard };
 type AuthMode = "signin" | "signup" | "reset" | "recover";
 
 const navItems: NavItem[] = [
-  { key: "workspace", label: "项目工作台", enabled: true },
-  { key: "calendar", label: "学期与作息", enabled: true },
-  { key: "school", label: "基础资料", enabled: true },
-  { key: "imports", label: "批量导入", enabled: true },
-  { key: "planning", label: "课程计划", enabled: true },
-  { key: "constraints", label: "约束配置", enabled: true },
-  { key: "scheduling", label: "排课运行", enabled: true },
-  { key: "timetables", label: "课表与导出", enabled: true },
-  { key: "backups", label: "备份恢复", enabled: true },
-  { key: "about", label: "关于与开源", enabled: true },
+  { key: "workspace", label: "工作台", icon: LayoutDashboard },
+  { key: "timetable", label: "课表设置", icon: CalendarDays },
+  { key: "rooms", label: "教室设置", icon: DoorOpen },
+  { key: "school", label: "学校数据", icon: UsersRound },
+  { key: "planning", label: "课程计划", icon: NotebookPen },
+  { key: "constraints", label: "约束配置", icon: SlidersHorizontal },
+  { key: "runs", label: "排课运行", icon: Activity },
+];
+const aiNavItems: NavItem[] = [
+  { key: "ai-settings", label: "AI 设置", icon: SlidersHorizontal },
+  { key: "agent", label: "AI 助手", icon: NotebookPen },
 ];
 
 const gate = ref<GateStatus | null>(null);
@@ -47,7 +68,6 @@ const password = ref("");
 const recoveryLink = ref("");
 const newPassword = ref("");
 const confirmNewPassword = ref("");
-const enterpriseKey = ref("");
 const gateError = ref("");
 const gateNotice = ref("");
 
@@ -64,49 +84,102 @@ const workspaceError = ref("");
 const workspaceNotice = ref("");
 const updateBusy = ref(false);
 const availableUpdate = ref<UpdateStatus | null>(null);
+const updateModalOpen = ref(false);
+const updateMessage = ref("");
+const updateError = ref("");
+const updateReady = ref(false);
+const updateDownloaded = ref(0);
+const updateTotal = ref<number | null>(null);
+const updatePercent = computed(() => updateTotal.value ? Math.min(100, Math.round(updateDownloaded.value / updateTotal.value * 100)) : undefined);
 const preferredWorkspacePath = ref(savedWorkspacePath() ?? "");
-
-const mockServices = computed(() => {
-  const serviceModes = health.value?.serviceModes;
-  if (serviceModes) {
-    return Object.entries(serviceModes)
-      .filter(([, mode]) => mode === "mock")
-      .map(([name]) => name);
-  }
-  return gate.value?.license.mode === "mock" ? ["license"] : [];
-});
-
-const licenseExpiry = computed(() => {
-  const expiresAt = gate.value?.license.expiresAt;
-  return expiresAt ? new Date(expiresAt * 1000).toLocaleString("zh-CN") : "尚未激活";
-});
+const sidebarCollapsed = ref(localStorage.getItem("stt-sidebar-collapsed") === "true");
+const accountMenuOpen = ref(false);
+const workflowCounts = ref<Record<string, number>>({});
+const workflowBusy = ref(false);
 
 const pageTitle = computed(() => {
-  if (activeView.value === "about") return "关于与开源";
+  if (activeView.value === "agent") return "AI 助手";
+  if (activeView.value === "ai-settings") return "AI 设置";
+  if (activeView.value === "about") return "软件信息";
   if (!gate.value?.canStartSidecar) return "身份与设备授权";
-  if (activeView.value === "calendar") return "学期与作息";
-  if (activeView.value === "school") return "基础资料";
-  if (activeView.value === "imports") return "CSV / Excel 批量导入";
+  if (activeView.value === "timetable") return "课表设置";
+  if (activeView.value === "rooms") return "教室设置";
+  if (activeView.value === "school") return "学校数据";
+  if (activeView.value === "imports") return "数据导入";
   if (activeView.value === "planning") return "课程计划";
   if (activeView.value === "constraints") return "约束配置";
-  if (activeView.value === "scheduling") return "排课运行与候选方案";
-  if (activeView.value === "timetables") return "课表查看与手工调整";
-  if (activeView.value === "backups") return "备份与恢复";
-  return currentProject.value?.name ?? "项目工作台";
+  if (activeView.value === "runs") return "排课运行";
+  if (activeView.value === "backups") return "数据备份";
+  return "工作台";
 });
+
+const workflowSteps = computed(() => {
+  const count = workflowCounts.value;
+  return [
+    { key: "timetable", label: "课表设置", detail: `${count.bell_schedule ?? 0} 套作息 · ${count.time_slot ?? 0} 个课节`, ready: (count.bell_schedule ?? 0) > 0 && (count.time_slot ?? 0) > 0 },
+    { key: "rooms", label: "教室设置", detail: `${count.room ?? 0} 间教室`, ready: (count.room ?? 0) > 0 },
+    { key: "school", label: "学校数据", detail: `教师 ${count.teacher ?? 0} · 班级 ${count.homeroom ?? 0} · 科目 ${count.subject ?? 0}`, ready: (count.teacher ?? 0) > 0 && (count.homeroom ?? 0) > 0 && (count.subject ?? 0) > 0 },
+    { key: "planning", label: "课程计划", detail: `${count.teaching_task ?? 0} 项任务 · ${count.task_lesson ?? 0} 个课次`, ready: (count.task_lesson ?? 0) > 0 },
+    { key: "constraints", label: "约束配置", detail: `${count.constraint ?? 0} 条自定义规则`, ready: true, optional: true },
+    { key: "runs", label: "排课运行", detail: (count.candidate ?? 0) > 0 ? `已有 ${count.candidate} 个候选方案` : "准备好后即可开始排课", ready: (count.candidate ?? 0) > 0 },
+  ];
+});
+
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
+  localStorage.setItem("stt-sidebar-collapsed", String(sidebarCollapsed.value));
+}
+
+function navigate(view: string) {
+  activeView.value = view;
+  accountMenuOpen.value = false;
+}
+
+async function refreshWorkflowCounts() {
+  if (!currentProject.value || workflowBusy.value) return;
+  workflowBusy.value = true;
+  try {
+    const types = ["bell_schedule", "time_slot", "room", "teacher", "homeroom", "subject", "teaching_task", "task_lesson", "constraint"];
+    const [entities, candidates] = await Promise.all([
+      Promise.all(types.map((type) => localApi.listEntities(type, { limit: 1 }))),
+      localApi.listSchedulingCandidates(),
+    ]);
+    const next: Record<string, number> = {};
+    types.forEach((type, index) => { next[type] = entities[index].total ?? entities[index].items.length; });
+    next.candidate = candidates.items.length;
+    workflowCounts.value = next;
+  } catch {
+    // Readiness is guidance only; module pages still show actionable errors.
+  } finally {
+    workflowBusy.value = false;
+  }
+}
+
+function applyProjectRevision(value: number) {
+  projectRevision.value = value;
+  void refreshWorkflowCounts();
+}
 
 async function refreshProjects() {
   projects.value = (await localApi.listProjects()).projects;
 }
 
 async function bootstrapWorkspace() {
+  if (workspaceBusy.value) return;
   workspaceBusy.value = true;
   workspaceError.value = "";
   try {
     runtime.value = await startSidecar(preferredWorkspacePath.value || undefined);
-    health.value = await localApi.health();
-    await refreshProjects();
+    const [serviceHealth] = await Promise.all([localApi.health(), refreshProjects()]);
+    health.value = serviceHealth;
+    if (currentProject.value) {
+      const reopened = await localApi.openProject(currentProject.value.id);
+      currentProject.value = reopened.project;
+      projectRevision.value = reopened.revision;
+    }
   } catch (error) {
+    runtime.value = null;
+    health.value = null;
     workspaceError.value = formatLocalError(error);
   } finally {
     workspaceBusy.value = false;
@@ -125,6 +198,22 @@ async function bootstrapGate() {
   } finally {
     gateBusy.value = false;
   }
+}
+
+async function restartLocalService() {
+  if (workspaceBusy.value || gateBusy.value) return;
+  accountMenuOpen.value = false;
+  workspaceBusy.value = true;
+  workspaceError.value = "";
+  try {
+    await stopSidecar();
+    runtime.value = null;
+    health.value = null;
+  } catch (error) {
+    workspaceError.value = formatLocalError(error);
+    return;
+  } finally { workspaceBusy.value = false; }
+  await bootstrapGate();
 }
 
 async function submitAuth() {
@@ -163,22 +252,6 @@ async function submitAuth() {
   }
 }
 
-async function activateLicense() {
-  if (!enterpriseKey.value.trim()) return;
-  gateBusy.value = true;
-  gateError.value = "";
-  try {
-    gate.value = await accessGate.activateLicense(enterpriseKey.value);
-    enterpriseKey.value = "";
-    gateNotice.value = "当前设备已激活，授权凭证已进入系统凭据库";
-    if (gate.value.canStartSidecar) await bootstrapWorkspace();
-  } catch (error) {
-    gateError.value = String(error);
-  } finally {
-    gateBusy.value = false;
-  }
-}
-
 async function openPurchasePage() {
   gateBusy.value = true;
   gateError.value = "";
@@ -192,6 +265,17 @@ async function openPurchasePage() {
   }
 }
 
+async function openRegistrationPage() {
+  gateError.value = "";
+  gateNotice.value = "";
+  try {
+    await invoke("open_registration_page");
+    gateNotice.value = "已在浏览器打开注册页面，注册完成后请返回这里登录。";
+  } catch {
+    gateError.value = "无法打开浏览器，请访问 https://shiyi.karios.site 注册。";
+  }
+}
+
 async function signOut() {
   gateBusy.value = true;
   gateError.value = "";
@@ -202,7 +286,7 @@ async function signOut() {
     currentProject.value = null;
     activeView.value = "workspace";
     gate.value = await accessGate.signOut();
-    gateNotice.value = "已退出并清除本地登录会话与授权；设备私钥已保留";
+    gateNotice.value = "已退出并清除本地登录会话与会员校验状态";
   } catch (error) {
     gateError.value = String(error);
   } finally {
@@ -221,6 +305,7 @@ async function createProject() {
     projectRevision.value = result.revision;
     projectName.value = "";
     await refreshProjects();
+    await refreshWorkflowCounts();
     health.value = await localApi.health();
   } catch (error) {
     workspaceError.value = formatLocalError(error);
@@ -236,6 +321,7 @@ async function openProject(projectId: string) {
     const result = await localApi.openProject(projectId);
     currentProject.value = result.project;
     projectRevision.value = result.revision;
+    await refreshWorkflowCounts();
     health.value = await localApi.health();
   } catch (error) {
     workspaceError.value = formatLocalError(error);
@@ -302,7 +388,7 @@ async function closeCurrentProject() {
 async function selectWorkspaceDirectory() {
   if (health.value?.activeSchedulingRounds.length) {
     workspaceError.value = "排课轮次运行期间不能切换工作目录，请先取消或等待完成";
-    activeView.value = "scheduling";
+    activeView.value = "runs";
     return;
   }
   const selected = await open({
@@ -419,6 +505,7 @@ async function importProjectArchive() {
     projectRevision.value = result.revision;
     workspaceNotice.value = `已导入并打开项目：${result.project.name}`;
     await refreshProjects();
+    await refreshWorkflowCounts();
     health.value = await localApi.health();
   } catch (error) {
     workspaceError.value = formatLocalError(error);
@@ -428,31 +515,59 @@ async function importProjectArchive() {
 }
 
 async function checkForUpdate() {
+  updateModalOpen.value = true;
+  if (updateBusy.value || updateReady.value) return;
   updateBusy.value = true;
-  workspaceError.value = "";
+  updateError.value = "";
+  updateMessage.value = "正在查询最新内测版本…";
+  availableUpdate.value = null;
   try {
     availableUpdate.value = await updater.check();
-    workspaceNotice.value = availableUpdate.value.message;
+    updateMessage.value = availableUpdate.value.message;
+    if (availableUpdate.value.available) await downloadUpdate();
   } catch (error) {
-    workspaceError.value = String(error);
+    updateError.value = String(error);
+    updateMessage.value = "检查更新未完成";
+  } finally {
+    updateBusy.value = false;
+  }
+}
+
+async function downloadUpdate() {
+  updateBusy.value = true;
+  updateError.value = "";
+  updateDownloaded.value = 0;
+  updateTotal.value = null;
+  updateMessage.value = "正在下载更新，完成后将校验安装包…";
+  try {
+    await updater.download(({ downloaded, total }) => {
+      updateDownloaded.value = downloaded;
+      updateTotal.value = total;
+    });
+    updateReady.value = true;
+    updateMessage.value = "下载完成，安装包已通过安全校验。请先保存工作，再安装更新。";
+  } catch (error) {
+    updateError.value = String(error);
+    updateMessage.value = "更新尚未准备好，未执行安装";
   } finally {
     updateBusy.value = false;
   }
 }
 
 async function installUpdate() {
-  if (!availableUpdate.value?.available) return;
+  updateModalOpen.value = true;
+  if (!updateReady.value || updateBusy.value) return;
   const accepted = await confirm(
-    `已验证版本 ${availableUpdate.value.version} 的 Ed25519 更新签名。安装将关闭并重新启动应用，是否继续？`,
+    `版本 ${availableUpdate.value?.version} 已通过安全校验。请确认已保存工作，安装将退出应用，是否继续？`,
     { title: "安装时奕教务排课更新", kind: "info" },
   );
   if (!accepted) return;
   updateBusy.value = true;
-  workspaceError.value = "";
+  updateError.value = "";
   try {
     await updater.install();
   } catch (error) {
-    workspaceError.value = String(error);
+    updateError.value = String(error);
     updateBusy.value = false;
   }
 }
@@ -461,79 +576,132 @@ function applyRestoredProject(project: ProjectInfo, revision: number) {
   currentProject.value = project;
   projectRevision.value = revision;
   void refreshProjects();
+  void refreshWorkflowCounts();
 }
 
-onMounted(bootstrapGate);
+let membershipTimer: ReturnType<typeof setInterval> | undefined;
+let membershipChecking = false;
+async function checkRunningMembership() {
+  if (gateBusy.value || workspaceBusy.value || membershipChecking || !gate.value?.auth.authenticated) return;
+  membershipChecking = true;
+  const checkedUser = gate.value.auth.user?.id;
+  try {
+    const next = await accessGate.status();
+    // Login/logout may have completed while the check was in flight.
+    if (gateBusy.value || gate.value?.auth.user?.id !== checkedUser) return;
+    gate.value = next;
+    if (!next.canStartSidecar) {
+      runtime.value = null;
+      health.value = null;
+      gateNotice.value = next.license.message ?? next.auth.message ?? "请重新检查会员权益";
+    } else {
+      runtime.value = await runtimeStatus();
+      if (!runtime.value.running) await bootstrapWorkspace();
+    }
+  } catch (error) {
+    if (!gateBusy.value && gate.value) {
+      gate.value = { ...gate.value, canStartSidecar: false, license: { ...gate.value.license, active: false } };
+      runtime.value = null;
+      health.value = null;
+      gateError.value = String(error);
+    }
+  } finally { membershipChecking = false; }
+}
+onMounted(() => {
+  void bootstrapGate();
+  membershipTimer = setInterval(() => { void checkRunningMembership(); }, 20_000);
+});
+onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
 </script>
 
 <template>
-  <main class="app-shell">
+  <main class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">时</div>
-        <div><strong>时奕教务排课</strong><span>本地桌面版</span></div>
+        <img class="brand-mark" src="/app-icon.png" alt="时奕教务排课" />
+        <div class="brand-copy"><strong>时奕教务</strong><span>本地排课系统</span></div>
+        <button class="sidebar-toggle" :title="sidebarCollapsed ? '展开菜单' : '收起菜单'" @click="toggleSidebar">
+          <PanelLeftOpen v-if="sidebarCollapsed" :size="18" />
+          <PanelLeftClose v-else :size="18" />
+        </button>
       </div>
 
-      <nav aria-label="主要功能">
+      <nav class="primary-nav" aria-label="主要功能">
         <button
           v-for="item in navItems"
           :key="item.key"
           class="nav-item"
           :class="{ active: item.key === activeView }"
-          :disabled="!item.enabled || (item.key !== 'about' && (!gate?.canStartSidecar || (item.key !== 'workspace' && !currentProject)))"
-          @click="activeView = item.key"
+          :disabled="!gate?.canStartSidecar || (item.key !== 'workspace' && !currentProject)"
+          :title="sidebarCollapsed ? item.label : undefined"
+          @click="navigate(item.key)"
         >
-          <span>{{ item.label }}</span><small v-if="!item.enabled">实施中</small>
+          <component :is="item.icon" :size="19" aria-hidden="true" />
+          <span class="nav-label">{{ item.label }}</span>
         </button>
       </nav>
 
-      <div class="runtime-card">
+      <div class="sidebar-bottom">
+        <nav aria-label="AI 功能">
+          <button v-for="item in aiNavItems" :key="item.key" class="nav-item"
+            :class="{ active: item.key === activeView }"
+            :disabled="!gate?.canStartSidecar || !currentProject"
+            :title="sidebarCollapsed ? item.label : undefined" @click="navigate(item.key)">
+            <component :is="item.icon" :size="19" aria-hidden="true" />
+            <span class="nav-label">{{ item.label }}</span>
+          </button>
+        </nav>
+      <div class="local-status" :title="runtime?.running ? '本地服务已连接' : '本地服务未启动'">
         <span class="status-dot" :class="runtime?.running ? 'online' : 'offline'"></span>
-        <div>
-          <strong>{{ runtime?.running ? "本地服务已连接" : "本地服务未启动" }}</strong>
-          <small v-if="runtime?.port">随机端口 · {{ runtime.port }}</small>
-          <small v-else>{{ gate?.license.active ? "等待本地服务" : "等待身份与授权" }}</small>
-        </div>
+        <span class="nav-label">{{ runtime?.running ? "数据保存在本机" : gate?.license.active ? "正在准备" : "等待登录" }}</span>
+      </div>
       </div>
     </aside>
 
     <section class="content">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">LOCAL-FIRST SCHEDULING</p>
-          <h1>{{ pageTitle }}</h1>
-        </div>
+        <h1>{{ pageTitle }}</h1>
         <div class="topbar-badges">
-          <span class="badge secure">教务数据仅在本机</span>
-          <span v-if="mockServices.length" class="badge mock">模拟服务：{{ mockServices.join(" / ") }}</span>
-          <span v-if="gate?.auth.user" class="badge account">{{ gate.auth.user.email }}</span>
-          <button v-if="gate?.canStartSidecar" class="text-button" :disabled="updateBusy" @click="checkForUpdate">{{ updateBusy ? "检查中…" : "检查更新" }}</button>
-          <button v-if="availableUpdate?.available" class="text-button" :disabled="updateBusy" @click="installUpdate">安装 {{ availableUpdate.version }}</button>
-          <button v-if="gate?.auth.authenticated" class="text-button" :disabled="gateBusy" @click="signOut">退出</button>
+          <button v-if="availableUpdate?.available" class="text-button" @click="updateModalOpen = true">{{ updateReady ? '安装更新' : '查看下载' }} {{ availableUpdate.version }}</button>
+          <div v-if="gate?.auth.authenticated" class="account-menu">
+            <button class="account-trigger" @click="accountMenuOpen = !accountMenuOpen">
+              <span class="account-avatar">{{ gate.auth.user?.email?.slice(0, 1).toUpperCase() }}</span>
+              <span>{{ gate.auth.user?.email }}</span><ChevronDown :size="15" />
+            </button>
+            <div v-if="accountMenuOpen" class="account-popover">
+              <button :disabled="!currentProject" @click="navigate('backups')"><DatabaseBackup :size="16" />数据备份</button>
+              <button @click="navigate('about')"><Info :size="16" />软件信息</button>
+              <button @click="checkForUpdate"><RefreshCw :size="16" />{{ updateBusy ? "查看更新进度" : "检查更新" }}</button>
+              <button :disabled="workspaceBusy || gateBusy" @click="restartLocalService"><RefreshCw :size="16" />重启本地服务</button>
+              <button :disabled="gateBusy" @click="signOut"><LogOut :size="16" />退出登录</button>
+            </div>
+          </div>
         </div>
       </header>
 
       <div v-if="gateBusy && !gate" class="state-panel">
-        <div class="spinner"></div><h2>正在检查身份与设备授权</h2><p>令牌和设备私钥只从系统凭据库读取…</p>
+        <div class="spinner"></div><h2>正在检查登录状态和会员权益</h2><p>请稍候…</p>
       </div>
 
       <AboutView v-else-if="activeView === 'about'" />
+      <AiSettingsView v-else-if="activeView === 'ai-settings'" />
+      <AiAssistantView v-else-if="activeView === 'agent'" :project-id="currentProject?.id || ''" :project-name="currentProject?.name || ''" @navigate="navigate" />
 
       <section v-else-if="!gate?.auth.configured" class="auth-layout">
         <article class="auth-card warning-card">
-          <p class="eyebrow">CONFIGURATION REQUIRED</p>
-          <h2>Supabase 身份服务尚未配置</h2>
+          <p class="eyebrow">应用配置异常</p>
+          <h2>登录服务暂时不可用</h2>
           <p>{{ gate?.auth.message ?? gateError }}</p>
-          <p>开发环境请设置 `STT_SUPABASE_PUBLISHABLE_KEY`，密钥值不要写入仓库或日志。</p>
+          <p>请确认安装的是完整发行版；如果问题持续出现，请重新安装或联系技术支持。</p>
           <button class="primary-button" @click="bootstrapGate">重新检查</button>
         </article>
       </section>
 
       <section v-else-if="!gate.auth.authenticated" class="auth-layout">
         <article class="auth-card">
-          <p class="eyebrow">SUPABASE AUTH</p>
+          <p class="eyebrow">账号登录</p>
           <h2>{{ authMode === "signin" ? "登录时奕桌面版" : authMode === "signup" ? "注册账号" : authMode === "reset" ? "申请重置密码" : "设置新密码" }}</h2>
-          <p class="form-copy">邮箱密码用于确认账号身份；激活设备时还需要企业密钥。</p>
+          <p class="form-copy">使用网页版的同一账号登录，会员权益自动核验。登录后 7 天内自动登录，退出账号后需重新登录。</p>
           <form @submit.prevent="submitAuth">
             <template v-if="authMode !== 'recover'">
               <label for="auth-email">邮箱</label>
@@ -559,105 +727,143 @@ onMounted(bootstrapGate);
             </button>
           </form>
           <div class="auth-actions">
-            <button class="link-button" @click="authMode = authMode === 'signup' ? 'signin' : 'signup'">{{ authMode === "signup" ? "返回登录" : "注册账号" }}</button>
+            <button v-if="authMode === 'signin'" type="button" class="link-button" :disabled="gateBusy" @click="openRegistrationPage">去注册</button>
             <button class="link-button" @click="authMode = authMode === 'reset' || authMode === 'recover' ? 'signin' : 'reset'">{{ authMode === "reset" || authMode === "recover" ? "返回登录" : "忘记密码" }}</button>
           </div>
         </article>
         <aside class="security-card">
-          <p class="eyebrow">PRIVACY BOUNDARY</p><h2>身份联网，教务离线</h2>
-          <ul><li>Supabase 仅接收账号认证与许可证请求。</li><li>学校、教师、班级、课程和课表不上传。</li><li>登录令牌和设备私钥不进入 WebView。</li></ul>
+          <p class="eyebrow">隐私说明</p><h2>账号联网，教务数据留在本机</h2>
+          <ul><li>使用时奕账号登录并核验会员权益。</li><li>学校、教师、班级、课程和课表仅保存在这台电脑。</li><li>登录状态由系统安全保存。</li></ul>
         </aside>
       </section>
 
       <section v-else-if="!gate.license.active" class="auth-layout">
         <article class="auth-card">
-          <p class="eyebrow">DEVICE ACTIVATION</p><h2>激活当前设备</h2>
-          <p class="form-copy">已登录 {{ gate.auth.user?.email }}。请输入该购买账号收到的企业密钥。</p>
-          <form @submit.prevent="activateLicense">
-            <label for="enterprise-key">企业密钥</label>
-            <input id="enterprise-key" v-model="enterpriseKey" type="password" autocomplete="off" required />
-            <p v-if="gate.license.deviceId" class="device-copy">设备指纹：{{ gate.license.deviceId }}</p>
+          <p class="eyebrow">会员权益</p><h2>账号会员权益</h2>
+          <p class="form-copy">已登录 {{ gate.auth.user?.email }}。</p>
+          <form @submit.prevent="bootstrapGate">
             <p v-if="gateError" class="form-message error-copy">{{ gateError }}</p>
             <p v-else-if="gate.license.message" class="form-message notice-copy">{{ gate.license.message }}</p>
-            <button class="primary-button full-button" :disabled="gateBusy || !enterpriseKey.trim()">{{ gateBusy ? "正在验证…" : "验证并激活" }}</button>
+            <button class="primary-button full-button" :disabled="gateBusy">{{ gateBusy ? "正在核验…" : "重新检查会员权益" }}</button>
           </form>
           <div class="auth-actions purchase-actions">
-            <span>尚未购买年度许可证？</span>
+            <span>尚未开通会员？</span>
             <button class="link-button" :disabled="gateBusy" @click="openPurchasePage">在系统浏览器购买</button>
           </div>
         </article>
         <aside class="security-card">
-          <p class="eyebrow">LICENSE POLICY</p><h2>年度授权 · 最多 {{ gate.license.deviceLimit }} 台设备</h2>
-          <ul><li>企业密钥只在首次激活时提交。</li><li>设备私钥保存在 Windows Credential Manager。</li><li>Mock 授权有效期 7 天，正式服务由 Ed25519 JWS 签发。</li></ul>
+          <p class="eyebrow">会员说明</p><h2>同一账号，共享会员权益</h2>
+          <ul><li>无需激活码或单独购买桌面许可证。</li><li>账号邮箱须已验证，会员须在有效期内。</li><li>当前版本需要联网核验会员，不支持离线授权。</li></ul>
         </aside>
       </section>
 
-      <CalendarView v-else-if="activeView === 'calendar' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
-      <SchoolDataView v-else-if="activeView === 'school' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
-      <ImportView v-else-if="activeView === 'imports' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
-      <PlanningView v-else-if="activeView === 'planning' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
-      <ConstraintsView v-else-if="activeView === 'constraints' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
-      <SchedulingView v-else-if="activeView === 'scheduling' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
-      <TimetableView v-else-if="activeView === 'timetables' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" />
-      <BackupsView v-else-if="activeView === 'backups' && currentProject" :revision="projectRevision" @revision="projectRevision = $event" @project-restored="applyRestoredProject" />
+      <section v-else-if="!runtime?.running" class="state-panel error-panel">
+        <h2>{{ workspaceBusy ? '正在启动本地服务' : '本地服务尚未启动' }}</h2>
+        <p>{{ workspaceBusy ? '请稍候，正在恢复工作区。' : workspaceError || '请重新启动本地服务，已保存的项目数据不会丢失。' }}</p>
+        <button class="primary-button" :disabled="workspaceBusy || gateBusy" @click="restartLocalService">{{ workspaceBusy ? '正在启动…' : '重新启动本地服务' }}</button>
+      </section>
+      <CalendarView v-else-if="activeView === 'timetable' && currentProject" :revision="projectRevision" @revision="applyProjectRevision" />
+      <SchoolDataView v-else-if="activeView === 'rooms' && currentProject" mode="rooms" :revision="projectRevision" @revision="applyProjectRevision" />
+      <SchoolDataView v-else-if="activeView === 'school' && currentProject" mode="school" :revision="projectRevision" @revision="applyProjectRevision" />
+      <ImportView v-else-if="activeView === 'imports' && currentProject" :revision="projectRevision" @revision="applyProjectRevision" />
+      <PlanningView v-else-if="activeView === 'planning' && currentProject" :revision="projectRevision" @revision="applyProjectRevision" />
+      <ConstraintsView v-else-if="activeView === 'constraints' && currentProject" :revision="projectRevision" @revision="applyProjectRevision" />
+      <RunsWorkspace v-else-if="activeView === 'runs' && currentProject" :revision="projectRevision" @revision="applyProjectRevision" />
+      <BackupsView v-else-if="activeView === 'backups' && currentProject" :revision="projectRevision" @revision="applyProjectRevision" @project-restored="applyRestoredProject" />
       <template v-else>
         <div v-if="workspaceBusy && !runtime" class="state-panel">
-          <div class="spinner"></div><h2>正在启动安全本地服务</h2><p>校验随机端口、一次性令牌和项目工作目录…</p>
+          <div class="spinner"></div><h2>正在准备本地工作区</h2><p>首次启动可能需要十几秒，请稍候…</p>
         </div>
         <div v-else-if="workspaceError" class="state-panel error-panel">
           <h2>本地服务启动失败</h2><p>{{ workspaceError }}</p><button class="primary-button" @click="bootstrapWorkspace">重新尝试</button>
         </div>
         <template v-else>
-          <section class="hero-card">
+          <section class="home-welcome panel">
             <div>
-              <p class="eyebrow">工作目录</p><h2>建立或打开一个本地排课项目</h2>
-              <p>每个项目使用独立 SQLite、附件与备份目录。账号和授权服务不会接收教务数据。</p>
-              <div class="hero-actions">
-                <button class="secondary-button" :disabled="workspaceBusy" @click="selectWorkspaceDirectory">选择工作目录</button>
-                <button v-if="currentProject" class="text-button" :disabled="workspaceBusy" @click="closeCurrentProject">关闭当前项目</button>
-              </div>
+              <h2>用户主页</h2>
+              <p>选择一个排课项目，然后按照左侧菜单依次完成学校数据、课程计划、约束配置和排课运行。</p>
             </div>
-            <dl>
-              <div><dt>协议</dt><dd>v{{ health?.protocolVersion }}</dd></div>
-              <div><dt>数据结构</dt><dd>Schema {{ health?.schemaVersion }}</dd></div>
-              <div><dt>授权到期</dt><dd>{{ licenseExpiry }}</dd></div>
-              <div><dt>工作区</dt><dd class="path-value">{{ runtime?.workspacePath ?? "应用数据目录" }}</dd></div>
-            </dl>
+            <div class="home-actions">
+              <button class="secondary-button" :disabled="workspaceBusy" @click="selectWorkspaceDirectory">选择工作目录</button>
+              <button v-if="currentProject" class="text-button" :disabled="workspaceBusy" @click="closeCurrentProject">关闭当前项目</button>
+            </div>
           </section>
 
-          <section class="grid-layout">
-            <article class="panel create-panel">
-              <p class="eyebrow">新建项目</p><h2>从空白项目开始</h2>
-              <p v-if="workspaceError" class="form-message error-copy">{{ workspaceError }}</p>
-              <p v-if="workspaceNotice" class="form-message notice-copy">{{ workspaceNotice }}</p>
-              <label for="project-name">项目名称</label>
-              <input id="project-name" v-model="projectName" maxlength="200" placeholder="例如：2026 学年第一学期" @keyup.enter="createProject" />
-              <button class="primary-button" :disabled="workspaceBusy || !projectName.trim()" @click="createProject">创建并打开</button>
-              <hr class="soft-divider" />
-              <p class="eyebrow">可移植项目包</p>
-              <button class="secondary-button" :disabled="workspaceBusy" @click="importProjectArchive">导入 .sttproj</button>
-              <button class="secondary-button" :disabled="workspaceBusy || !currentProject" @click="exportProjectArchive">导出当前项目</button>
-              <template v-if="currentProject">
-                <hr class="soft-divider" />
-                <p class="eyebrow">另存为本地项目</p>
-                <label for="save-as-name">副本名称</label>
-                <input id="save-as-name" v-model="saveAsName" maxlength="200" :placeholder="`${currentProject.name} - 副本`" @keyup.enter="saveProjectAs" />
-                <button class="secondary-button" :disabled="workspaceBusy || !saveAsName.trim()" @click="saveProjectAs">校验并另存副本</button>
-              </template>
-            </article>
+          <p v-if="workspaceNotice" class="form-message notice-copy">{{ workspaceNotice }}</p>
+          <section class="home-grid">
             <article class="panel projects-panel">
-              <div class="panel-heading"><div><p class="eyebrow">最近项目</p><h2>本机项目</h2></div><span>{{ projects.length }} 个</span></div>
-              <p v-if="projects.length === 0" class="empty-copy">还没有项目。创建后即可配置学期、资料和排课计划。</p>
-              <div v-for="project in projects" v-else :key="String(project.project_id)" class="project-list-row">
+              <div class="panel-heading"><div><h2>我的排课项目</h2><p>项目资料保存在这台电脑；主动使用 AI 时，相关内容会发送至你配置的服务。</p></div><span>{{ projects.length }} 个</span></div>
+              <div class="quick-create">
+                <input id="project-name" v-model="projectName" maxlength="200" placeholder="输入项目名称，如：2026 学年第一学期" @keyup.enter="createProject" />
+                <button class="primary-button" :disabled="workspaceBusy || !projectName.trim()" @click="createProject">新建项目</button>
+              </div>
+              <p v-if="projects.length === 0" class="empty-copy">还没有项目。输入名称并点击“新建项目”即可开始。</p>
+              <div v-for="project in projects" v-else :key="String(project.project_id)" class="project-list-row" :class="{ current: currentProject?.id === String(project.project_id) }">
                 <button class="project-row" @click="openProject(String(project.project_id))">
-                  <span><strong>{{ project.name }}</strong><small>Revision {{ project.revision }} · {{ project.updated_at }}</small><small class="project-path">{{ project.path }}</small></span><b>打开</b>
+                  <span><strong>{{ project.name }}</strong><small>{{ project.updated_at }}</small></span><b>{{ currentProject?.id === String(project.project_id) ? "当前项目" : "打开" }}</b>
                 </button>
                 <button class="project-delete" :disabled="workspaceBusy || currentProject?.id === String(project.project_id)" :title="currentProject?.id === String(project.project_id) ? '请先关闭当前项目' : '删除项目'" @click="deleteProject(project)">删除</button>
               </div>
+
+              <details class="advanced-details project-tools">
+                <summary>项目导入、导出与另存</summary>
+                <div class="project-tool-actions">
+                  <button class="secondary-button" :disabled="workspaceBusy" @click="importProjectArchive">导入项目文件</button>
+                  <button class="secondary-button" :disabled="workspaceBusy || !currentProject" @click="exportProjectArchive">导出当前项目</button>
+                </div>
+                <template v-if="currentProject">
+                  <label for="save-as-name">另存为新项目</label>
+                  <div class="quick-create"><input id="save-as-name" v-model="saveAsName" maxlength="200" :placeholder="`${currentProject.name} - 副本`" @keyup.enter="saveProjectAs" /><button class="secondary-button" :disabled="workspaceBusy || !saveAsName.trim()" @click="saveProjectAs">另存</button></div>
+                </template>
+              </details>
+            </article>
+
+            <article class="panel readiness-panel">
+              <div class="panel-heading"><div><h2>完整流程指引</h2><p>{{ currentProject ? `当前：${currentProject.name}` : "先从左侧选择一个项目" }}</p></div></div>
+              <div v-if="currentProject" class="workflow-list">
+                <button v-for="(step, index) in workflowSteps" :key="step.key" @click="navigate(step.key)">
+                  <span class="workflow-index" :class="{ done: step.ready }">{{ step.ready ? "✓" : index + 1 }}</span>
+                  <span><strong>{{ step.label }}</strong><small>{{ step.detail }}</small></span>
+                  <b>{{ step.optional ? "可选" : step.ready ? "已完成" : "去设置" }}</b>
+                </button>
+              </div>
+              <div v-else class="empty-workflow"><CalendarDays :size="38" /><p>打开项目后，这里会按网页版的顺序提示下一步。</p></div>
+              <button v-if="currentProject" class="primary-button start-next" @click="navigate(workflowSteps.find((step) => !step.ready && !step.optional)?.key ?? 'runs')">继续下一步</button>
             </article>
           </section>
         </template>
       </template>
     </section>
   </main>
+  <Teleport to="body">
+    <div v-if="updateModalOpen" class="stt-update-overlay">
+      <section class="stt-update-dialog" role="dialog" aria-modal="true" aria-labelledby="stt-update-title">
+        <h2 id="stt-update-title">检查更新</h2>
+        <p v-if="availableUpdate">当前版本 {{ availableUpdate.currentVersion }} · 最新版本 {{ availableUpdate.version }}</p>
+        <p role="status" aria-live="polite">{{ updateMessage }}</p>
+        <pre v-if="availableUpdate?.notes" class="stt-update-notes">{{ availableUpdate.notes }}</pre>
+        <template v-if="updateDownloaded > 0 && !updateReady">
+          <progress :value="updatePercent" max="100" aria-label="更新下载进度"></progress>
+          <p>{{ (updateDownloaded / 1048576).toFixed(1) }} MB <template v-if="updateTotal">/ {{ (updateTotal / 1048576).toFixed(1) }} MB · {{ updatePercent }}%</template></p>
+        </template>
+        <p v-if="updateError" class="stt-update-error" role="alert">{{ updateError }}</p>
+        <div class="stt-update-actions">
+          <button class="secondary-button" @click="updateModalOpen = false">{{ updateBusy ? '后台下载 / 稍后查看' : '稍后' }}</button>
+          <button v-if="updateError && !updateReady" class="primary-button" :disabled="updateBusy" @click="availableUpdate?.available ? downloadUpdate() : checkForUpdate()">重试</button>
+          <button v-if="updateReady" class="primary-button" :disabled="updateBusy" @click="installUpdate">退出并安装</button>
+        </div>
+      </section>
+    </div>
+  </Teleport>
 </template>
+
+<style scoped>
+.stt-update-overlay { position: fixed; inset: 0; z-index: 10000; background: #10292266; display: grid; place-items: center; padding: 24px; }
+.stt-update-dialog { width: min(560px, 100%); max-height: 85vh; overflow: auto; padding: 28px; border-radius: 16px; background: #fff; color: #183b36; box-shadow: 0 20px 70px #10292233; font: inherit; }
+.stt-update-dialog h2 { margin: 0 0 16px; font-size: 20px; }
+.stt-update-dialog p { line-height: 1.7; font-size: 14px; }
+.stt-update-notes { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 230px; overflow: auto; font: inherit; font-size: 14px; line-height: 1.7; padding: 16px; background: #f3f7f5; border-radius: 8px; }
+.stt-update-dialog progress { width: 100%; accent-color: #317c71; }
+.stt-update-error { color: #b42318; }
+.stt-update-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+</style>

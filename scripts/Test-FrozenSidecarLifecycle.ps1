@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$SidecarPath = 'apps/desktop/src-tauri/binaries/stt-sidecar-x86_64-pc-windows-msvc.exe'
+    [string]$SidecarPath = 'apps/desktop/src-tauri/binaries/时奕排课后台服务-x86_64-pc-windows-msvc.exe',
+    [int]$StartupTimeoutSeconds = 30
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,7 +61,7 @@ try {
         }
     }
 
-    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    $deadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     while ([DateTime]::UtcNow -lt $deadline) {
         if (Test-Path -LiteralPath $stdout -PathType Leaf) {
             $line = Get-Content -LiteralPath $stdout -TotalCount 1 -ErrorAction SilentlyContinue
@@ -74,12 +75,13 @@ try {
     }
     if (-not $ready) {
         $errorText = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue
-        throw "冻结 sidecar 未在 5 秒内就绪: $errorText"
+        throw "冻结 sidecar 未在 $StartupTimeoutSeconds 秒内就绪: $errorText"
     }
     if ([int]$ready.pid -ne $process.Id) {
         throw "启动器 PID 不匹配: expected=$($process.Id), actual=$($ready.pid)"
     }
-    if ([int]$ready.workerPid -le 0 -or [int]$ready.workerPid -eq $process.Id) {
+    $isOnedir = Test-Path -LiteralPath (Join-Path (Split-Path -Parent $resolvedSidecar) '_internal')
+    if ([int]$ready.workerPid -le 0 -or ($isOnedir -and [int]$ready.workerPid -ne $process.Id) -or (-not $isOnedir -and [int]$ready.workerPid -eq $process.Id)) {
         throw "冻结 sidecar 工作进程 PID 无效: $($ready.workerPid)"
     }
 

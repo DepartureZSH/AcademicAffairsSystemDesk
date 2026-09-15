@@ -46,7 +46,5 @@ export const accessGate = {
   completePasswordReset: (recoveryLink: string, newPassword: string) =>
     invoke<string>("auth_complete_password_reset", { recoveryLink, newPassword }),
   signOut: () => invoke<GateStatus>("auth_sign_out"),
-  activateLicense: (enterpriseKey: string) =>
-    invoke<GateStatus>("license_activate", { enterpriseKey }),
   openPurchasePage: () => invoke<PurchaseLaunchResult>("open_purchase_page"),
 };

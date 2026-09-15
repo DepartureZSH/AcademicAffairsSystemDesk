@@ -15,6 +15,17 @@ FONT_PATH = ROOT / "sidecar" / "stt_desktop" / "assets" / "fonts" / "NotoSansSC-
 FONT_SHA256 = "D68BAFCB48A2707749396AA12BBBD833CB70401F3A9A689FD2902C7E0D295964"
 FONT_SIZE = 17_773_132
 
+# The published 2011 tarball omitted the license field. Debian's source audit
+# preserves the upstream package.json license declaration and its exact commit.
+# This is version-specific, not a blanket exemption for missing licenses.
+NPM_REVIEWED_LICENSES = {
+    ('buffers', '0.1.1'): {
+        'license': 'MIT',
+        'licenseEvidence': 'https://sources.debian.org/copyright/license/node-buffers/0.1.1-2/',
+        'licenseUpstreamCommit': '1b745ee35d33eb166e15ef1866073a07c6d7de87',
+    },
+}
+
 
 def bundled_assets() -> list[dict[str, object]]:
     if not FONT_PATH.is_file():
@@ -65,13 +76,15 @@ def npm_packages() -> list[dict[str, str]]:
         if not path or package.get("dev"):
             continue
         name = package.get("name") or path.rsplit("node_modules/", 1)[-1]
+        reviewed = NPM_REVIEWED_LICENSES.get((name, package.get('version')), {}) if not package.get('license') else {}
         records.append(
             {
                 "ecosystem": "npm",
                 "name": name,
                 "version": package.get("version", ""),
-                "license": package.get("license", ""),
+                "license": package.get("license") or reviewed.get('license', ''),
                 "source": package.get("resolved", ""),
+                **reviewed,
             }
         )
     return sorted(records, key=lambda item: item["name"].lower())

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$SidecarPath = 'apps/desktop/src-tauri/binaries/stt-sidecar-x86_64-pc-windows-msvc.exe',
-    [int]$StartupTimeoutSeconds = 20,
+    [string]$SidecarPath = 'apps/desktop/src-tauri/binaries/时奕排课后台服务-x86_64-pc-windows-msvc.exe',
+    [int]$StartupTimeoutSeconds = 30,
     [int]$SchedulingTimeoutSeconds = 45
 )
 
@@ -156,7 +156,8 @@ try {
         throw "冻结 Sidecar 未在 $StartupTimeoutSeconds 秒内就绪：$errorText"
     }
     if ([int]$ready.pid -ne $process.Id) { throw '启动器 PID 与就绪消息不匹配。' }
-    if ([int]$ready.workerPid -le 0 -or [int]$ready.workerPid -eq $process.Id) {
+    $isOnedir = Test-Path -LiteralPath (Join-Path (Split-Path -Parent $resolvedSidecar) '_internal')
+    if ([int]$ready.workerPid -le 0 -or ($isOnedir -and [int]$ready.workerPid -ne $process.Id) -or (-not $isOnedir -and [int]$ready.workerPid -eq $process.Id)) {
         throw 'Sidecar 工作进程 PID 无效。'
     }
 
@@ -166,7 +167,7 @@ try {
     if ($health.status -ne 'ok' -or $health.protocolVersion -ne '1') {
         throw '冻结 Sidecar 健康或协议版本检查失败。'
     }
-    if ($health.serviceModes.identity -ne 'real' -or $health.serviceModes.license -ne 'mock') {
+    if ($health.serviceModes.identity -ne 'real' -or $health.serviceModes.license -ne 'real') {
         throw '冻结 Sidecar 未加载预期的服务模式配置。'
     }
     Write-Output 'PASS 冻结 Sidecar 启动、鉴权与服务模式'
@@ -191,6 +192,22 @@ try {
             end_time_minutes = 520 + $index * 50
         }
     }
+    $settings = Invoke-SidecarApi -Method GET -Path '/v1/timetable/settings'
+    $template = $settings.schoolData.weekly_timetable_templates[0]
+    $template.display_config | Add-Member -NotePropertyName header_rows -NotePropertyValue @(
+        @{ id = 'frozen-header'; cells = @{ '0' = @{ label = '冻结新版课表'; colspan = 6; rowspan = 1 } } }
+    ) -Force
+    $templateSaved = Invoke-SidecarApi -Method PUT -Path '/v1/timetable/templates' -Body @{
+        expected_revision = $revision
+        data = @{ template = $template; periods = @($settings.schoolData.weekly_timetable_periods) }
+    }
+    $revision = [int]$templateSaved.revision
+    $reloadedSettings = Invoke-SidecarApi -Method GET -Path '/v1/timetable/settings'
+    if ($reloadedSettings.schoolData.weekly_timetable_templates[0].display_config.header_rows[0].cells.'0'.label -ne '冻结新版课表') {
+        throw '冻结版本的新版课表模板未保存表头。'
+    }
+    Write-Output 'PASS 新版课表设置接口、模板和表头本地保存'
+
     $null = Save-Entity -Type teacher -Data @{ id = 'teacher-1'; name = '张老师' }
     $null = Save-Entity -Type subject -Data @{ id = 'subject-1'; name = '数学' }
     $null = Save-Entity -Type grade -Data @{ id = 'grade-1'; name = '一年级' }
@@ -209,6 +226,26 @@ try {
     $revision = [int]$taskSaved.revision
     if (@($taskSaved.lessons).Count -ne 2) { throw '教学任务没有原子生成两条课次。' }
     Write-Output 'PASS 项目、基础数据与课程计划持久化'
+
+    foreach ($scene in @('timetable', 'rooms', 'school', 'planning', 'constraints')) {
+        $turn = Invoke-SidecarApi -Method POST -Path '/v1/ai/turns' -Body @{
+            project_id = $sourceProjectId; scene = $scene; content = '请检查当前资料'
+        }
+        if (-not $turn.providerRequest.tools -or -not $turn.providerRequest.messages) {
+            throw "冻结 AI 场景缺少提示或工具：$scene"
+        }
+    }
+    foreach ($scene in @('rooms', 'school', 'planning', 'constraints')) {
+        $book = Invoke-SidecarApi -Method POST -Path '/v1/ai/workbook' -Body @{ scene = $scene }
+        if ([Convert]::FromBase64String($book.data).Length -lt 1000) {
+            throw "冻结 AI 模板生成失败：$scene"
+        }
+    }
+    $rules = Invoke-SidecarApi -Method POST -Path '/v1/ai/workflows' -Body @{
+        project_id = $sourceProjectId; flow = 'constraints/workbooks'; payload = @{}
+    }
+    if (@($rules.result.items).Count -ne 4) { throw '冻结约束模板目录不完整。' }
+    Write-Output 'PASS 冻结 AI 五场景提示/工具与四场景 Excel 模板（无外部 AI 调用）'
 
     $preflight = Invoke-SidecarApi -Method POST -Path '/v1/validation/preflight'
     if (-not $preflight.ready -or $preflight.summary.activeLessonCount -ne 2 -or @($preflight.errors).Count -ne 0) {

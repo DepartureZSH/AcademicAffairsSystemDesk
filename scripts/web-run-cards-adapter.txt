@@ -1,0 +1,33 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue';
+import { CircleStop, Sparkles } from 'lucide-vue-next';
+import type { RunCardState } from '../web-workflows/runTypes';
+const props = defineProps<{ state: RunCardState }>();
+const emit = defineEmits<{ optimize: []; restart: []; cancel: []; locate: []; validate: [] }>();
+const runDisplay = computed(() => props.state.display);
+const run = computed(() => props.state.run);
+const optimizationActive = computed(() => props.state.optimizing);
+const isSchedulingActive = computed(() => props.state.active);
+const runProgress = computed(() => props.state.progress);
+const solutionId = computed(() => props.state.candidateId);
+const runActionLoading = computed(() => props.state.busy);
+const runCancelLoading = runActionLoading;
+const canStartScheduling = computed(() => !props.state.active && !props.state.busy);
+const canLoadSolution = computed(() => Boolean(props.state.candidateId));
+const loading = runActionLoading;
+const showOptimizationDialog = computed({get: () => false, set: () => emit('optimize')});
+const runSteps = computed(() => props.state.steps);
+const problemInputSummary = computed(() => props.state.input);
+const resultSummary = computed(() => props.state.result);
+const validationDisplay = computed(() => props.state.validation);
+const validationQualityExpanded = ref(false);
+const validationQualityGroups = computed(() => props.state.qualityGroups);
+const validationIssueGroups = computed(() => props.state.issueGroups);
+const validationIssueDetail = (issue: {detail: string}) => issue.detail;
+const validationReasonTitle = (reason: {title: string}) => reason.title;
+const validationReasonDetail = (reason: {detail: string}) => reason.detail;
+const rerunScheduling = () => emit('restart');
+const cancelRun = () => emit('cancel');
+const loadSolution = () => emit('locate');
+const loadSolutionValidation = () => emit('validate');
+</script>

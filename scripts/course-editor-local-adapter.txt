@@ -1,0 +1,124 @@
+const schoolData = ref<{teachers:Record<string,unknown>[];rooms:Record<string,unknown>[];subjects:Record<string,unknown>[];homerooms:Record<string,unknown>[];[key:string]:any}>({teachers:[], rooms:[], room_types:[], subjects:[], homerooms:[], weekly_timetable_templates:[], weekly_timetable_periods:[], timetable_template_assignments:[], active_term:null});
+const planningData = ref<any>({course_plans:[], teaching_tasks:[], task_lessons:[]});
+const selectedSubject = computed(() => props.context.subject);
+const selectedPlanningHomeroom = computed(() => props.context.homeroom);
+const selectedCoursePlan = computed(() => planningData.value.course_plans.find((p: any) => p.term_id === props.context.term.id && p.homeroom_id === props.context.homeroom.id && p.subject_id === props.context.subject.id));
+const selectedCoursePlanTasks = computed<any[]>(() => planningData.value.teaching_tasks.filter((t: any) => t.status === 'active' && t.term_id === props.context.term.id && t.homeroom_id === props.context.homeroom.id && t.subject_id === props.context.subject.id));
+const selectedCourseNotScheduled = computed(() => !!selectedCoursePlan.value && Number(selectedCoursePlan.value.weekly_slots) === 0 && !selectedCoursePlanTasks.value.length);
+const planningViewMode = ref<PlanningViewMode>('class');
+const selectedTemplatePeriods = computed<any[]>(() => {
+  const all = props.context.allSlots || props.context.slots;
+  const schedules = (props.context.schedules || []).filter((s:any)=>!s.term_id || s.term_id === props.context.term.id);
+  let selected;
+  for(const [kind,id] of [['homeroom',props.context.homeroom.id],['teacher',teachingTaskForm.value.primary_teacher_id],['subject',props.context.subject.id],['all',null]]) {
+    const assignment=(props.context.assignments||[]).find((a:any)=>a.entity_type===kind && (a.entity_id||null)===id);
+    selected=schedules.find((s:any)=>s.id===assignment?.bell_schedule_id && all.some((p:any)=>p.bell_schedule_id===s.id&&p.active));
+    if(selected)break;
+  }
+  selected ||= schedules.find((s:any)=>s.is_default && all.some((p:any)=>p.bell_schedule_id===s.id&&p.active)) || schedules.find((s:any)=>all.some((p:any)=>p.bell_schedule_id===s.id&&p.active));
+  const metadata = localConfig(selected?.display_config);
+  const template = metadata._web_template || metadata;
+  const visibleDays = metadata.enabled_weekdays || template.display_config?.enabled_weekdays || template.enabled_weekdays;
+  return (selected?all.filter((p:any)=>p.bell_schedule_id===selected.id&&p.active):props.context.slots)
+    .filter((s:any)=>!Array.isArray(visibleDays)||visibleDays.includes(Number(s.weekday)))
+    .map((s:any)=>({...s,period_index:Number(s.period_index)+1}));
+});
+const enabledWeekdays = computed<number[]>(() => [...new Set<number>(selectedTemplatePeriods.value.map(p=>Number(p.weekday)))].sort());
+const lessonImportTaskOptions = computed<any[]>(() => planningData.value.teaching_tasks.filter((t: any) => t.id !== selectedTeachingTaskId.value && t.term_id === props.context.term.id && lessonsForTask(t.id).length));
+const subjectEditorOpen = ref(false);
+const subjectEditorPanel = ref<HTMLElement|null>(null);
+const courseCandidateScale = ref(100);
+const courseCandidateScaleWasAdjusted = ref(false);
+const localRevision = ref(props.context.revision);
+const localOriginalOverflow = document.body.style.overflow;
+const localReturnFocus = document.activeElement as HTMLElement|null;
+function markCourseCandidateScaleAdjusted() { courseCandidateScaleWasAdjusted.value = true; }
+function syncCourseCandidateScale() { if(!courseCandidateScaleWasAdjusted.value) courseCandidateScale.value = window.innerWidth<=560?65:window.innerWidth<=820?75:window.innerWidth<=1100?85:100; }
+function coursePlanningPeriodsForHomeroom(_id?: unknown) { return selectedTemplatePeriods.value; }
+function lessonsForTask(id: unknown): any[] { return planningData.value.task_lessons.filter((l: any)=>l.teaching_task_id===id).sort((a:any,b:any)=>a.lesson_index-b.lesson_index); }
+function taskLessonCount(id: unknown) { return lessonsForTask(id).filter(l=>l.enabled!==false && l.enabled!==0).length; }
+function isTeachingTaskActive(id: unknown) {return selectedTeachingTaskId.value===String(id);}
+function legacyDurationMinutes(slots: unknown) { return selectedTemplatePeriods.value.filter(p=>Number(p.weekday)===enabledWeekdays.value[0]).slice(0,Number(slots)||1).reduce((n,p)=>n+Number(p.end_time_minutes)-Number(p.start_time_minutes),0) || 40; }
+function selectedSubjectDurationSlots() { return Number(selectedSubject.value.default_duration_minutes || legacyDurationMinutes(selectedSubject.value.default_duration_slots)) / 5; }
+function unitsToMinutes(units: unknown) { return Number(units || 0) * 5; }
+function isCoursePreferredPeriodDisabled(index: number, period?: any): boolean {
+  const duration = unitsToMinutes(activeCoursePreferredLesson()?.duration_slots);
+  const fits = (p:any) => Number(p.end_time_minutes)-Number(p.start_time_minutes)>=duration;
+  return period ? !fits(period) : !selectedTemplatePeriods.value.filter(p=>p.period_index===index).some(fits);
+}
+function closeSubjectEditor() { if(!courseArrangementSaving.value) emit('close'); }
+function handleSubjectEditorKeydown(event: KeyboardEvent) {
+  if (Array.from(document.querySelectorAll('[role="dialog"], .bottom-sheet-mask')).some(el => el !== subjectEditorPanel.value && el.getClientRects().length && !subjectEditorPanel.value?.contains(el))) return;
+  if (event.key === 'Escape') { event.stopPropagation(); closeSubjectEditor(); }
+  if (event.key === 'Tab') {
+    const controls = Array.from(subjectEditorPanel.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]') || []).filter(el => el.getClientRects().length);
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
+}
+function localConfig(raw: any) { try {return typeof raw==='string'?JSON.parse(raw):raw||{};} catch {return {};} }
+function localRules(lesson: any): CoursePreferredRuleDraft[] {
+  return (localConfig(lesson.planning_config).preferred_times||[]).map((r:any)=>{const p=selectedTemplatePeriods.value.find(p=>p.id===r.time_slot_id);const original=(props.context.allSlots||[]).find((p:any)=>p.id===r.time_slot_id);return {key:coursePreferredRuleKey(),week_bits:r.week_bits,day_bits:p||original?bitsFromNumbers([Number((p||original).weekday)],termDayCount.value):'0000000',period_index:p?.period_index??(original?Number(original.period_index)+1:-1),penalty:r.penalty,forbidden:r.penalty<0};});
+}
+function localDraft(lesson:any): CourseLessonDraft {const cfg=localConfig(lesson.planning_config), rules=localRules(lesson), slots=coursePreferredSlotsFromRules(rules);return {id:lesson.id,key:lesson.id||crypto.randomUUID(),label:lesson.label||recordName(selectedSubject.value),duration_slots:Number(cfg.duration_minutes || legacyDurationMinutes(lesson.duration_slots))/5,enabled:lesson.enabled!==0 && lesson.enabled!==false,room_mode:cfg.room_mode||'default',room_ids:cfg.room_ids||[],preferred_rules:rules,preferred_slots:slots,preferred_period_ids:[...new Set(slots.map(s=>s.period_id))]};}
+function selectTeachingTask(task: any) {
+  selectedTeachingTaskId.value=task.id||'';
+  const cfg=localConfig(task.planning_config), fallback=task.fixed_room_id||props.context.homeroom.default_room_id;
+  teachingTaskForm.value={homeroom_id:props.context.homeroom.id,subject_id:props.context.subject.id,primary_teacher_id:task.primary_teacher_id||'',fixed_room_id:task.fixed_room_id||'',uses_rooms:cfg.uses_rooms??true,room_ids:cfg.room_ids??(fallback?[fallback]:[]),course_plan_id:task.course_plan_id||'',week_bits:task.week_bits||'1'.repeat(termWeekCount.value),day_bits:task.day_bits||defaultDayBits()};
+  coursePlanForm.value.homeroom_id=props.context.homeroom.id; coursePlanForm.value.subject_id=props.context.subject.id;coursePlanForm.value.week_bits=teachingTaskForm.value.week_bits;coursePlanForm.value.day_bits=teachingTaskForm.value.day_bits;
+  courseLessonDrafts.value=task.id?lessonsForTask(task.id).map(localDraft):[newCourseLessonDraft()];
+  defaultRoomSearch.value='';showDefaultRoomOptions.value=false;lessonRoomSearch.value={};showLessonRoomOptions.value={};courseLessonPreferencesDirty.value=false;syncTeacherSearchFromSelection();
+}
+function startNewTeachingTask() { selectTeachingTask({}); }
+function sourceLessonDraftsFromTask(task:any, _name?:string) {return lessonsForTask(task.id).map(l=>{const d=localDraft(l);delete d.id;d.key=crypto.randomUUID();return d;});}
+function taskRoomOptionIds(task:any) {const cfg=localConfig(task.planning_config);return cfg.uses_rooms===false?[]:cfg.room_ids??(task.fixed_room_id?[task.fixed_room_id]:[]);}
+function importLessonSettingsFromSelectedTask() {
+  const task=planningData.value.teaching_tasks.find((t:any)=>t.id===selectedLessonImportTaskId.value); if(!task)return;
+  const cfg=localConfig(task.planning_config);teachingTaskForm.value.uses_rooms=cfg.uses_rooms??true;teachingTaskForm.value.room_ids=taskRoomOptionIds(task);teachingTaskForm.value.fixed_room_id=teachingTaskForm.value.room_ids[0]||'';
+  courseLessonDrafts.value=sourceLessonDraftsFromTask(task);selectedLessonImportTaskId.value='';defaultRoomSearch.value='';lessonRoomSearch.value={};error.value='';
+}
+async function loadSchoolData() {
+  const types=['teacher','homeroom','subject','room','room_type','course_plan','teaching_task','task_lesson'];
+  const results=await Promise.all(types.map(type=>localApi.listEntities(type)));
+  const [teachers,homerooms,subjects,rooms,roomTypes,plans,tasks,lessons]=results.map(r=>r.items);
+  schoolData.value={...schoolData.value,teachers,homerooms,subjects,rooms:rooms.map(r=>({...r,room_type_name:roomTypes.find(t=>t.id===r.room_type_id)?.name})),room_types:roomTypes,active_term:props.context.term};
+  planningData.value={course_plans:plans,teaching_tasks:tasks,task_lessons:lessons};localRevision.value=Math.max(...results.map(r=>r.revision));
+}
+async function saveCourseArrangement() {
+  const teacher=resolveTeacherIdForSave();if(teacher===null){error.value='请从教师下拉列表中选择教师，或清空教师后再保存';return;}
+  courseArrangementSaving.value=true;error.value='';
+  try {
+    const serialized=courseLessonDrafts.value.map(lesson=>{
+      if(lesson.preferred_rules.some(rule=>rule.period_index<1 || !selectedTemplatePeriods.value.some(p=>Number(p.period_index)===rule.period_index && rule.day_bits[Number(p.weekday)-1]==='1'))) throw new Error('部分期望时间已不在当前课表中，请在课次编辑中清空该课次的时间后重新选择。');
+      const preferred_times=lesson.preferred_rules.flatMap(rule=>selectedTemplatePeriods.value.filter(p=>Number(p.period_index)===Number(rule.period_index)&&rule.day_bits[Number(p.weekday)-1]==='1').map(p=>({time_slot_id:p.id,week_bits:rule.week_bits,penalty:rule.forbidden?-1:rule.penalty})));
+      const original=lessonsForTask(selectedTeachingTaskId.value).find(l=>l.id===lesson.id);
+      const keepLegacy=original && !localConfig(original.planning_config).duration_minutes && unitsToMinutes(lesson.duration_slots)===legacyDurationMinutes(original.duration_slots);
+      return {id:lesson.id,label:lesson.label,enabled:lesson.enabled,duration_slots:keepLegacy?original.duration_slots:1,week_bits:teachingTaskForm.value.week_bits,day_bits:teachingTaskForm.value.day_bits,planning_config:{...(!keepLegacy?{duration_minutes:unitsToMinutes(lesson.duration_slots)}:{}),room_mode:lesson.room_mode,room_ids:lesson.room_ids,preferred_times}};
+    });
+    const result=await localApi.saveCourseArrangement({...(selectedTeachingTaskId.value?{id:selectedTeachingTaskId.value}:{}),term_id:props.context.term.id,homeroom_id:props.context.homeroom.id,subject_id:props.context.subject.id,primary_teacher_id:teacher||null,fixed_room_id:null,required_room_type:null,status:'active',week_bits:teachingTaskForm.value.week_bits,day_bits:teachingTaskForm.value.day_bits,planning_config:{uses_rooms:teachingTaskForm.value.uses_rooms,room_ids:teachingTaskForm.value.room_ids}},serialized,localRevision.value);
+    await loadSchoolData();selectTeachingTask(result.task);lessonEditorSessionSnapshot.value=cloneLessonEditorDrafts(courseLessonDrafts.value);showLessonEditorSheet.value=false;courseArrangementNotice.value='授课任务已保存';emit('saved',localRevision.value);
+  }catch(e){error.value=formatLocalError(e);}finally{courseArrangementSaving.value=false;}
+}
+async function deleteCourseArrangement(task:any) {
+  if(!window.confirm('确认删除该授课任务及其课次？'))return;courseArrangementSaving.value=true;
+  try{const result=await localApi.deleteEntity('teaching_task',task.id,localRevision.value);localRevision.value=result.revision;await loadSchoolData();selectTeachingTask(selectedCoursePlanTasks.value[0]||{});emit('saved',localRevision.value);}catch(e){error.value=formatLocalError(e);}finally{courseArrangementSaving.value=false;}
+}
+async function markSelectedCourseNotScheduled() { await localSetScheduled(false); }
+async function resumeSelectedCourseScheduling() { await localSetScheduled(true); }
+async function localSetScheduled(scheduled:boolean) {
+  if(!scheduled&&selectedCoursePlanTasks.value.length&&!window.confirm(`将“${selectedSubject.value.name}”设为不安排？现有 ${selectedCoursePlanTasks.value.length} 个授课任务及其课次会被删除。`))return;
+  courseArrangementSaving.value=true;
+  try{const result=await localApi.setCourseScheduled(props.context.homeroom.id,props.context.subject.id,props.context.term.id,scheduled,localRevision.value);localRevision.value=result.revision;await loadSchoolData();startNewTeachingTask();courseArrangementNotice.value=scheduled?'已恢复安排，请新增授课任务；教师可以暂时保持未指定':'已设为不安排；该班级不会生成这门课程的课次，也不会参与排课';emit('saved',localRevision.value);}catch(e){error.value=formatLocalError(e);}finally{courseArrangementSaving.value=false;}
+}
+function startGuide(page: string, _force?:boolean) { localGuidePage.value=page;activeGuideStepIndex.value=0;showGuide.value=true;void updateGuideTarget(true); }
+const localGuidePage = ref('');
+const activeGuideSteps = computed(()=>localGuideSteps[localGuidePage.value]||[]);
+function skipGuide() {showGuide.value=false;guideTargetRect.value=null;}
+function nextGuideStep() {if(activeGuideStepIndex.value>=activeGuideSteps.value.length-1)skipGuide();else{activeGuideStepIndex.value++;void updateGuideTarget(true);}}
+function previousGuideStep() {activeGuideStepIndex.value=Math.max(0,activeGuideStepIndex.value-1);void updateGuideTarget(true);}
+function restartGuide() {activeGuideStepIndex.value=0;void updateGuideTarget(true);}
+function localGuidePosition() {if(showGuide.value)void updateGuideTarget();}
+onMounted(()=>watch(error, message=>{if(message)window.alert(message);}));
+onMounted(async()=>{document.body.style.overflow='hidden';syncCourseCandidateScale();window.addEventListener('resize',syncCourseCandidateScale);window.addEventListener('resize',localGuidePosition);window.addEventListener('scroll',localGuidePosition,true);try{await loadSchoolData();selectTeachingTask(planningData.value.teaching_tasks.find((t:any)=>t.id===props.context.taskId)||selectedCoursePlanTasks.value[0]||{});if(props.context.pickerDraft){externalCoursePreferredDraft.value=props.context.pickerDraft;coursePreferredPickerTitle.value='专项期望时间设置';prepareCoursePreferredPicker();watch(showCoursePreferredPicker,open=>{if(!open)emit('close');});return;}subjectEditorOpen.value=true;await nextTick();subjectEditorPanel.value?.querySelector<HTMLElement>('button')?.focus();}catch(e){window.alert(formatLocalError(e));emit('close');}});
+onBeforeUnmount(()=>{document.body.style.overflow=localOriginalOverflow;window.removeEventListener('resize',syncCourseCandidateScale);window.removeEventListener('resize',localGuidePosition);window.removeEventListener('scroll',localGuidePosition,true);localReturnFocus?.focus();});

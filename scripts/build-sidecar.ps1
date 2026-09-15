@@ -39,7 +39,7 @@ if (-not $SkipSync) {
     finally { Pop-Location }
 }
 
-$binaryName = "stt-sidecar-$targetTriple"
+$binaryName = "时奕排课后台服务-$targetTriple"
 $fontData = "$fontDirectory$([IO.Path]::PathSeparator)stt_desktop/assets/fonts"
 Push-Location $repositoryRoot
 try {
@@ -48,13 +48,15 @@ try {
     & uv run --extra build --extra dev pyinstaller `
         --noconfirm `
         --clean `
-        --onefile `
+        --onedir `
+        --contents-directory _internal `
         --console `
         --name $binaryName `
         --paths (Join-Path $repositoryRoot 'sidecar') `
         --add-data $fontData `
         --collect-all ortools `
         --version-file $versionInfoPath `
+        --icon (Join-Path $tauriDirectory 'icons\icon.ico') `
         --workpath $workDirectory `
         --specpath $specDirectory `
         --distpath $distDirectory `
@@ -63,12 +65,22 @@ try {
 }
 finally { Pop-Location }
 
-$source = Join-Path $distDirectory "$binaryName.exe"
+$sourceDirectory = Join-Path $distDirectory $binaryName
+$source = Join-Path $sourceDirectory "$binaryName.exe"
 $destination = Join-Path $binaryDirectory "$binaryName.exe"
 if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
     throw "sidecar 构建产物不存在: $source"
 }
 Copy-Item -LiteralPath $source -Destination $destination -Force
+$runtimeDestination = Join-Path $binaryDirectory '_internal'
+if (Test-Path -LiteralPath $runtimeDestination) {
+    $resolvedRuntime = (Resolve-Path -LiteralPath $runtimeDestination).Path
+    if ((Split-Path -Parent $resolvedRuntime) -ne (Resolve-Path $binaryDirectory).Path -or (Split-Path -Leaf $resolvedRuntime) -ne '_internal') {
+        throw '拒绝清理非构建运行库目录'
+    }
+    Remove-Item -LiteralPath $resolvedRuntime -Recurse -Force
+}
+Copy-Item -LiteralPath (Join-Path $sourceDirectory '_internal') -Destination $runtimeDestination -Recurse
 $hash = Get-FileHash -LiteralPath $destination -Algorithm SHA256
 Write-Output ([pscustomobject]@{
     Path = $destination

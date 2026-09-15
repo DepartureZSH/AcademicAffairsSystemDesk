@@ -33,10 +33,11 @@ def test_repository_development_profile_is_valid() -> None:
 
     assert config.environment == "development"
     assert config.service("identity").mode == "real"
-    assert config.service("identity").endpoint == "http://127.0.0.1:55421"
-    assert config.service("license").mode == "mock"
-    assert config.service("license").mock["device_limit"] == 3
-    assert config.service("license").mock["activation_code"] == "KARIOS-MOCK-LOCAL-2026"
+    assert config.service("identity").endpoint == "https://supabase.karios.tech"
+    assert config.service("license").mode == "real"
+    assert config.service("license").endpoint == "https://fjozndbjkinl.sealosbja.site"
+    assert not config.service("license").mock
+    assert config.service("payment").mode == "real"
 
 
 def test_production_rejects_mock_services(tmp_path: Path) -> None:

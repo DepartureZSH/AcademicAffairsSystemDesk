@@ -8,6 +8,8 @@ import time
 from xml.etree.ElementTree import fromstring
 
 from ortools.sat.python import cp_model
+from .distribution_groups import compile_group_constraints
+from stt_desktop.agent.upstream.distributions import GROUP_TYPES, parse_distribution
 
 from .cgcs import (
     Action,
@@ -21,6 +23,7 @@ from .cgcs import (
     _overlaps,
     _score,
     _violates,
+    _is_feasible,
     parse_problem,
     run_cgcs_greedy,
 )
@@ -72,6 +75,8 @@ def run_cp_sat_v1(
         str(config.get("warm_start_solution_xml") or ""),
     )
     greedy_search_ms = round((time.perf_counter() - greedy_started_at) * 1000, 1)
+    if any(not _is_feasible(action, greedy_assignments, problem.distributions) for action in greedy_assignments.values()):
+        greedy_assignments = {}
     greedy_metrics = _score(greedy_assignments, problem.distributions)
     if (
         len(greedy_assignments) == len(problem.agents)
@@ -173,6 +178,7 @@ def run_cp_sat_v1(
         model.add(violation >= left.literal + right.literal - 1)
         soft_violations.append((weight, violation))
 
+    soft_violations.extend(compile_group_constraints(model, problem, candidates_by_class))
     quality_objective, score_weight = _build_quality_objective(
         problem,
         candidates_by_class,
@@ -409,6 +415,8 @@ def _compile_constraints(
         )
 
     for distribution in problem.distributions:
+        if parse_distribution(distribution.distribution_type)[0] in GROUP_TYPES:
+            continue
         class_ids = [
             class_id for class_id in distribution.class_ids if class_id in candidates_by_class
         ]
@@ -601,15 +609,17 @@ def _compile_conflict_buckets(
     ordered_buckets = list(buckets.values())
     for bucket in ordered_buckets:
         if len({candidate.class_id for candidate in bucket}) >= 2:
-            group = tuple(sorted(candidate.ordinal for candidate in bucket))
-            hard_groups.add(group)
-            hard_group_sources.setdefault(group, set()).add(source)
+            other = next(candidate for candidate in bucket if candidate.class_id != bucket[0].class_id)
+            if conflicts(bucket[0], other):
+                group = tuple(sorted(candidate.ordinal for candidate in bucket))
+                hard_groups.add(group)
+                hard_group_sources.setdefault(group, set()).add(source)
 
     for left_index, left_bucket in enumerate(ordered_buckets):
-        left_representative = left_bucket[0]
         for right_bucket in ordered_buckets[left_index + 1 :]:
-            right_representative = right_bucket[0]
-            if not conflicts(left_representative, right_representative):
+            representatives = next(((left, right) for left in left_bucket for right in right_bucket
+                                    if left.class_id != right.class_id), None)
+            if representatives is None or not conflicts(*representatives):
                 continue
             for left in left_bucket:
                 for right in right_bucket:
@@ -624,10 +634,10 @@ def _distribution_signature(distribution_type: str, candidate: Candidate) -> obj
     if distribution_type == "NotOverlap":
         return _time_signature(time_option)
     if distribution_type == "DifferentDays":
-        return time_option.weeks, time_option.days
+        return time_option.days
     if distribution_type == "DifferentWeeks":
         return time_option.weeks
-    return time_option.weeks, time_option.days, time_option.start
+    return time_option.start, time_option.length
 
 
 def _time_signature(time_option: TimeOption) -> tuple[str, str, int, int]:

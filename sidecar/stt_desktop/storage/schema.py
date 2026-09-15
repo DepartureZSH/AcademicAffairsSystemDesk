@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 6
 
 SCHEMA_V1 = r"""
 CREATE TABLE app_metadata (
@@ -408,5 +408,24 @@ ON timetable_template_assignments(bell_schedule_id);
 
 
 MIGRATIONS: dict[int, str] = {
+    6: """
+CREATE TABLE ai_documents (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('message', 'action', 'turn')),
+    scene TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL
+) STRICT;
+CREATE INDEX idx_ai_documents_scene ON ai_documents(scene, kind, created_at);
+""",
     2: SCHEMA_V2,
+    3: """
+ALTER TABLE teachers DROP COLUMN employee_no;
+ALTER TABLE task_lessons ADD COLUMN planning_config TEXT NOT NULL DEFAULT '{}';
+""",
+    4: "ALTER TABLE teaching_tasks ADD COLUMN planning_config TEXT NOT NULL DEFAULT '{}';",
+    5: """
+ALTER TABLE subjects ADD COLUMN default_duration_minutes INTEGER CHECK (default_duration_minutes > 0 AND default_duration_minutes <= 1440 AND default_duration_minutes % 5 = 0);
+DELETE FROM timetable_template_assignments WHERE entity_type = 'room';
+""",
 }

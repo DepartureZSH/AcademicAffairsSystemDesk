@@ -514,7 +514,6 @@ class LegacySupabaseImporter:
         batches["teacher"] = [
             {
                 "id": ids["teacher"][str(row["id"])],
-                "employee_no": row.get("employee_no"),
                 "name": row["name"],
                 "department": row.get("department"),
                 "status": row.get("status", "active"),

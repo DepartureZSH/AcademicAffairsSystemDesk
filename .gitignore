@@ -15,16 +15,19 @@ apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/icons/android/
 apps/desktop/src-tauri/icons/ios/
 apps/desktop/src-tauri/binaries/*.exe
+apps/desktop/src-tauri/binaries/_internal/
 build/sidecar/
 build/signing/
 build/compliance/
 build/release/
 build/evidence/
+build/gitee-signed/
 
 .tmp/
 tmp/
 output/
 test-results/
+.playwright-cli/
 *.bck
 
 .idea/

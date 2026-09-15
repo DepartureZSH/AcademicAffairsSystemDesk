@@ -1,0 +1,1135 @@
+/* Generated from current web PlanningView and styles.css. */
+.web-planning nav button.active {
+  color: #ffffff;
+  background: #2f7d6d;
+}
+
+.web-planning .planning-panel {
+  margin: 0 0 24px;
+  background: #ffffff;
+  border: 1px solid #e2e5df;
+  border-radius: 8px;
+  padding: 18px;
+  box-shadow: 0 12px 32px rgba(41, 49, 44, 0.06);
+}
+
+.web-planning .planning-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.web-planning .master-summary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #53615f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.web-planning .master-summary > span {
+  border: 1px solid #dde3dc;
+  border-radius: 8px;
+  background: #fafbf8;
+  padding: 7px 9px;
+}
+
+.web-planning .planning-class-panel,
+.web-planning .subject-plan-panel,
+.web-planning .plan-detail-panel {
+  min-width: 0;
+  border: 1px solid #edf0eb;
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 14px;
+}
+
+.web-planning .table-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.web-planning .table-title h3 {
+  margin: 0;
+  color: #263a34;
+  font-size: 15px;
+}
+
+.web-planning .table-title span {
+  color: #66736f;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+
+/* Export template picker */
+
+.web-planning .planning-mode-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px;
+  border: 1px solid #dce8e1;
+  border-radius: 9px;
+  background: #f7faf8;
+  margin-bottom: 12px;
+}
+
+.web-planning .planning-mode-tabs button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #41514c;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.web-planning .planning-mode-tabs button.active {
+  background: #2f7d6d;
+  color: #ffffff;
+  box-shadow: 0 5px 14px rgba(47, 125, 109, 0.14);
+}
+
+.web-planning .planning-class-workbench {
+  display: grid;
+  grid-template-columns: 220px minmax(300px, 1fr) 330px;
+  gap: 14px;
+  align-items: start;
+}
+
+.web-planning .class-planning-table-panel {
+  grid-column: 2 / -1;
+  min-width: 0;
+  border: 1px solid #dde5df;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.web-planning .class-planning-view-switch {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 1px solid #d9e3dd;
+  border-radius: 8px;
+  background: #f8faf8;
+}
+
+.web-planning .class-planning-view-switch > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.web-planning .class-planning-view-switch > div:first-child span {
+  color: #63736b;
+  font-size: 13px;
+}
+
+.web-planning .class-planning-view-switch .planning-mode-tabs {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.web-planning .class-planning-view-switch .planning-mode-tabs button {
+  min-width: 96px;
+}
+
+.web-planning .planning-filter-bar {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid #d9e3dd;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.web-planning .planning-filter-heading {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.web-planning .planning-filter-heading strong {
+  color: #24332e;
+  font-size: 14px;
+}
+
+.web-planning .planning-filter-heading span {
+  color: #697871;
+  font-size: 12px;
+}
+
+.web-planning .planning-filter-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.web-planning .class-planning-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid #dde5df;
+  border-radius: 8px;
+}
+
+.web-planning .class-planning-table th,
+.web-planning .class-planning-table td {
+  min-width: 0;
+  border-right: 1px solid #e4e9e6;
+  border-bottom: 1px solid #e4e9e6;
+  padding: 8px;
+  vertical-align: middle;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.web-planning .class-planning-table tr:last-child > * {
+  border-bottom: 0;
+}
+
+.web-planning .class-planning-table tr > *:last-child {
+  border-right: 0;
+}
+
+.web-planning .class-planning-table thead th {
+  background: #f2f6f3;
+  color: #52615c;
+  font-size: 11px;
+  font-weight: 900;
+  text-align: left;
+}
+
+.web-planning .class-planning-table thead th:nth-child(1) { width: 15%; }
+.web-planning .class-planning-table thead th:nth-child(2) { width: 20%; }
+.web-planning .class-planning-table thead th:nth-child(3) { width: 22%; }
+.web-planning .class-planning-table thead th:nth-child(4) { width: 15%; }
+.web-planning .class-planning-table thead th:nth-child(5) { width: 28%; }
+
+.web-planning .course-table-row.active > td {
+  background: #fbfdfc;
+}
+
+.web-planning .course-table-cell-button {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #2d3b36;
+  padding: 7px;
+  text-align: left;
+  white-space: normal;
+}
+
+.web-planning .course-table-cell-button:hover,
+.web-planning .course-table-cell-button:focus-visible {
+  background: #edf6f1;
+  outline: 1px solid #99c5b5;
+}
+
+.web-planning .course-table-cell-button strong {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.web-planning .course-table-cell-button span {
+  color: #78847f;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.web-planning .course-table-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.web-planning .course-table-actions button {
+  min-width: 0;
+  min-height: 30px;
+  padding: 5px 11px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(24, 40, 34, 0.06);
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.web-planning .course-table-actions button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.web-planning .official-class-flow {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 13px;
+  min-width: 0;
+  border: 1px solid #ead9ad;
+  border-left: 5px solid #d5902f;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fffdf7, #fffaf0);
+  padding: 16px 18px;
+  box-shadow: 0 8px 24px rgba(95, 74, 35, 0.07);
+}
+
+.web-planning .official-class-flow.stage-copy {
+  border-color: #bfd8df;
+  border-left-color: #3f8292;
+  background: linear-gradient(135deg, #f7fcfd, #f1f8fa);
+}
+
+.web-planning .official-class-flow > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0;
+}
+
+.web-planning .official-class-flow > header > div:first-child {
+  min-width: 0;
+}
+
+.web-planning .official-flow-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  background: #5f4930;
+  color: #ffffff;
+  padding: 3px 9px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.web-planning .official-class-flow.stage-copy .official-flow-badge {
+  background: #356f7c;
+}
+
+.web-planning .official-class-flow h3 {
+  margin: 8px 0 4px;
+  color: #2d3b36;
+  font-size: 17px;
+}
+
+.web-planning .official-class-flow p {
+  max-width: 820px;
+  margin: 0;
+  color: #68736f;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.65;
+}
+
+.web-planning .class-flow-progress {
+  flex: 0 0 auto;
+  width: 78px;
+  height: 78px;
+  display: grid;
+  place-content: center;
+  gap: 1px;
+  border: 7px solid #f0dfb4;
+  border-radius: 50%;
+  background: #ffffff;
+  text-align: center;
+}
+
+.web-planning .class-flow-progress.complete {
+  border-color: #9dceba;
+}
+
+.web-planning .class-flow-progress strong {
+  color: #3c4b45;
+  font-size: 18px;
+}
+
+.web-planning .class-flow-progress span {
+  color: #7a8580;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.web-planning .official-flow-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.web-planning .official-flow-steps > div {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid #e2e7e3;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 8px 10px;
+}
+
+.web-planning .official-flow-steps > div > span {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #edf0ed;
+  color: #76817c;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.web-planning .official-flow-steps > div.active {
+  border-color: #d4a45d;
+  background: #fff9ec;
+}
+
+.web-planning .official-flow-steps > div.active > span {
+  background: #c98123;
+  color: #ffffff;
+}
+
+.web-planning .official-flow-steps > div > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.web-planning .official-flow-steps strong {
+  color: #34453f;
+  font-size: 11px;
+}
+
+.web-planning .official-flow-steps small {
+  overflow: hidden;
+  color: #7a8781;
+  font-size: 9px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.web-planning .planning-class-workbench .plan-detail-panel {
+  grid-column: 3;
+  grid-row: auto;
+}
+
+.web-planning .planning-class-panel,
+.web-planning .subject-plan-panel {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.web-planning .class-list,
+.web-planning .subject-plan-list {
+  display: grid;
+  gap: 8px;
+}
+
+.web-planning .class-list-item,
+.web-planning .subject-plan-row {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #e1e8e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #33413d;
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.web-planning .class-list-item {
+  display: grid;
+  gap: 3px;
+  padding: 10px 11px;
+}
+
+.web-planning .planning-class-search input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #d7e1dc;
+  border-radius: 7px;
+  background: #ffffff;
+  padding: 0 11px;
+  color: #263a34;
+  font: inherit;
+}
+
+.web-planning .planning-class-search input:focus {
+  outline: 2px solid rgba(47, 125, 109, 0.2);
+  border-color: #2f7d6d;
+}
+
+.web-planning .class-list-item-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.web-planning .class-list-item-heading em {
+  flex: 0 0 auto;
+  color: #2f735d;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.web-planning .class-list-empty {
+  margin: 4px 0;
+  color: #7a8782;
+  font-size: 12px;
+  text-align: center;
+}
+
+.web-planning .class-list-item strong,
+.web-planning .subject-plan-row strong {
+  color: #263a34;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.web-planning .class-list-item span,
+.web-planning .subject-plan-row span {
+  color: #6d7875;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.web-planning .class-list-item.active,
+.web-planning .subject-plan-row.active {
+  border-color: #2f7d6d;
+  background: #eef8f3;
+  box-shadow: inset 0 0 0 1px #2f7d6d;
+}
+
+.web-planning .class-list-item.complete:not(.active) {
+  border-color: #bdd9cc;
+  background: #f5faf7;
+}
+
+.web-planning .class-list-item.complete span {
+  color: #2f735d;
+}
+
+.web-planning .planning-import-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dce8e1;
+  border-radius: 8px;
+  background: #f8fbf8;
+  padding: 10px;
+}
+
+.web-planning .planning-import-card > div {
+  display: grid;
+  gap: 2px;
+}
+
+.web-planning .planning-import-card strong {
+  color: #263a34;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.web-planning .planning-import-card span {
+  color: #6d7875;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.web-planning .planning-import-card select {
+  min-width: 0;
+  width: 100%;
+  height: 36px;
+  border: 1px solid #d5dfd8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2933;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0 10px;
+}
+
+.web-planning .subject-import-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.web-planning .subject-import-card > div {
+  grid-column: 1 / -1;
+  min-width: 0;
+  align-self: center;
+}
+
+.web-planning .subject-import-card strong,
+.web-planning .subject-import-card span {
+  display: block;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.web-planning .subject-plan-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.web-planning .subject-plan-row > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.web-planning .subject-plan-row strong,
+.web-planning .subject-plan-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.web-planning .subject-plan-row em,
+.web-planning .subject-plan-row small {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.web-planning .subject-plan-row em {
+  color: #2f7d6d;
+}
+
+.web-planning .subject-plan-row small {
+  color: #7a8782;
+  border: 1px solid #e1e8e1;
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+
+.web-planning .subject-plan-row.configured small {
+  color: #1f5f55;
+  border-color: #b9d8cd;
+  background: #eef7f3;
+}
+
+.web-planning .subject-plan-row.incomplete small {
+  color: #9b4935;
+  border-color: #ecc7bc;
+  background: #fff5f2;
+}
+
+.web-planning .subject-plan-row.complete small {
+  color: #1f5f55;
+  border-color: #b9d8cd;
+  background: #eef7f3;
+}
+
+.web-planning .plan-detail-panel {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: grid;
+  align-self: start;
+  align-content: start;
+  gap: 10px;
+}
+
+.web-planning .error {
+  color: #b42318;
+  background: #fff1f0;
+  border: 1px solid #ffccc7;
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+
+@media (max-width: 1200px) {
+
+  .web-planning .planning-class-workbench {
+    min-width: 0;
+  }
+
+  .web-planning .planning-class-workbench {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+
+  .web-planning .planning-filter-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .web-planning .planning-filter-actions {
+    justify-content: stretch;
+  }
+
+  .web-planning .planning-class-workbench .plan-detail-panel {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    width: 100%;
+  }
+
+  .web-planning .subject-plan-panel {
+    min-width: 0;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 1040px) {
+  .web-planning .planning-class-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .web-planning .class-planning-table-panel {
+    grid-column: 1;
+  }
+
+  .web-planning .class-planning-table {
+    display: block;
+    border: 0;
+    background: transparent;
+  }
+
+  .web-planning .class-planning-table thead {
+    display: none;
+  }
+
+  .web-planning .class-planning-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .web-planning .class-planning-table .course-table-row {
+    position: relative;
+    display: grid;
+    gap: 0;
+    border: 1px solid #dce5e0;
+    border-radius: 8px;
+    background: #ffffff;
+  }
+
+  .web-planning .class-planning-table .course-table-row::before {
+    content: attr(data-subject);
+    display: block;
+    border-bottom: 1px solid #e1e7e3;
+    background: #f4f8f5;
+    color: #293832;
+    padding: 9px 10px;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .web-planning .class-planning-table .course-table-row > td {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    border-right: 0;
+    border-bottom: 1px solid #e8ece9;
+    padding: 8px 10px;
+  }
+
+  .web-planning .class-planning-table .course-table-row > td:last-child {
+    border-bottom: 0;
+  }
+
+  .web-planning .class-planning-table .course-table-row > td::before {
+    content: attr(data-label);
+    color: #65736e;
+    font-size: 10px;
+    font-weight: 900;
+  }
+}
+
+@media (max-width: 720px) {
+
+  .web-planning .planning-filter-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 840px) {
+
+  .web-planning .class-planning-view-switch {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .web-planning .class-planning-view-switch .planning-mode-tabs,
+  .web-planning .class-planning-view-switch .planning-mode-tabs button {
+    width: 100%;
+  }
+
+  .web-planning .class-planning-table-panel {
+    padding: 10px;
+  }
+
+  .web-planning .class-planning-table .course-table-row > td {
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+
+  .web-planning .planning-class-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .web-planning .planning-mode-tabs {
+    width: 100%;
+  }
+
+  .web-planning .planning-mode-tabs button {
+    flex: 1;
+  }
+
+  .web-planning .official-class-flow > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .web-planning .class-flow-progress {
+    width: auto;
+    height: auto;
+    grid-auto-flow: column;
+    justify-content: start;
+    border-width: 0 0 0 5px;
+    border-radius: 7px;
+    padding: 8px 10px;
+    text-align: left;
+  }
+
+  .web-planning .official-flow-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .web-planning .planning-class-panel,
+  .web-planning .subject-plan-panel,
+  .web-planning .plan-detail-panel {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .web-planning .subject-import-card {
+    grid-template-columns: 1fr;
+  }
+
+  .web-planning .planning-panel header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 820px) {
+
+  .web-planning .official-class-flow {
+    gap: 10px;
+    padding: 12px;
+    border-left-width: 4px;
+    border-radius: 10px;
+  }
+
+  .web-planning .official-class-flow > header {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .web-planning .official-class-flow h3 {
+    margin-top: 6px;
+    font-size: 15px;
+    line-height: 1.35;
+  }
+
+  .web-planning .official-class-flow p {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 11px;
+    line-height: 1.5;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .web-planning .class-flow-progress {
+    width: auto;
+    height: auto;
+    min-width: 82px;
+    grid-auto-flow: column;
+    align-items: baseline;
+    justify-content: center;
+    gap: 4px;
+    border-width: 0 0 0 4px;
+    border-radius: 7px;
+    padding: 8px 9px;
+    text-align: left;
+  }
+
+  .web-planning .class-flow-progress strong {
+    font-size: 17px;
+  }
+
+  .web-planning .official-flow-steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .web-planning .official-flow-steps > div {
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 6px;
+    padding: 7px;
+  }
+
+  .web-planning .official-flow-steps > div > span {
+    width: 23px;
+    height: 23px;
+  }
+
+  .web-planning .official-flow-steps strong {
+    font-size: 10px;
+    line-height: 1.3;
+  }
+
+  .web-planning .official-flow-steps small {
+    display: none;
+  }
+
+  .web-planning .planning-class-workbench > .class-planning-view-switch {
+    display: none;
+  }
+
+  .web-planning .planning-class-panel {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+
+  .web-planning .official-class-flow > header {
+    align-items: flex-start;
+  }
+
+  .web-planning .official-class-flow p {
+    display: none;
+  }
+
+  .web-planning .class-flow-progress {
+    min-width: 70px;
+  }
+
+  .web-planning .official-flow-steps > div {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+}
+
+
+.web-planning.planning-guided-page .planning-class-workbench { display: flex; flex-direction: column; align-items: stretch; gap: 16px; width: 100%; min-width: 0; }
+.web-planning.planning-guided-page .official-class-flow { width: 100%; box-sizing: border-box; border-radius: 8px; box-shadow: none; gap: 10px; padding: 14px 18px; }
+.web-planning.planning-guided-page .official-flow-steps { margin-top: 0; }
+.web-planning.planning-guided-page .planning-filter-bar { width: 100%; box-sizing: border-box; }
+.web-planning .class-overview-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }
+.web-planning.planning-guided-page .class-overview-filters .planning-class-search { flex: 1 1 220px; margin: 0; max-width: 400px; }
+.web-planning .class-overview-filters select { min-height: 38px; max-width: 220px; }
+.web-planning .class-filter-count { margin-left: auto; color: #738279; font-size: 12px; }
+.web-planning.planning-guided-page .planning-class-panel { width: 100%; padding: 0; border: 0; background: transparent; box-shadow: none; max-height: none; overflow: visible; }
+.web-planning.planning-guided-page .planning-class-panel > .table-title { margin-bottom: 12px; }
+.web-planning.planning-guided-page .planning-class-search { display: block; max-width: 400px; margin-bottom: 18px; }
+.web-planning.planning-guided-page .class-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 14px; max-height: none; overflow: visible; padding: 0; }
+.web-planning.planning-guided-page .class-list-item { display: flex; flex-direction: column; gap: 14px; width: 100%; min-width: 0; min-height: 154px; padding: 18px; border: 1px solid #d9e3df; border-radius: 8px; background: #fff; color: #30483f; text-align: left; box-shadow: none; }
+.web-planning.planning-guided-page .class-list-item:hover { border-color: #438675; background: #f6faf8; }
+.web-planning.planning-guided-page .class-list-item:focus-visible { outline: 2px solid #287d6d; outline-offset: 2px; }
+.web-planning.planning-guided-page .class-list-item-heading { width: 100%; gap: 10px; align-items: baseline; }
+.web-planning.planning-guided-page .class-list-item-heading strong { font-size: 16px; overflow-wrap: anywhere; }
+.web-planning.planning-guided-page .class-list-item-heading em { flex-shrink: 0; }
+.web-planning.planning-guided-page .class-list-item > span { font-size: 13px; line-height: 1.6; white-space: normal; }
+.web-planning .class-card-progress { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: auto; font-size: 12px; }
+.web-planning .class-card-progress progress { appearance: none; width: 100%; min-width: 0; height: 5px; border: 0; border-radius: 4px; overflow: hidden; }
+.web-planning .class-card-progress progress::-webkit-progress-bar { background: #e9eeec; }
+.web-planning .class-card-progress progress::-webkit-progress-value { background: #54897b; }
+.web-planning .class-card-progress progress::-moz-progress-bar { background: #54897b; }
+.web-planning .class-card-footer { display: flex; width: 100%; justify-content: space-between; align-items: center; font-size: 12px; color: #9a6b28; }
+.web-planning .complete .class-card-footer { color: #28765e; }
+.web-planning.planning-guided-page .class-planning-view-switch { display: flex; width: 100%; }
+.web-planning.planning-guided-page .class-planning-table-panel { padding: 0; border: 0; background: transparent; box-shadow: none; }
+.web-planning .table-column-filters { display: grid; grid-template-columns: minmax(0, 23fr) minmax(0, 19fr) minmax(0, 24fr) minmax(0, 15fr) minmax(0, 19fr); gap: 12px; align-items: end; margin-bottom: 16px; }
+.web-planning .table-column-filters label { display: grid; gap: 6px; min-width: 0; font-size: 13px; color: #52665d; }
+.web-planning .table-column-filters input,
+.web-planning .table-column-filters select { width: 100%; min-width: 0; box-sizing: border-box; min-height: 38px; font-size: 14px; }
+@media (max-width: 1100px) {
+  .web-planning .table-column-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 420px) {
+  .web-planning .table-column-filters { grid-template-columns: minmax(0, 1fr); }
+}
+.web-planning.planning-guided-page .class-planning-table { font-size: 15px; line-height: 1.5; background: #fff; }
+.web-planning.planning-guided-page .class-planning-table th,
+.web-planning.planning-guided-page .class-planning-table td { padding: 12px 14px; }
+.web-planning.planning-guided-page .class-planning-table thead th { padding: 14px; font-size: 14px; font-weight: 600; }
+.web-planning.planning-guided-page .class-planning-table thead th:nth-child(1) { width: 23%; }
+.web-planning.planning-guided-page .class-planning-table thead th:nth-child(2) { width: 19%; }
+.web-planning.planning-guided-page .class-planning-table thead th:nth-child(3) { width: 24%; }
+.web-planning.planning-guided-page .class-planning-table thead th:nth-child(4) { width: 15%; }
+.web-planning.planning-guided-page .class-planning-table thead th:nth-child(5) { width: 19%; }
+.web-planning.planning-guided-page .course-table-cell-button strong { font-size: 15px; line-height: 1.5; font-weight: 600; }
+.web-planning.planning-guided-page .course-table-cell-button span { font-size: 13px; line-height: 1.5; font-weight: 400; color: #62736c; }
+.web-planning.planning-guided-page .course-table-cell-button { min-height: 52px; padding: 6px 8px; gap: 4px; }
+.web-planning.planning-guided-page .course-table-actions { flex-wrap: wrap; gap: 8px; }
+.web-planning.planning-guided-page .course-table-actions button { min-height: 34px; padding: 6px 10px; font-size: 13px; line-height: 1.5; font-weight: 500; }
+.web-planning.planning-guided-page .course-table-row:hover > td { background: #f5faf8; }
+.web-planning.planning-guided-page .course-table-row.active > td { background: #eef7f3; }
+.web-planning.planning-guided-page .course-table-row::before { font-size: 15px; }
+.web-planning.planning-guided-page .course-table-row > td::before { font-size: 13px; }
+.web-planning .planning-class-page-heading { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-start; gap: 16px; }
+.web-planning .planning-class-page-heading > button { display: inline-flex; align-items: center; gap: 6px; }
+.web-planning .planning-class-page-heading h2 { font-size: 20px; margin: 0; }
+.web-planning .planning-class-page-heading .master-summary { margin-left: auto; }
+.web-planning .planning-class-page-workspace { display: grid; grid-template-columns: minmax(240px, 0.7fr) minmax(0, 1.6fr); gap: 18px; min-width: 0; width: 100%; align-items: start; }
+.web-planning.planning-guided-page .planning-class-page-workspace > .subject-plan-panel,
+.web-planning.planning-guided-page .planning-class-page-workspace > .plan-detail-panel { grid-column: auto; width: auto; min-width: 0; max-width: none; }
+.web-planning .planning-class-page-workspace > .class-planning-table-panel { grid-column: 1 / -1; min-width: 0; }
+.web-planning.planning-guided-page .planning-class-page-workspace > .subject-plan-panel { grid-column: 1 / -1; border: 0; padding: 0; background: transparent; box-shadow: none; }
+.web-planning.planning-guided-page .subject-plan-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: 14px; max-height: none; overflow: visible; }
+.web-planning.planning-guided-page .subject-plan-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; min-height: 128px; padding: 16px; border: 1px solid #d8e4df; border-radius: 8px; background: white; color: #31473f; text-align: left; }
+.web-planning.planning-guided-page .subject-plan-row > div { grid-column: 1 / -1; min-width: 0; }
+.web-planning.planning-guided-page .subject-plan-row strong { font-size: 16px; white-space: normal; overflow-wrap: anywhere; }
+.web-planning.planning-guided-page .subject-plan-row > div > span { display: block; margin-top: 6px; white-space: normal; font-size: 13px; }
+.web-planning.planning-guided-page .subject-plan-row:hover { border-color: #438675; background: #f5faf7; }
+.web-planning.planning-guided-page .subject-plan-row:focus-visible { outline: 2px solid #287d6d; outline-offset: 2px; }
+.web-planning.planning-guided-page .subject-import-card { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0; width: 100%; box-sizing: border-box; }
+.web-planning.planning-guided-page .subject-import-card > div:first-child { flex: 1 1 300px; }
+.web-planning .subject-editor-mask { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 24px; background: #20372f66; }
+.web-planning .subject-editor-dialog { width: min(720px, 100%); max-width: 720px; max-height: calc(100dvh - 48px); overflow: auto; overscroll-behavior: contain; background: #fff; border-radius: 8px; padding: 0 20px 20px; box-shadow: 0 18px 60px #172d3333; }
+.web-planning .subject-editor-dialog-header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; background: white; border-bottom: 1px solid #e1e8e4; margin-bottom: 16px; }
+.web-planning .subject-editor-close { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; padding: 0; border: 0; background: transparent; color: #526b60; }
+@media (max-width: 600px) { .web-planning .subject-editor-mask { padding: 10px; } .web-planning .subject-editor-dialog { max-height: calc(100dvh - 20px); padding: 0 14px 14px; } }
+@media (max-width: 820px) {
+  .web-planning .planning-class-page-workspace { grid-template-columns: minmax(0, 1fr); }
+  .web-planning.planning-guided-page .class-planning-view-switch { flex-wrap: wrap; gap: 10px; }
+  .web-planning .planning-class-page-heading .master-summary { width: 100%; margin-left: 0; }
+}
+
+.web-planning { min-width: 0; font-family: "Inter", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif; }
+section.web-planning { padding: 20px; }
+.web-planning .subject-import-card > div:first-child { display: grid; gap: 6px; }
+.web-planning .subject-import-card span { color: #62736c; font-size: 13px; line-height: 1.6; }
+.web-planning .class-flow-progress { width: auto; min-width: 100px; border: 0; border-radius: 0; }
+.web-planning button, .web-planning input, .web-planning select { font-family: inherit; font-size: 14px; }
+.web-planning input:not([type=checkbox]), .web-planning select { box-sizing: border-box; min-width: 0; min-height: 38px; border: 1px solid #d8e3de; border-radius: 6px; background: #fff; color: #30483f; padding: 8px 10px; }
+.web-planning .planning-filter-actions, .web-planning .planning-dialog-actions, .web-planning .course-table-actions, .web-planning .master-summary { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.web-planning .planning-filter-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.web-planning .planning-filter-heading, .web-planning .class-planning-view-switch > div:first-child { display: grid; gap: 6px; }
+.web-planning .planning-filter-heading span, .web-planning .class-planning-view-switch span, .web-planning .planning-help { color: #62736c; font-size: 13px; line-height: 1.6; }
+.web-planning .class-planning-view-switch { justify-content: space-between; align-items: center; gap: 16px; }
+.web-planning .planning-mode-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 8px; background: #edf3ef; }
+.web-planning .planning-mode-tabs button { padding: 8px 16px; border: 0; border-radius: 5px; background: transparent; color: #52665d; }
+.web-planning .planning-mode-tabs button.active { background: #fff; color: #287d6d; box-shadow: 0 1px 3px #20372f22; }
+.web-planning .planning-table-scroll { overflow-x: auto; border: 1px solid #d8e3de; border-radius: 8px; }
+.web-planning .class-planning-table { width: 100%; min-width: 650px; border-collapse: collapse; table-layout: fixed; }
+.web-planning .class-planning-table th, .web-planning .class-planning-table td { text-align: left; vertical-align: middle; border-bottom: 1px solid #e4ebe7; overflow-wrap: anywhere; }
+.web-planning .class-planning-table th { background: #eff5f1; }
+.web-planning.planning-guided-page .class-planning-table { display: table; }
+.web-planning.planning-guided-page .class-planning-table thead { display: table-header-group; }
+.web-planning.planning-guided-page .class-planning-table tbody { display: table-row-group; }
+.web-planning.planning-guided-page .class-planning-table tr { display: table-row; }
+.web-planning.planning-guided-page .class-planning-table th,
+.web-planning.planning-guided-page .class-planning-table td { display: table-cell; width: auto; text-align: left; }
+.web-planning.planning-guided-page .class-planning-table tr::before,
+.web-planning.planning-guided-page .class-planning-table td::before { display: none; }
+.web-planning.planning-guided-page .subject-import-card { flex-direction: row; align-items: center; }
+.web-planning.planning-guided-page .subject-import-card select { flex: 0 1 230px; width: auto; }
+.web-planning.planning-guided-page .subject-import-card button { width: auto; flex: 0 0 auto; }
+.web-planning .course-table-cell-button { width: 100%; border: 0; background: transparent; color: #287d6d; text-align: left; }
+.web-planning .subject-plan-row em, .web-planning .class-list-item em { font-style: normal; }
+.web-planning .class-list-empty { padding: 32px 16px; color: #738279; text-align: center; }
+.web-planning.subject-editor-mask { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 24px; background: #20372f66; width: auto; max-width: none; height: auto; max-height: none; margin: 0; border: 0; border-radius: 0; box-sizing: border-box; }
+.web-planning.planning-guided-page.subject-editor-mask { grid-template-columns: minmax(0,1fr); }
+.web-planning.planning-guided-page.subject-editor-mask .subject-editor-dialog { grid-column: 1; place-self: center; }
+.web-planning.subject-editor-mask .subject-editor-dialog { box-sizing: border-box; width: min(720px,100%); max-width: 720px; max-height: calc(100dvh - 48px); overflow: auto; padding: 0 20px 20px; border: 0; border-radius: 8px; background: white; }
+.web-planning .subject-editor-dialog-header { position: sticky; top: 0; z-index: 5; background: #fff; }
+.web-planning .task-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.web-planning .task-editor-heading button { display: inline-flex; align-items: center; gap: 6px; }
+.web-planning .task-switcher { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.web-planning .task-switcher-item { width: auto; min-width: 130px; border-radius: 6px; padding: 10px; border: 1px solid #d8e3de; background: #fff; }
+.web-planning .task-switcher-item.active { background: #eef7f3; border-color: #287d6d; }
+.web-planning .detail-form fieldset { display: grid; gap: 16px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.web-planning .detail-form label { display: grid; gap: 7px; font-size: 14px; color: #52665d; }
+.web-planning .detail-form .inline-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.web-planning .planning-import-card { display: flex; gap: 10px; align-items: end; padding: 12px; border-radius: 6px; background: #f5f8f6; }
+.web-planning .planning-import-card label { flex: 1; min-width: 0; }
+.web-planning .planning-filter-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; max-height: 45vh; overflow: auto; padding: 16px 0; }
+.web-planning .planning-filter-options label { display: flex; gap: 10px; align-items: center; padding: 10px; border: 1px solid #d8e3de; border-radius: 6px; }
+.web-planning input[type=checkbox] { appearance: auto; width: 16px; height: 16px; flex: 0 0 16px; margin: 0; accent-color: #287d6d; }
+@media(max-width: 600px) { .web-planning.subject-editor-mask { padding: 10px; } .web-planning.subject-editor-mask .subject-editor-dialog { max-height: calc(100dvh - 20px); } }
+
+/* Desktop reading density: keep the web flow, with readable text and real card gutters. */
+section.web-planning.planning-guided-page { padding: 24px; background: #fff; border: 1px solid #dfe7e2; border-radius: 12px; font-size: 14px; line-height: 1.6; }
+.web-planning.planning-guided-page .planning-class-workbench { gap: 20px; border: 0; border-radius: 0; box-shadow: none; }
+.web-planning.planning-guided-page .official-class-flow { padding: 20px; gap: 16px; border-radius: 10px; }
+.web-planning .official-class-flow h3 { margin: 10px 0 6px; font-size: 18px; line-height: 1.5; font-weight: 600; }
+.web-planning .official-class-flow p { font-size: 14px; line-height: 1.7; color: #52665d; }
+.web-planning .official-flow-badge { font-size: 12px; line-height: 1.6; padding: 4px 10px; font-weight: 600; }
+.web-planning.planning-guided-page .official-flow-steps { gap: 10px; border: 0; background: transparent; box-shadow: none; }
+.web-planning.planning-guided-page .official-flow-steps > div { padding: 12px; gap: 10px; border: 0; background: transparent; box-shadow: none; }
+.web-planning.planning-guided-page .official-flow-steps > div.active { border: 0; background: #fff4e2; box-shadow: none; }
+.web-planning .official-flow-steps strong { font-size: 14px; line-height: 1.5; font-weight: 600; }
+.web-planning .official-flow-steps small { font-size: 12px; line-height: 1.6; margin-top: 3px; }
+.web-planning .class-flow-progress { min-width: 120px; padding: 12px; background: #f5f8f6; border-radius: 8px; }
+.web-planning .class-flow-progress strong { font-size: 24px; line-height: 1.3; font-weight: 600; font-variant-numeric: tabular-nums; }
+.web-planning .class-flow-progress span { font-size: 12px; line-height: 1.6; }
+.web-planning .planning-filter-bar { padding: 16px 20px; border-radius: 10px; }
+.web-planning .planning-filter-heading strong { font-size: 15px; font-weight: 600; }
+/* Toolbar actions must not inherit the global form-submit top margin. */
+.web-planning .planning-filter-actions > button,
+.web-planning .class-overview-filters > button { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: 40px; min-height: 40px; margin: 0; padding: 0 14px; gap: 6px; line-height: 20px; white-space: nowrap; }
+.web-planning.planning-guided-page .planning-class-panel { padding: 20px; border: 1px solid #dfe7e2; border-radius: 10px; background: #fff; }
+.web-planning .table-title h3 { margin: 0 0 6px; font-size: 17px; line-height: 1.5; font-weight: 600; }
+.web-planning .table-title span { font-size: 13px; line-height: 1.6; }
+.web-planning .class-overview-filters { margin: 20px 0 16px; gap: 10px; }
+.web-planning .class-filter-count { font-size: 13px; }
+.web-planning .class-list-empty { margin: 0; padding: 48px 20px; font-size: 14px; line-height: 1.7; }
+.web-planning .class-planning-view-switch, .web-planning .subject-import-card { padding: 16px 20px; border-radius: 10px; }
+.web-planning .planning-class-page-heading { margin-bottom: 20px; }
+.web-planning .subject-editor-dialog-header { padding: 18px 0; font-size: 15px; }
+@media(max-width: 700px) { section.web-planning.planning-guided-page { padding: 16px; } .web-planning.planning-guided-page .planning-class-panel, .web-planning.planning-guided-page .official-class-flow { padding: 16px; } }
+
+/* Align the count with the input/button row, not its text baseline. */
+.web-planning .table-column-filters > span { display: flex; align-items: center; min-height: 40px; line-height: 20px; margin: 0; }
+.web-planning .table-column-filters > button { height: 40px; margin: 0; padding-block: 0; }
+.web-planning .planning-dialog-actions > button { margin: 0; }

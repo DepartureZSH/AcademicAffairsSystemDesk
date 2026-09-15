@@ -1,0 +1,10 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "bundle": {
+    "externalBin": [],
+    "resources": {
+      "binaries/时奕排课后台服务-x86_64-pc-windows-msvc.exe": "时奕排课后台服务.exe",
+      "binaries/_internal/": "_internal/"
+    }
+  }
+}

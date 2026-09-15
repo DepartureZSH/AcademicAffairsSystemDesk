@@ -8,6 +8,7 @@ from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
 
 from stt_desktop.scheduler_engine import run_cp_sat_v1
 from stt_desktop.storage.project import ProjectError, ProjectRepository, utc_now, uuid7
+from stt_desktop.lesson_config import parse_lesson_config, preferred_options
 
 
 SOLVER_VERSION = "stt-cp-sat-v1+desktop-1"
@@ -742,6 +743,7 @@ class SchedulingService:
         lesson_ids_by_task: dict[str, list[str]] = {}
         for lesson in lessons:
             task = task_by_id[lesson["teaching_task_id"]]
+            config = parse_lesson_config(lesson.get('planning_config', '{}'))
             schedule = schedule_for_task(task)
             slots = slots_by_schedule.get(str(schedule["id"]), []) if schedule else []
             label = "-".join(
@@ -771,6 +773,14 @@ class SchedulingService:
             emitted_times: list[tuple[dict[str, str], set[str]]] = []
             for slot, window in _slot_windows(slots, duration):
                 weekday = int(slot["weekday"])
+                display = json.loads(schedule.get("display_config") or "{}") if schedule else {}
+                metadata = display.get("_web_template", display)
+                visible_days = display.get("enabled_weekdays", metadata.get("display_config", metadata).get("enabled_weekdays"))
+                if visible_days is not None and weekday not in visible_days:
+                    continue
+                minutes = config.get("duration_minutes")
+                if minutes is not None and int(slot["end_time_minutes"]) - int(slot["start_time_minutes"]) < minutes:
+                    continue
                 period_index = int(slot["period_index"])
                 if not _day_enabled(str(lesson.get("day_bits") or task.get("day_bits") or ""), weekday):
                     continue
@@ -794,18 +804,27 @@ class SchedulingService:
                     if not preference["required"]
                     and period_index not in preference["periods"]
                 )
-                time_attrs = {
-                    "days": _day_bits(weekday),
-                    "weeks": str(lesson.get("week_bits") or task.get("week_bits") or "1"),
-                    "start": str(slot["start_slot"]),
-                    "length": str(duration),
-                    "periodIndex": str(slot["period_index"]),
-                    "penalty": str(penalty),
-                }
-                SubElement(node, "time", time_attrs)
-                emitted_times.append((time_attrs, window_ids))
-                diagnostics["option_count"] += 1
-            candidate_rooms = self._candidate_rooms(task, homeroom_by_id, rooms, room_by_id)
+                for weeks, preference_penalty in preferred_options(config, slot['id'], window_ids,
+                        str(lesson.get('week_bits') or task.get('week_bits') or '1')):
+                    time_attrs = {
+                        "days": _day_bits(weekday), "weeks": weeks,
+                        "start": str(slot["start_slot"]), "length": str(duration),
+                        "periodIndex": str(slot["period_index"]), "penalty": str(penalty + preference_penalty),
+                    }
+                    SubElement(node, "time", time_attrs)
+                    emitted_times.append((time_attrs, window_ids))
+                    diagnostics["option_count"] += 1
+            candidate_rooms = (config['room_ids'] if config['room_mode'] == 'custom' else
+                               self._candidate_rooms(task, homeroom_by_id, rooms, room_by_id))
+            task_config = json.loads(task.get('planning_config') or '{}')
+            if task_config:
+                candidate_rooms = ([] if not task_config.get('uses_rooms', True) else
+                                   config['room_ids'] if config['room_mode'] == 'custom' else
+                                   task_config.get('room_ids', []))
+            if any(room_id not in room_by_id for room_id in candidate_rooms):
+                diagnostics['errors'].append({'code': 'LESSON_ROOM_UNAVAILABLE', 'lessonId': lesson['id'],
+                                              'message': f'{label} 的课次教室不存在或已停用'})
+                candidate_rooms = [room_id for room_id in candidate_rooms if room_id in room_by_id]
             for room_id in candidate_rooms:
                 room_node = SubElement(node, "room", {"id": room_id, "penalty": "0"})
                 room_rules = [
@@ -982,7 +1001,7 @@ class SchedulingService:
                             resource_type,
                         )
                         diagnostics["compiled_limit_count"] += 1
-            elif constraint["type"] in {"NotOverlap", "SameRoom", "DifferentTime", "DifferentDays", "DifferentWeeks", "SameDays", "SameStart", "SameTime", "Precedence", "Consecutive"} and len(lesson_ids) >= 2:
+            elif self._is_distribution(constraint["type"], lesson_ids):
                 self._distribution(node, f"user-{constraint['id']}", constraint["type"], lesson_ids, required, penalty, constraint["name"], "custom")
             else:
                 diagnostics["warnings"].append({"code": "CONSTRAINT_NOT_COMPILED", "constraintId": constraint["id"], "message": f"约束 {constraint['name']} 当前未生成求解条件"})
@@ -1017,6 +1036,20 @@ class SchedulingService:
         hard_issues: list[dict[str, Any]] = []
         soft_issues: list[dict[str, Any]] = []
         soft_penalty = 0
+        # Whole-group rules cannot be validated as independent lesson pairs. This
+        # also gates manual moves using the exact semantics used by the solver.
+        from stt_desktop.agent.upstream.distributions import GROUP_TYPES, Placement, parse_distribution, group_excess
+        placements = {node.attrib.get('id'): Placement(int(node.attrib.get('start', 0)), int(node.attrib.get('length', 1)), node.attrib.get('days', ''), node.attrib.get('weeks', ''), node.attrib.get('room')) for node in fromstring(solution_xml).findall('.//class')}
+        for constraint in constraints:
+            try:
+                kind, arguments = parse_distribution(constraint['type'])
+            except ValueError:
+                continue
+            if kind not in GROUP_TYPES or constraint['severity'] != 'hard':
+                continue
+            ids = json.loads(constraint['parameters'] or '{}').get('lessonIds', [])
+            if group_excess(kind, arguments, [placements[key] for key in ids if key in placements]):
+                hard_issues.append({'code': 'HARD_DISTRIBUTION_GROUP', 'constraintId': constraint['id'], 'message': f"课次组合违反约束：{constraint['name']}"})
         for constraint in constraints:
             if constraint["type"] not in {"max_daily_lessons", "consecutive_limit"}:
                 continue
@@ -1094,9 +1127,19 @@ class SchedulingService:
         return {"hardIssues": hard_issues, "softIssues": soft_issues, "softPenalty": soft_penalty}
 
     @staticmethod
+    def _is_distribution(kind: str, lesson_ids: Iterable[str]) -> bool:
+        from stt_desktop.agent.upstream.distributions import parse_distribution, GROUP_TYPES
+        try:
+            name, _ = parse_distribution(kind)
+            return len(set(lesson_ids)) >= (1 if name in GROUP_TYPES else 2)
+        except ValueError:
+            return False
+
+    @staticmethod
     def _distribution(node: Element, distribution_id: str, kind: str, lesson_ids: Iterable[str], required: bool, penalty: int, name: str, scope: str) -> None:
         unique = list(dict.fromkeys(lesson_ids))
-        if len(unique) < 2:
+        from stt_desktop.agent.upstream.distributions import parse_distribution, GROUP_TYPES
+        if len(unique) < (1 if parse_distribution(kind)[0] in GROUP_TYPES else 2):
             return
         attrs = {"id": distribution_id, "type": kind, "required": str(required).lower(), "name": name, "scope": scope}
         if not required:

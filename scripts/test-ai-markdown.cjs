@@ -1,0 +1,13 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const ts=require('../apps/desktop/node_modules/typescript');
+const source=fs.readFileSync(path.join(__dirname,'../apps/desktop/src/web-ai/utils/markdown.ts'),'utf8');
+const moduleCopy={exports:{}};
+new Function('exports','module',ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(moduleCopy.exports,moduleCopy);
+const render=moduleCopy.exports.renderMarkdown;
+assert.match(render('**提示**'),/<strong>提示<\/strong>/);
+assert.match(render('| 科目 | 教师 |\n| -- | -- |\n| 数学 | 张老师 |'),/<table>/);
+assert.match(render('```\n<script>alert(1)</script>\n```'),/&lt;script&gt;/);
+assert.doesNotMatch(render('<img src="https://example.test/pixel" onerror="alert(1)">'),/<img/);
+assert.doesNotMatch(render('[点击](javascript:alert(1))'),/<a /);
+assert.doesNotMatch(render('<script>alert(1)</script>'),/<script/);
+console.log('AI Markdown: 6 checks passed.');

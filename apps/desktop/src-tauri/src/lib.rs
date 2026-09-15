@@ -1,4 +1,7 @@
 mod access_gate;
+mod account_access;
+mod ai_settings;
+mod ai_stream;
 mod app_updates;
 mod purchase;
 
@@ -16,9 +19,10 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use tauri::{AppHandle, Manager, RunEvent, State};
+use tauri_plugin_opener::OpenerExt;
 
 const PROTOCOL_VERSION: &str = "1";
-const SIDECAR_READY_TIMEOUT: Duration = Duration::from_secs(5);
+const SIDECAR_READY_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 struct SidecarManager {
@@ -166,9 +170,9 @@ fn sidecar_launch(_root: &Path) -> Result<SidecarLaunch, String> {
         .parent()
         .ok_or("桌面程序路径缺少父目录")?
         .join(if cfg!(windows) {
-            "stt-sidecar.exe"
+            "时奕排课后台服务.exe"
         } else {
-            "stt-sidecar"
+            "时奕排课后台服务"
         });
     if installed.is_file() {
         return Ok(SidecarLaunch {
@@ -177,7 +181,27 @@ fn sidecar_launch(_root: &Path) -> Result<SidecarLaunch, String> {
             environment: Vec::new(),
         });
     }
-    Err("找不到随安装包发布的 Python sidecar；请重新安装应用".into())
+    Err("本地排课组件不完整，请重新安装应用".into())
+}
+
+fn terminate_starting_sidecar(child: &mut Child, executable_path: &Path) {
+    let launcher_pid = Pid::from_u32(child.id());
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::All, true);
+    for process in system.processes().values() {
+        if process.parent() != Some(launcher_pid) {
+            continue;
+        }
+        let matches_executable = process
+            .exe()
+            .and_then(|path| path.canonicalize().ok())
+            .is_some_and(|path| path == executable_path);
+        if matches_executable {
+            let _ = process.kill();
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn status_from_runtime(runtime: Option<&SidecarRuntime>) -> RuntimeStatus {
@@ -203,11 +227,22 @@ fn runtime_status(state: State<'_, Mutex<SidecarManager>>) -> RuntimeStatus {
 }
 
 #[tauri::command]
-fn start_sidecar(
+async fn start_sidecar(
     app: AppHandle,
-    state: State<'_, Mutex<SidecarManager>>,
     workspace_path: Option<String>,
 ) -> Result<RuntimeStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || start_sidecar_blocking(app, workspace_path))
+        .await
+        .map_err(|_| "本地服务启动任务异常，请重试".to_string())?
+}
+
+fn start_sidecar_blocking(
+    app: AppHandle,
+    workspace_path: Option<String>,
+) -> Result<RuntimeStatus, String> {
+    let root = runtime_root(&app)?;
+    access_gate::ensure_sidecar_allowed(&root)?;
+    let state = app.state::<Mutex<SidecarManager>>();
     let mut manager = state.lock();
     if let Some(runtime) = manager.runtime.as_mut() {
         if matches!(runtime.child.try_wait(), Ok(None)) {
@@ -216,8 +251,6 @@ fn start_sidecar(
         manager.runtime = None;
     }
 
-    let root = runtime_root(&app)?;
-    access_gate::ensure_sidecar_allowed(&root)?;
     let launch = sidecar_launch(&root)?;
     let services_config = root.join("config/services.yaml");
     if !services_config.is_file() {
@@ -240,7 +273,7 @@ fn start_sidecar(
     let executable_path = launch
         .executable
         .canonicalize()
-        .map_err(|error| format!("无法解析 sidecar 可执行文件路径: {error}"))?;
+        .map_err(|error| format!("无法读取本地排课组件: {error}"))?;
     let mut command = Command::new(&executable_path);
     command
         .args(launch.arguments)
@@ -259,8 +292,14 @@ fn start_sidecar(
     }
     let mut child = command
         .spawn()
-        .map_err(|error| format!("无法启动 sidecar: {error}"))?;
-    let stdout = child.stdout.take().ok_or("无法读取 sidecar 就绪消息")?;
+        .map_err(|error| format!("无法启动本地排课服务: {error}"))?;
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            terminate_starting_sidecar(&mut child, &executable_path);
+            return Err("无法读取本地排课服务的启动状态".into());
+        }
+    };
     let (sender, receiver) = mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let mut line = String::new();
@@ -273,31 +312,49 @@ fn start_sidecar(
     let line = match receiver.recv_timeout(SIDECAR_READY_TIMEOUT) {
         Ok(Ok(line)) => line,
         Ok(Err(error)) => {
-            let _ = child.kill();
-            return Err(format!("读取 sidecar 就绪消息失败: {error}"));
+            terminate_starting_sidecar(&mut child, &executable_path);
+            return Err(format!("读取本地排课服务启动状态失败: {error}"));
         }
         Err(_) => {
-            let _ = child.kill();
-            return Err("sidecar 5 秒内未就绪".into());
+            terminate_starting_sidecar(&mut child, &executable_path);
+            return Err(
+                "本地排课服务启动时间过长，请重新尝试；如果仍然失败，请重新安装应用".into(),
+            );
         }
     };
-    let ready: ReadyMessage =
-        serde_json::from_str(&line).map_err(|_| "sidecar 就绪消息格式无效")?;
+    let ready: ReadyMessage = match serde_json::from_str(&line) {
+        Ok(ready) => ready,
+        Err(_) => {
+            terminate_starting_sidecar(&mut child, &executable_path);
+            return Err("本地排课服务启动失败，请重新尝试".into());
+        }
+    };
     if ready.event != "ready"
         || ready.protocol_version != PROTOCOL_VERSION
         || ready.pid != child.id()
         || ready.worker_pid == 0
     {
-        let _ = child.kill();
-        return Err("sidecar 身份或协议版本校验失败".into());
+        terminate_starting_sidecar(&mut child, &executable_path);
+        return Err("本地排课服务版本不匹配，请重新安装应用".into());
     }
-    let proof = hex::decode(&ready.nonce_proof).map_err(|_| "sidecar nonce 证明格式无效")?;
-    let mut mac =
-        Hmac::<Sha256>::new_from_slice(token.as_bytes()).map_err(|_| "无法初始化 HMAC")?;
+    let proof = match hex::decode(&ready.nonce_proof) {
+        Ok(proof) => proof,
+        Err(_) => {
+            terminate_starting_sidecar(&mut child, &executable_path);
+            return Err("本地排课服务安全校验失败".into());
+        }
+    };
+    let mut mac = match Hmac::<Sha256>::new_from_slice(token.as_bytes()) {
+        Ok(mac) => mac,
+        Err(_) => {
+            terminate_starting_sidecar(&mut child, &executable_path);
+            return Err("无法初始化本地排课服务安全校验".into());
+        }
+    };
     mac.update(nonce.as_bytes());
     if mac.verify_slice(&proof).is_err() {
-        let _ = child.kill();
-        return Err("sidecar nonce 证明校验失败".into());
+        terminate_starting_sidecar(&mut child, &executable_path);
+        return Err("本地排课服务安全校验失败".into());
     }
     manager.runtime = Some(SidecarRuntime {
         child,
@@ -314,7 +371,11 @@ fn start_sidecar(
 
 #[tauri::command]
 async fn access_gate_status(app: AppHandle) -> Result<access_gate::GateStatus, String> {
-    access_gate::status(&runtime_root(&app)?).await
+    let result = access_gate::status(&runtime_root(&app)?).await;
+    if !result.as_ref().is_ok_and(|gate| gate.can_start_sidecar) {
+        terminate_managed_sidecar(&app);
+    }
+    result
 }
 
 #[tauri::command]
@@ -365,6 +426,14 @@ async fn license_activate(
 #[tauri::command]
 fn open_purchase_page(app: AppHandle) -> Result<purchase::PurchaseLaunchResult, String> {
     purchase::open(&app, &runtime_root(&app)?)
+}
+
+#[tauri::command]
+fn open_registration_page(app: AppHandle) -> Result<(), String> {
+    // Fixed public destination: no account data or caller-supplied URLs.
+    app.opener()
+        .open_url("https://shiyi.karios.site", None::<&str>)
+        .map_err(|_| "无法打开注册页面，请使用浏览器访问 https://shiyi.karios.site".into())
 }
 
 impl Drop for SidecarRuntime {
@@ -449,23 +518,36 @@ fn validate_proxy_request(request: &ProxyRequest) -> Result<Method, String> {
         || request.path.contains('\n')
         || request.path.contains('\r')
     {
-        return Err("sidecar 路径不在 /v1 白名单".into());
+        return Err("本地服务请求路径无效".into());
     }
     match request.method.as_str() {
         "GET" => Ok(Method::GET),
         "POST" => Ok(Method::POST),
         "PUT" => Ok(Method::PUT),
         "DELETE" => Ok(Method::DELETE),
-        _ => Err("不支持的 sidecar HTTP 方法".into()),
+        _ => Err("本地服务不支持该操作".into()),
     }
 }
 
 #[tauri::command]
 async fn sidecar_request(
+    app: AppHandle,
     state: State<'_, Mutex<SidecarManager>>,
     request: ProxyRequest,
 ) -> Result<Value, String> {
     let method = validate_proxy_request(&request)?;
+    let root = runtime_root(&app)?;
+    if let Err(error) = access_gate::ensure_sidecar_allowed(&root) {
+        // Background WebView timers can be suspended. Refresh the short-lived
+        // membership check before treating its cache expiry as a denial.
+        if !access_gate::status(&root)
+            .await
+            .is_ok_and(|gate| gate.can_start_sidecar)
+        {
+            terminate_managed_sidecar(&app);
+            return Err(error);
+        }
+    }
     let (url, token) = {
         let manager = state.lock();
         let runtime = manager.runtime.as_ref().ok_or("本地服务尚未启动")?;
@@ -524,9 +606,9 @@ async fn stop_sidecar(state: State<'_, Mutex<SidecarManager>>) -> Result<(), Str
             .timeout(Duration::from_secs(3))
             .send()
             .await
-            .map_err(|error| format!("无法请求 sidecar 优雅退出: {error}"))?;
+            .map_err(|error| format!("无法安全停止本地服务: {error}"))?;
         if !response.status().is_success() {
-            return Err("sidecar 拒绝优雅退出请求".into());
+            return Err("本地服务暂时无法停止，请稍后重试".into());
         }
         let runtime = state.lock().runtime.take();
         drop(runtime);
@@ -544,10 +626,19 @@ async fn check_for_update(
 }
 
 #[tauri::command]
+async fn download_checked_update(
+    pending: State<'_, app_updates::PendingUpdate>,
+    progress: tauri::ipc::Channel<app_updates::DownloadProgress>,
+) -> Result<(), String> {
+    app_updates::download(pending, progress).await
+}
+
+#[tauri::command]
 async fn install_checked_update(
+    app: AppHandle,
     pending: State<'_, app_updates::PendingUpdate>,
 ) -> Result<(), String> {
-    app_updates::install(pending).await
+    app_updates::install(app, pending).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -558,7 +649,25 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Mutex::new(SidecarManager::default()))
         .manage(app_updates::PendingUpdate::default())
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                window.set_icon(tauri::image::Image::new_owned(
+                    include_bytes!("../icons/taskbar-icon.rgba").to_vec(),
+                    32,
+                    32,
+                ))?;
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
+            ai_settings::ai_connection_status,
+            ai_settings::ai_save_connection,
+            ai_settings::ai_clear_connection,
+            ai_settings::ai_test_connection,
+            ai_settings::ai_chat,
+            ai_settings::ai_complete,
+            ai_settings::ai_stream_complete,
+            ai_settings::ai_specialist_complete,
             runtime_status,
             access_gate_status,
             auth_sign_in,
@@ -568,10 +677,12 @@ pub fn run() {
             auth_sign_out,
             license_activate,
             open_purchase_page,
+            open_registration_page,
             start_sidecar,
             sidecar_request,
             stop_sidecar,
             check_for_update,
+            download_checked_update,
             install_checked_update
         ])
         .build(tauri::generate_context!())
@@ -625,7 +736,7 @@ mod tests {
     }
 
     #[test]
-    fn sidecar_ready_timeout_meets_product_requirement() {
-        assert_eq!(SIDECAR_READY_TIMEOUT, Duration::from_secs(5));
+    fn sidecar_ready_timeout_allows_frozen_cold_start() {
+        assert_eq!(SIDECAR_READY_TIMEOUT, Duration::from_secs(30));
     }
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import combinations
 from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
+from stt_desktop.agent.upstream.distributions import LABELS, GROUP_TYPES, Placement, parse_distribution, pair_violates, group_excess
 
 
 SUPPORTED_DISTRIBUTIONS = {
@@ -74,6 +75,8 @@ class Distribution:
     class_ids: tuple[str, ...]
     name: str = ""
     scope: str = ""
+    nr_weeks: int = 1
+    travel: tuple[tuple[str, str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -132,6 +135,8 @@ def run_cgcs_greedy(problem_xml: str, run_id: str, algorithm_config: dict | None
         {agent.class_id: agent for agent in problem.agents},
     )
 
+    _repair_group_integrity(assignments, problem.distributions)
+    failed_agents = [agent for agent in problem.agents if agent.class_id not in assignments]
     metrics = _score(assignments, problem.distributions)
     solution_xml = _build_solution_xml(run_id, assignments, algorithm_config or {})
     failed_labels = [agent.label for agent in failed_agents]
@@ -273,6 +278,10 @@ def _blocking_class_ids(
     for distribution in distributions:
         if not distribution.required or candidate.class_id not in distribution.class_ids:
             continue
+        if _is_group(distribution):
+            if _group_penalty(distribution, {**assignments, candidate.class_id: candidate}, hard=True):
+                blocker_ids.update(c for c in distribution.class_ids if c in assignments and c != candidate.class_id)
+            continue
         for class_id in distribution.class_ids:
             other = assignments.get(class_id)
             if other and _violates(distribution, candidate, other):
@@ -352,7 +361,8 @@ def parse_problem(problem_xml: str) -> Problem:
             for class_node in distribution_node.findall("class")
             if class_node.attrib.get("id")
         )
-        if distribution_type not in SUPPORTED_DISTRIBUTIONS or len(class_ids) < 2:
+        parse_distribution(distribution_type)
+        if not class_ids:
             continue
         required = distribution_node.attrib.get("required", "false").lower() == "true"
         distributions.append(
@@ -364,6 +374,8 @@ def parse_problem(problem_xml: str) -> Problem:
                 class_ids=class_ids,
                 name=distribution_node.attrib.get("name", ""),
                 scope=distribution_node.attrib.get("scope", ""),
+                nr_weeks=int(root.attrib.get("nrWeeks") or max((len(t.weeks) for a in agents for t in a.time_options), default=1)),
+                travel=tuple((r.attrib["id"], t.attrib["room"], int(t.attrib["value"])) for r in root.findall("./rooms/room") for t in r.findall("travel")),
             )
         )
 
@@ -464,6 +476,10 @@ def _is_feasible(
     for distribution in distributions:
         if not distribution.required or candidate.class_id not in distribution.class_ids:
             continue
+        if _is_group(distribution):
+            if _group_penalty(distribution, {**assignments, candidate.class_id: candidate}, hard=True):
+                return False
+            continue
         for other_class_id in distribution.class_ids:
             other = assignments.get(other_class_id)
             if other and _violates(distribution, candidate, other):
@@ -480,6 +496,9 @@ def _incremental_soft_penalty(
     for distribution in distributions:
         if distribution.required or candidate.class_id not in distribution.class_ids:
             continue
+        if _is_group(distribution):
+            penalty += _group_penalty(distribution, {**assignments, candidate.class_id: candidate}) - _group_penalty(distribution, assignments)
+            continue
         for other_class_id in distribution.class_ids:
             other = assignments.get(other_class_id)
             if other and _violates(distribution, candidate, other):
@@ -493,6 +512,9 @@ def _score(assignments: dict[str, Action], distributions: tuple[Distribution, ..
     distribution_penalty = 0
     for distribution in distributions:
         if distribution.required:
+            continue
+        if _is_group(distribution):
+            distribution_penalty += _group_penalty(distribution, assignments)
             continue
         for left_id, right_id in combinations(distribution.class_ids, 2):
             left = assignments.get(left_id)
@@ -508,30 +530,15 @@ def _score(assignments: dict[str, Action], distributions: tuple[Distribution, ..
 
 
 def _violates(distribution: Distribution, left: Action, right: Action) -> bool:
+    if left.class_id == right.class_id:
+        return False
     distribution_type = distribution.distribution_type
-    if distribution_type == "NotOverlap":
-        return _overlaps(left.time, right.time)
-    if distribution_type == "SameRoom":
-        return left.room_id != right.room_id
-    if distribution_type == "DifferentTime":
-        return _shares_week(left.time, right.time) and _shares_day(left.time, right.time) and left.time.start == right.time.start
-    if distribution_type == "DifferentDays":
-        return _shares_week(left.time, right.time) and _shares_day(left.time, right.time)
-    if distribution_type == "DifferentWeeks":
-        return _shares_week(left.time, right.time)
-    if distribution_type == "SameDays":
-        return left.time.days != right.time.days
-    if distribution_type == "SameStart":
-        return left.time.start != right.time.start
-    if distribution_type == "SameTime":
-        return (
-            left.time.days != right.time.days
-            or left.time.weeks != right.time.weeks
-            or left.time.start != right.time.start
-            or left.time.length != right.time.length
-        )
-    if distribution_type == "Precedence":
-        return _violates_precedence(distribution, left, right)
+    kind, args = parse_distribution(distribution_type)
+    if kind in LABELS:
+        if kind == "Precedence" and distribution.class_ids.index(left.class_id) > distribution.class_ids.index(right.class_id):
+            left, right = right, left
+        travel = next((v for a, b, v in distribution.travel if {a, b} == {left.room_id, right.room_id}), 0)
+        return pair_violates(kind, args, _placement(left), _placement(right), travel)
     if distribution_type == "Consecutive":
         return _violates_consecutive(distribution, left, right)
     if distribution_type == "DifferentWeekSameDaySameStart":
@@ -634,3 +641,33 @@ def _failed_result(run_id: str, message: str, assigned_count: int = 0, class_cou
         "total_score": 0,
         "log": f"{message}（已成功安排 {assigned_count}/{class_count} 个课次）",
     }
+
+
+def _repair_group_integrity(assignments: dict[str, Action], distributions: tuple[Distribution, ...]) -> None:
+    # Ejecting a bridge lesson can create a new long break in an otherwise valid group.
+    hard_groups = [d for d in distributions if d.required and _is_group(d)]
+    while True:
+        broken = [d for d in hard_groups if _group_penalty(d, assignments, hard=True)]
+        if not broken:
+            return
+        candidates = sorted({c for d in broken for c in d.class_ids if c in assignments})
+        remove = min(candidates, key=lambda c: sum(
+            _group_penalty(d, {key: value for key, value in assignments.items() if key != c}, hard=True)
+            for d in hard_groups
+        ))
+        assignments.pop(remove)
+
+
+def _placement(action: Action) -> Placement:
+    t = action.time
+    return Placement(t.start, t.length, t.days, t.weeks, action.room_id)
+
+
+def _is_group(distribution: Distribution) -> bool:
+    return parse_distribution(distribution.distribution_type)[0] in GROUP_TYPES
+
+
+def _group_penalty(distribution: Distribution, assignments: dict[str, Action], hard: bool = False) -> int:
+    kind, args = parse_distribution(distribution.distribution_type)
+    excess = group_excess(kind, args, [_placement(assignments[c]) for c in distribution.class_ids if c in assignments])
+    return excess if hard else distribution.penalty * excess // (max(distribution.nr_weeks, 1) if kind != "MaxDays" else 1)

@@ -13,6 +13,7 @@ struct RawConfig {
 #[derive(Debug, Deserialize)]
 struct RawService {
     mode: String,
+    endpoint: Option<String>,
     #[serde(default)]
     mock: HashMap<String, Value>,
 }
@@ -41,11 +42,9 @@ fn mock_purchase_path(root: &Path) -> Result<PathBuf, String> {
         .canonicalize()
         .map_err(|error| format!("无法解析应用资源目录: {error}"))?;
     let path = root.join("fixtures/mock/purchase.html");
-    let packaged_path = root.join("mock/purchase.html");
-    let candidate = if path.is_file() { path } else { packaged_path };
-    let candidate = candidate
+    let candidate = path
         .canonicalize()
-        .map_err(|_| "找不到随应用发布的 Mock 购买页".to_string())?;
+        .map_err(|_| "找不到开发环境的 Mock 购买页（发行版不提供）".to_string())?;
     if !candidate.starts_with(&root) {
         return Err("Mock 购买页不在应用资源目录内".into());
     }
@@ -74,7 +73,25 @@ pub fn open(app: &AppHandle, root: &Path) -> Result<PurchaseLaunchResult, String
             })
         }
         "real" => {
-            Err("真实购买会话服务尚未接入；为防止账号错绑，不能直接打开无单次会话的购买页".into())
+            let endpoint = payment.endpoint.ok_or("尚未配置网页版会员入口")?;
+            let url = reqwest::Url::parse(&endpoint).map_err(|_| "网页版会员入口格式无效")?;
+            if url.scheme() != "https"
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.query().is_some()
+                || url.fragment().is_some()
+            {
+                return Err("网页版会员入口必须使用不含账号凭据的 HTTPS 地址".into());
+            }
+            app.opener()
+                .open_url(url.as_str(), None::<&str>)
+                .map_err(|_| "无法打开网页版会员入口")?;
+            Ok(PurchaseLaunchResult {
+                mode: "real".into(),
+                opened: true,
+                message: "已打开网页版，请使用与桌面端相同的账号登录后开通会员，再返回检查权益"
+                    .into(),
+            })
         }
         _ => Err("payment.mode 只允许 mock 或 real".into()),
     }
@@ -92,13 +109,13 @@ mod tests {
     }
 
     #[test]
-    fn payment_configuration_is_explicitly_mocked() {
+    fn payment_configuration_uses_web_account_membership() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
         let payment = load_payment(&root).expect("payment config");
-        assert_eq!(payment.mode, "mock");
+        assert_eq!(payment.mode, "real");
         assert_eq!(
-            payment.mock.get("amount_fen").and_then(Value::as_i64),
-            Some(1)
+            payment.endpoint.as_deref(),
+            Some("https://dean.karios.site/login")
         );
     }
 }

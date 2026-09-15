@@ -1,0 +1,27 @@
+{
+  "source": "STT/apps/web-admin/src",
+  "files": {
+    "components/AgentView.vue": "45edc841ca0915fb5cd8897e9f399e0bb58c4ea591bcd6843c52079585255ce8",
+    "components/AgentConversation.vue": "f047f831b7757413e979c127353904b4f836460e66cda2523de41df09f33462c",
+    "components/OfficialWorkbookButton.vue": "9fd11973df01cac1f203db4e5e07c9769ca4406edd514bfef594c81d2229c685",
+    "utils/agentQuestions.ts": "d295ebada91d36370c1e7f05738b64ae30c3b1b751a8f5954f9019716db4dda5",
+    "utils/agentPromptTemplates.ts": "93b05a11c02699f62ce37e8fb814ba97e325f743137cff04d925e7233ba43fbd",
+    "components/ConstraintAiCreator.vue": "3689288871fdb195324cbe67d906994a4accebb66b6ebb14b7d3a0abfc5ecafa",
+    "components/ConstraintAiWizard.vue": "1c389c465abb23fdeb5ccc674f70d15e8c269fc9a255148326f051aa7085420b",
+    "components/ConstraintParameters.vue": "a8efbc2267f6f70f86b9d60026428d351d8e7b49e544b6ca93c6d0a95cc557bb",
+    "utils/itcConstraints.ts": "ad90c21754418304051dc9efe396304fef732fbf5eb948ca353850219c5e4c07",
+    "components/ConstraintExpansionStep.vue": "af11a6bcbec5ca7ea685cd644673e489ce30727f1868b1448ef7a4089ae8823f",
+    "utils/naturalClassNameSort.ts": "3ba870d8cb934f5fb330c132089dec7ac9fc47f6e66d0df70430f6ec44906f9b",
+    "utils/constraintExpansion.ts": "b3bceb857fc6069047fc4a0f2a8bffc93b483941c22a83b438e061cb59ad42c9",
+    "styles/aiCreatorLayout.css": "d11f6a3a7fac4f7ff5a708b7ee293c1593ce2d9822dc6f45d78f48c80f7770f1",
+    "components/ConstraintTemplateGallery.vue": "ac6640655ccba94e6fc01627b52f641f8eaeb089cad03a6d2dc8b9cc7f37374b",
+    "components/PlanningAiCreator.vue": "1f84a797d9940cf176a09c7dff7edb84a87b826b6d9388e78e0192f09efbf00a",
+    "utils/expectedTimes.ts": "7700b35296148367b090251d969e71e2802006c3f6e02c2885199237aab6649e",
+    "components/TimetableAiCreator.vue": "3d3cdaf32ca742469e3f8b971fdbc82c71cd6c90c683c98b315b43100f34ceb9",
+    "components/TemplatePlanningMode.vue": "f501477a961bfbf809a8bb017c20b9d2a9151447de45ab0decc21e6a4da074e8",
+    "components/TimetableSheetAnnotator.vue": "ec9429cddc4b5ed626fbd315d10ac3b576857682b1cc84b79107b6d8bf4fd506",
+    "utils/timetableAi.ts": "38f9cc4ec3813c6c6cedbf1ce22aab799cee20113e45008391c1d51627a4a204",
+    "components/AgentActionChanges.vue": "d0adccb50fb96883f5d26a9e87c319a402f8a5018e04cc0fa81d49b51ca825e6",
+    "utils/agentChangeTables.ts": "a07213bf75d73f1976d188f07d8fbd9fd0d5691beec2d860d0555895014fa1e9"
+  }
+}

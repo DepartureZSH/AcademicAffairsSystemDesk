@@ -30,11 +30,11 @@ def render_version_info(config: dict[str, object]) -> str:
     numeric = numeric_version(version)
     values = [
         ("CompanyName", company_name),
-        ("FileDescription", f"{product_name} 本地排课 Sidecar"),
+        ("FileDescription", "时奕排课后台服务（由主程序自动启动）"),
         ("FileVersion", version),
         ("InternalName", "stt-sidecar"),
         ("LegalCopyright", copyright_notice),
-        ("OriginalFilename", "stt-sidecar.exe"),
+        ("OriginalFilename", "时奕排课后台服务.exe"),
         ("ProductName", product_name),
         ("ProductVersion", version),
     ]

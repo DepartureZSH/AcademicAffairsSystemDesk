@@ -1,0 +1,96 @@
+// Local persistence boundary. The editor above is mechanically reused from the web app.
+activeSection.value = "timetable";
+const localNotice = ref("");
+async function loadSchoolData() {
+  loading.value = true;
+  error.value = "";
+  try {
+    const result = await sidecarRequest<{ schoolData: SchoolData; project: Record<string, unknown>; revision: number }>({method: "GET", path: "/v1/timetable/settings"});
+    schoolData.value = result.schoolData;
+    projects.value = [{id: String(result.project.id), name: String(result.project.name)}];
+    projectId.value = String(result.project.id);
+    termForm.value = {name: String(result.schoolData.active_term?.name || "默认学期"), week_count: Number(result.schoolData.active_term?.week_count || 20), day_count: 7};
+    localRevision = result.revision;
+    onRevision(result.revision);
+    syncTimetableTemplateForms();
+  } catch(cause) { error.value = formatLocalError(cause); }
+  finally { loading.value = false; }
+}
+let localRevision = 0;
+let termSave: Promise<boolean> | null = null;
+async function updateActiveTerm() {
+  if (termSave) return termSave;
+  if (schoolData.value.active_term?.id && Number(schoolData.value.active_term.week_count) === Number(termForm.value.week_count)) return true;
+  termSave = saveTerm();
+  try { return await termSave; } finally { termSave = null; }
+}
+async function saveTerm() {
+  try {
+    const term = schoolData.value.active_term;
+    const result = await localApi.saveEntity("term", {...termForm.value, ...(term?.id ? {id: term.id} : {}), active: 1}, localRevision);
+    localRevision = result.revision;
+    schoolData.value.active_term = result.item;
+    onRevision(result.revision);
+    localNotice.value = "学期周数已保存到本机";
+    return true;
+  } catch(cause) { error.value = formatLocalError(cause); return false; }
+}
+async function persistTimetableTemplate(_scope: "project" | "organization" | "marketplace" = "project") {
+  if (loading.value) return false;
+  if (!timetableTemplateForm.value.name.trim()) { error.value = "模板名称不能为空"; return false; }
+  const invalid = timetableTemplatePeriodsLocked.value ? "" : validateAllPeriodTimes();
+  if (invalid) { error.value = invalid; return false; }
+  if (!timetableTemplatePeriodsLocked.value) relabelAllPeriods();
+  loading.value = true;
+  error.value = "";
+  localNotice.value = "";
+  try {
+    if (!await updateActiveTerm()) return false;
+    const template = {
+      ...timetableTemplateForm.value,
+      term_id: schoolData.value.active_term?.id || null,
+      template_kind: timetableTemplateKind.value,
+      period_source_template_id: timetableTemplatePeriodSourceId.value || null,
+      periods_locked: timetableTemplatePeriodsLocked.value,
+      display_config: {
+        title: timetableTemplateForm.value.name.trim(), enabled_weekdays: enabledWeekdays.value,
+        time_mode: timetableTimeMode.value, show_time_axis: showTimetableTimeAxis.value,
+        course_cell_layout: courseCellExportLayout.value, course_cell_top_field: courseCellExportTopField.value,
+        course_cell_bottom_field: courseCellExportBottomField.value, layout_kind: timetableTemplateLayoutKind.value,
+        all_classes_variant: allClassesTemplateVariant.value, blank_rows: previewBlankRows.value,
+        blank_columns: previewBlankColumns.value, header_rows: previewHeaderRows.value,
+      },
+    };
+    const result = await sidecarRequest<{templateId: string; revision: number}>({method:"PUT", path:"/v1/timetable/templates", body:{expected_revision:localRevision, data:{template, periods:weeklyPeriodDrafts.value.map(periodDraftPayload)}}});
+    selectedTemplateId.value = result.templateId;
+    localRevision = result.revision;
+    onRevision(result.revision);
+    await loadSchoolData();
+    localNotice.value = "课表模板已保存到本机";
+    return true;
+  } catch(cause) { error.value = formatLocalError(cause); return false; }
+  finally { loading.value = false; }
+}
+async function saveTimetableTemplate() { return persistTimetableTemplate("project"); }
+async function deleteTimetableTemplate() {
+  if (loading.value) return;
+  if (!selectedTemplateId.value || !window.confirm("确定删除当前模板？被其他数据引用的模板不能删除。")) return;
+  loading.value = true;
+  try {
+    if (!await updateActiveTerm()) return;
+    await sidecarRequest({method:"DELETE",path:`/v1/timetable/templates/${encodeURIComponent(selectedTemplateId.value)}?expected_revision=${localRevision}`});
+    selectedTemplateId.value = "";
+    await loadSchoolData();
+  } catch(cause) { error.value = formatLocalError(cause); }
+  finally { loading.value = false; }
+}
+async function loadTemplateMarketplace() {
+  timetablePresetLibrary.value = {
+    weekly_timetable_presets: schoolData.value.weekly_timetable_templates.map(t => ({...t, is_owned: true, organization_name:"本机模板"})),
+    weekly_timetable_preset_periods: schoolData.value.weekly_timetable_periods,
+  };
+  specialTimetableTemplatePresets.value = [
+    {key:"local:class-rows", name:"全校班级总课表", description:"按班级分行展示全校课表。", layoutKind:"all_classes_grid", applicationScope:"all", variant:"homeroom_rows", displayConfig:{}},
+    {key:"local:period-rows", name:"全校分时段总课表", description:"按时段和年级展示全校课表。", layoutKind:"all_classes_grid", applicationScope:"all", variant:"period_rows_grouped", displayConfig:{}},
+  ];
+}

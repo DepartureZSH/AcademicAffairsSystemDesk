@@ -221,6 +221,18 @@ export const localApi = {
       path: "/v1/planning/tasks",
       body: { data, expected_revision: expectedRevision },
     }),
+  copyClassCourses: (sourceId: string, targetId: string, termId: string, expectedRevision: number) =>
+    sidecarRequest<{ counts: Record<string, number>; revision: number }>({
+      method: 'POST', path: '/v1/planning/copy-class',
+      body: { source_id: sourceId, target_id: targetId, term_id: termId, expected_revision: expectedRevision },
+    }),
+  saveCourseArrangement: (data: Record<string, unknown>, lessons: Record<string, unknown>[], expectedRevision: number) =>
+    sidecarRequest<{ task: EntityRecord; lessons: EntityRecord[]; revision: number }>({
+      method: 'PUT', path: '/v1/planning/arrangement',
+      body: { data, lessons, expected_revision: expectedRevision },
+    }),
+  setCourseScheduled: (homeroomId: string, subjectId: string, termId: string, scheduled: boolean, expectedRevision: number) =>
+    sidecarRequest<{revision: number}>({method:'POST', path:'/v1/planning/course-status', body:{homeroom_id:homeroomId,subject_id:subjectId,term_id:termId,scheduled,expected_revision:expectedRevision}}),
   validateProject: () =>
     sidecarRequest<PreflightValidation>({
       method: "POST",

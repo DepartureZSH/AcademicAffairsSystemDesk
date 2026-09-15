@@ -14,9 +14,10 @@ from collections.abc import Callable, Sequence
 from typing import Any, Mapping
 
 from .schema import MIGRATIONS, SCHEMA_V1, SCHEMA_VERSION
+from stt_desktop.lesson_config import parse_lesson_config, parse_task_config
 
 FORMAT_VERSION = 1
-APP_VERSION = "0.1.5"
+APP_VERSION = "0.2.10"
 ALGORITHM_PROTOCOL_VERSION = "1"
 
 
@@ -93,6 +94,8 @@ class EntitySpec:
     order_by: str
 
 
+LEDGER_TEMPLATE_TYPES = frozenset({"teacher", "homeroom", "room_type"})
+
 ENTITY_SPECS: dict[str, EntitySpec] = {
     "academic_year": EntitySpec(
         "academic_years", frozenset({"name", "start_date", "end_date"}), frozenset({"name"}), "name"
@@ -119,7 +122,7 @@ ENTITY_SPECS: dict[str, EntitySpec] = {
         "grades", frozenset({"name", "code", "sort_order"}), frozenset({"name"}), "sort_order, name"
     ),
     "teacher": EntitySpec(
-        "teachers", frozenset({"employee_no", "name", "department", "status"}), frozenset({"name"}), "name"
+        "teachers", frozenset({"name", "department", "status"}), frozenset({"name"}), "name"
     ),
     "room_type": EntitySpec(
         "room_types", frozenset({"name", "code", "description"}), frozenset({"name"}), "name"
@@ -135,7 +138,7 @@ ENTITY_SPECS: dict[str, EntitySpec] = {
     ),
     "subject": EntitySpec(
         "subjects",
-        frozenset({"name", "code", "category", "default_duration_slots", "requires_special_room"}),
+        frozenset({"name", "code", "category", "default_duration_slots", "default_duration_minutes", "requires_special_room"}),
         frozenset({"name"}),
         "name",
     ),
@@ -147,13 +150,13 @@ ENTITY_SPECS: dict[str, EntitySpec] = {
     ),
     "teaching_task": EntitySpec(
         "teaching_tasks",
-        frozenset({"term_id", "course_plan_id", "homeroom_id", "subject_id", "primary_teacher_id", "weekly_slots", "duration_slots", "required_room_type", "fixed_room_id", "status", "week_bits", "day_bits"}),
+        frozenset({"term_id", "course_plan_id", "homeroom_id", "subject_id", "primary_teacher_id", "weekly_slots", "duration_slots", "required_room_type", "fixed_room_id", "status", "week_bits", "day_bits", "planning_config"}),
         frozenset({"homeroom_id", "subject_id", "weekly_slots"}),
         "homeroom_id, subject_id",
     ),
     "task_lesson": EntitySpec(
         "task_lessons",
-        frozenset({"teaching_task_id", "lesson_index", "duration_slots", "source_id", "week_bits", "day_bits", "label", "enabled"}),
+        frozenset({"teaching_task_id", "lesson_index", "duration_slots", "source_id", "week_bits", "day_bits", "label", "enabled", "planning_config"}),
         frozenset({"teaching_task_id", "lesson_index"}),
         "teaching_task_id, lesson_index",
     ),
@@ -410,7 +413,10 @@ class ProjectRepository:
         expected_revision: int,
     ) -> tuple[dict[str, Any], int]:
         spec = self._entity_spec(entity_type)
-        unknown = sorted(set(payload) - spec.fields - {"id"})
+        virtual_fields = {"export_template_id"} if entity_type in LEDGER_TEMPLATE_TYPES else set()
+        if entity_type == "room" and "export_template_id" in payload:
+            raise ProjectError("教室的导出模板沿用教室类型，请在教室类型中设置")
+        unknown = sorted(set(payload) - spec.fields - {"id"} - virtual_fields)
         if unknown:
             raise ProjectError(f"{entity_type} 包含未知字段: {', '.join(unknown)}")
         entity_id = str(payload.get("id") or uuid7())
@@ -432,10 +438,10 @@ class ProjectRepository:
         self._begin_write(expected_revision)
         try:
             if existing:
-                assignments = ", ".join(f"{key} = ?" for key in values)
+                assignments = "".join(f"{key} = ?, " for key in values)
                 parameters = [*values.values(), now, entity_id]
                 self.connection.execute(
-                    f"UPDATE {spec.table} SET {assignments}, updated_at = ? WHERE id = ?",  # noqa: S608
+                    f"UPDATE {spec.table} SET {assignments}updated_at = ? WHERE id = ?",  # noqa: S608
                     parameters,
                 )
             else:
@@ -446,6 +452,8 @@ class ProjectRepository:
                     f"INSERT INTO {spec.table} ({', '.join(columns)}) VALUES ({placeholders})",  # noqa: S608
                     parameters,
                 )
+            if "export_template_id" in payload:
+                self._save_ledger_template(entity_type, entity_id, payload["export_template_id"], now)
             revision = self._commit_write(now)
         except Exception:
             self.connection.execute("ROLLBACK")
@@ -599,17 +607,63 @@ class ProjectRepository:
         self._write_manifest_revision(revision, now)
         return counts, revision
 
+    def _save_ledger_template(
+        self, entity_type: str, entity_id: str, template_id: Any, now: str
+    ) -> None:
+        """Save the ledger's virtual field in the existing assignment table, atomically."""
+        if template_id is not None and (not isinstance(template_id, str) or not template_id):
+            raise ProjectError("导出模板须为有效模板，恢复默认请传入 null")
+        if template_id is not None:
+            template = self.get_entity("bell_schedule", template_id)
+            if not template:
+                raise ProjectError("所选导出模板不存在，请刷新后重新选择")
+            metadata = json.loads(template["display_config"] or "{}").get("_web_template", {})
+            if metadata.get("template_kind") == "special":
+                raise ProjectError("台账导出模板请选择普通课表模板，不能使用总课表模板")
+        existing = self.connection.execute(
+            "SELECT id FROM timetable_template_assignments WHERE entity_type = ? AND entity_id = ?",
+            (entity_type, entity_id),
+        ).fetchone()
+        if template_id is None:
+            self.connection.execute(
+                "DELETE FROM timetable_template_assignments WHERE entity_type = ? AND entity_id = ?",
+                (entity_type, entity_id),
+            )
+        elif existing:
+            self.connection.execute(
+                "UPDATE timetable_template_assignments SET bell_schedule_id = ?, updated_at = ? WHERE id = ?",
+                (template_id, now, existing["id"]),
+            )
+        else:
+            self.connection.execute(
+                "INSERT INTO timetable_template_assignments "
+                "(id, entity_type, entity_id, bell_schedule_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (uuid7(), entity_type, entity_id, template_id, now, now),
+            )
+
     def delete_entity(self, entity_type: str, entity_id: str, expected_revision: int) -> int:
         spec = self._entity_spec(entity_type)
         now = utc_now()
         self._begin_write(expected_revision)
         try:
+            if entity_type == "teaching_task":
+                lesson_ids = [row[0] for row in self.connection.execute("SELECT id FROM task_lessons WHERE teaching_task_id = ?", (entity_id,))]
+                references = [entity_id, *lesson_ids]
+                if any(any(item in row[0] for item in references) for row in self.connection.execute("SELECT parameters FROM constraints")):
+                    raise ProjectError("授课任务或课次仍被约束引用，请先解除引用")
+                for lesson_id in lesson_ids:
+                    self.connection.execute("DELETE FROM availability_rules WHERE entity_type = 'lesson' AND entity_id = ?", (lesson_id,))
             cursor = self.connection.execute(
                 f"DELETE FROM {spec.table} WHERE id = ?",  # noqa: S608 - allowlisted
                 (entity_id,),
             )
             if cursor.rowcount != 1:
                 raise ProjectError(f"未找到要删除的 {entity_type}: {entity_id}")
+            if entity_type in LEDGER_TEMPLATE_TYPES:
+                self.connection.execute(
+                    "DELETE FROM timetable_template_assignments WHERE entity_type = ? AND entity_id = ?",
+                    (entity_type, entity_id),
+                )
             revision = self._commit_write(now)
         except Exception:
             self.connection.execute("ROLLBACK")
@@ -630,6 +684,8 @@ class ProjectRepository:
             "bell_schedule": ("display_config",),
             "time_slot": ("display_config",),
             "constraint": ("parameters",),
+            "task_lesson": ("planning_config",),
+            "teaching_task": ("planning_config",),
         }
         normalized = dict(values)
         for field in json_fields.get(entity_type, ()):
@@ -642,11 +698,23 @@ class ProjectRepository:
                 raise ProjectError(f"{entity_type}.{field} 必须是有效 JSON") from exc
             if not isinstance(parsed, dict):
                 raise ProjectError(f"{entity_type}.{field} 必须是 JSON 对象")
+            if field == 'planning_config' and entity_type == 'task_lesson':
+                try:
+                    parsed = parse_lesson_config(parsed)
+                except ValueError as exc:
+                    raise ProjectError(str(exc)) from exc
+            if field == 'planning_config' and entity_type == 'teaching_task':
+                try:
+                    parsed = parse_task_config(parsed)
+                except ValueError as exc:
+                    raise ProjectError(str(exc)) from exc
             normalized[field] = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
         return normalized
 
     def _validate_timetable_template_assignment(self, values: dict[str, Any]) -> None:
         entity_type = str(values.get("entity_type") or "")
+        if entity_type == "room":
+            raise ProjectError("教室的导出模板沿用教室类型，请在教室类型中设置")
         entity_id = values.get("entity_id")
         if entity_type == "all":
             return

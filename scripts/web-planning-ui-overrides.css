@@ -1,0 +1,88 @@
+.web-planning { min-width: 0; font-family: "Inter", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif; }
+section.web-planning { padding: 20px; }
+.web-planning .subject-import-card > div:first-child { display: grid; gap: 6px; }
+.web-planning .subject-import-card span { color: #62736c; font-size: 13px; line-height: 1.6; }
+.web-planning .class-flow-progress { width: auto; min-width: 100px; border: 0; border-radius: 0; }
+.web-planning button, .web-planning input, .web-planning select { font-family: inherit; font-size: 14px; }
+.web-planning input:not([type=checkbox]), .web-planning select { box-sizing: border-box; min-width: 0; min-height: 38px; border: 1px solid #d8e3de; border-radius: 6px; background: #fff; color: #30483f; padding: 8px 10px; }
+.web-planning .planning-filter-actions, .web-planning .planning-dialog-actions, .web-planning .course-table-actions, .web-planning .master-summary { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.web-planning .planning-filter-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.web-planning .planning-filter-heading, .web-planning .class-planning-view-switch > div:first-child { display: grid; gap: 6px; }
+.web-planning .planning-filter-heading span, .web-planning .class-planning-view-switch span, .web-planning .planning-help { color: #62736c; font-size: 13px; line-height: 1.6; }
+.web-planning .class-planning-view-switch { justify-content: space-between; align-items: center; gap: 16px; }
+.web-planning .planning-mode-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 8px; background: #edf3ef; }
+.web-planning .planning-mode-tabs button { padding: 8px 16px; border: 0; border-radius: 5px; background: transparent; color: #52665d; }
+.web-planning .planning-mode-tabs button.active { background: #fff; color: #287d6d; box-shadow: 0 1px 3px #20372f22; }
+.web-planning .planning-table-scroll { overflow-x: auto; border: 1px solid #d8e3de; border-radius: 8px; }
+.web-planning .class-planning-table { width: 100%; min-width: 650px; border-collapse: collapse; table-layout: fixed; }
+.web-planning .class-planning-table th, .web-planning .class-planning-table td { text-align: left; vertical-align: middle; border-bottom: 1px solid #e4ebe7; overflow-wrap: anywhere; }
+.web-planning .class-planning-table th { background: #eff5f1; }
+.web-planning.planning-guided-page .class-planning-table { display: table; }
+.web-planning.planning-guided-page .class-planning-table thead { display: table-header-group; }
+.web-planning.planning-guided-page .class-planning-table tbody { display: table-row-group; }
+.web-planning.planning-guided-page .class-planning-table tr { display: table-row; }
+.web-planning.planning-guided-page .class-planning-table th,
+.web-planning.planning-guided-page .class-planning-table td { display: table-cell; width: auto; text-align: left; }
+.web-planning.planning-guided-page .class-planning-table tr::before,
+.web-planning.planning-guided-page .class-planning-table td::before { display: none; }
+.web-planning.planning-guided-page .subject-import-card { flex-direction: row; align-items: center; }
+.web-planning.planning-guided-page .subject-import-card select { flex: 0 1 230px; width: auto; }
+.web-planning.planning-guided-page .subject-import-card button { width: auto; flex: 0 0 auto; }
+.web-planning .course-table-cell-button { width: 100%; border: 0; background: transparent; color: #287d6d; text-align: left; }
+.web-planning .subject-plan-row em, .web-planning .class-list-item em { font-style: normal; }
+.web-planning .class-list-empty { padding: 32px 16px; color: #738279; text-align: center; }
+.web-planning.subject-editor-mask { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 24px; background: #20372f66; width: auto; max-width: none; height: auto; max-height: none; margin: 0; border: 0; border-radius: 0; box-sizing: border-box; }
+.web-planning.planning-guided-page.subject-editor-mask { grid-template-columns: minmax(0,1fr); }
+.web-planning.planning-guided-page.subject-editor-mask .subject-editor-dialog { grid-column: 1; place-self: center; }
+.web-planning.subject-editor-mask .subject-editor-dialog { box-sizing: border-box; width: min(720px,100%); max-width: 720px; max-height: calc(100dvh - 48px); overflow: auto; padding: 0 20px 20px; border: 0; border-radius: 8px; background: white; }
+.web-planning .subject-editor-dialog-header { position: sticky; top: 0; z-index: 5; background: #fff; }
+.web-planning .task-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.web-planning .task-editor-heading button { display: inline-flex; align-items: center; gap: 6px; }
+.web-planning .task-switcher { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.web-planning .task-switcher-item { width: auto; min-width: 130px; border-radius: 6px; padding: 10px; border: 1px solid #d8e3de; background: #fff; }
+.web-planning .task-switcher-item.active { background: #eef7f3; border-color: #287d6d; }
+.web-planning .detail-form fieldset { display: grid; gap: 16px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.web-planning .detail-form label { display: grid; gap: 7px; font-size: 14px; color: #52665d; }
+.web-planning .detail-form .inline-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.web-planning .planning-import-card { display: flex; gap: 10px; align-items: end; padding: 12px; border-radius: 6px; background: #f5f8f6; }
+.web-planning .planning-import-card label { flex: 1; min-width: 0; }
+.web-planning .planning-filter-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; max-height: 45vh; overflow: auto; padding: 16px 0; }
+.web-planning .planning-filter-options label { display: flex; gap: 10px; align-items: center; padding: 10px; border: 1px solid #d8e3de; border-radius: 6px; }
+.web-planning input[type=checkbox] { appearance: auto; width: 16px; height: 16px; flex: 0 0 16px; margin: 0; accent-color: #287d6d; }
+@media(max-width: 600px) { .web-planning.subject-editor-mask { padding: 10px; } .web-planning.subject-editor-mask .subject-editor-dialog { max-height: calc(100dvh - 20px); } }
+
+/* Desktop reading density: keep the web flow, with readable text and real card gutters. */
+section.web-planning.planning-guided-page { padding: 24px; background: #fff; border: 1px solid #dfe7e2; border-radius: 12px; font-size: 14px; line-height: 1.6; }
+.web-planning.planning-guided-page .planning-class-workbench { gap: 20px; border: 0; border-radius: 0; box-shadow: none; }
+.web-planning.planning-guided-page .official-class-flow { padding: 20px; gap: 16px; border-radius: 10px; }
+.web-planning .official-class-flow h3 { margin: 10px 0 6px; font-size: 18px; line-height: 1.5; font-weight: 600; }
+.web-planning .official-class-flow p { font-size: 14px; line-height: 1.7; color: #52665d; }
+.web-planning .official-flow-badge { font-size: 12px; line-height: 1.6; padding: 4px 10px; font-weight: 600; }
+.web-planning.planning-guided-page .official-flow-steps { gap: 10px; border: 0; background: transparent; box-shadow: none; }
+.web-planning.planning-guided-page .official-flow-steps > div { padding: 12px; gap: 10px; border: 0; background: transparent; box-shadow: none; }
+.web-planning.planning-guided-page .official-flow-steps > div.active { border: 0; background: #fff4e2; box-shadow: none; }
+.web-planning .official-flow-steps strong { font-size: 14px; line-height: 1.5; font-weight: 600; }
+.web-planning .official-flow-steps small { font-size: 12px; line-height: 1.6; margin-top: 3px; }
+.web-planning .class-flow-progress { min-width: 120px; padding: 12px; background: #f5f8f6; border-radius: 8px; }
+.web-planning .class-flow-progress strong { font-size: 24px; line-height: 1.3; font-weight: 600; font-variant-numeric: tabular-nums; }
+.web-planning .class-flow-progress span { font-size: 12px; line-height: 1.6; }
+.web-planning .planning-filter-bar { padding: 16px 20px; border-radius: 10px; }
+.web-planning .planning-filter-heading strong { font-size: 15px; font-weight: 600; }
+/* Toolbar actions must not inherit the global form-submit top margin. */
+.web-planning .planning-filter-actions > button,
+.web-planning .class-overview-filters > button { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: 40px; min-height: 40px; margin: 0; padding: 0 14px; gap: 6px; line-height: 20px; white-space: nowrap; }
+.web-planning.planning-guided-page .planning-class-panel { padding: 20px; border: 1px solid #dfe7e2; border-radius: 10px; background: #fff; }
+.web-planning .table-title h3 { margin: 0 0 6px; font-size: 17px; line-height: 1.5; font-weight: 600; }
+.web-planning .table-title span { font-size: 13px; line-height: 1.6; }
+.web-planning .class-overview-filters { margin: 20px 0 16px; gap: 10px; }
+.web-planning .class-filter-count { font-size: 13px; }
+.web-planning .class-list-empty { margin: 0; padding: 48px 20px; font-size: 14px; line-height: 1.7; }
+.web-planning .class-planning-view-switch, .web-planning .subject-import-card { padding: 16px 20px; border-radius: 10px; }
+.web-planning .planning-class-page-heading { margin-bottom: 20px; }
+.web-planning .subject-editor-dialog-header { padding: 18px 0; font-size: 15px; }
+@media(max-width: 700px) { section.web-planning.planning-guided-page { padding: 16px; } .web-planning.planning-guided-page .planning-class-panel, .web-planning.planning-guided-page .official-class-flow { padding: 16px; } }
+
+/* Align the count with the input/button row, not its text baseline. */
+.web-planning .table-column-filters > span { display: flex; align-items: center; min-height: 40px; line-height: 20px; margin: 0; }
+.web-planning .table-column-filters > button { height: 40px; margin: 0; padding-block: 0; }
+.web-planning .planning-dialog-actions > button { margin: 0; }

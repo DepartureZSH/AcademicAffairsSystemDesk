@@ -33,6 +33,9 @@ from stt_desktop.storage import (
 )
 from stt_desktop.storage.schema import SCHEMA_VERSION
 from stt_desktop.transfers import ExportService, ImportService
+from stt_desktop.timetable_settings import TimetableSettingsService
+from stt_desktop.planning import copy_class_courses
+from stt_desktop.lesson_planning import save_course_arrangement, set_course_scheduled
 
 PROTOCOL_VERSION = "1"
 DEFAULT_ALLOWED_ORIGINS = frozenset(
@@ -54,6 +57,27 @@ class EntityWriteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(ge=0)
     data: dict[str, Any]
+
+
+class ClassCourseCopyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_id: str
+    target_id: str
+    term_id: str
+    expected_revision: int = Field(ge=0)
+
+
+class CourseArrangementRequest(EntityWriteRequest):
+    lessons: list[dict[str, Any]] = Field(max_length=500)
+
+
+class CourseStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    homeroom_id: str
+    subject_id: str
+    term_id: str
+    scheduled: bool
+    expected_revision: int = Field(ge=0)
 
 
 class SchedulingRoundRequest(BaseModel):
@@ -235,6 +259,8 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.sidecar = state
+    from stt_desktop.agent.routes import build_agent_router
+    app.include_router(build_agent_router(state, workspace))
 
     @app.middleware("http")
     async def secure_local_request(request: Request, call_next):
@@ -454,6 +480,23 @@ def create_app(
         backup_warning = _daily_backup_warning(project, workspace)
         return {"item": item, "revision": revision, "backupWarning": backup_warning}
 
+    @app.post("/v1/planning/copy-class")
+    async def copy_class_configuration(request: ClassCourseCopyRequest) -> dict[str, Any]:
+        project = state.require_project()
+        counts, revision = copy_class_courses(project, request.source_id, request.target_id,
+                                              request.term_id, request.expected_revision)
+        return {"counts": counts, "revision": revision,
+                "backupWarning": _daily_backup_warning(project, workspace)}
+
+    @app.post("/v1/planning/course-status")
+    async def save_course_status(request: CourseStatusRequest) -> dict[str, Any]:
+        project = state.require_project()
+        if project.revision != request.expected_revision:
+            raise RevisionConflictError(request.expected_revision, project.revision)
+        BackupService(project, workspace).create_backup(reason="pre-destructive")
+        revision = set_course_scheduled(project, request.homeroom_id, request.subject_id, request.term_id, request.scheduled, request.expected_revision)
+        return {"revision": revision}
+
     @app.put("/v1/planning/tasks")
     async def save_teaching_task_bundle(request: EntityWriteRequest) -> dict[str, Any]:
         project = state.require_project()
@@ -467,6 +510,17 @@ def create_app(
             "revision": revision,
             "backupWarning": backup_warning,
         }
+
+    @app.put('/v1/planning/arrangement')
+    async def save_arrangement(request: CourseArrangementRequest) -> dict[str, Any]:
+        project = state.require_project()
+        if project.revision != request.expected_revision:
+            raise RevisionConflictError(request.expected_revision, project.revision)
+        if request.data.get('id'):
+            BackupService(project, workspace).create_backup(reason='pre-destructive')
+        task, lessons, revision = save_course_arrangement(project, request.data, request.lessons, request.expected_revision)
+        return {'task': task, 'lessons': lessons, 'revision': revision,
+                'backupWarning': _daily_backup_warning(project, workspace)}
 
     @app.delete("/v1/data/{entity_type}/{entity_id}")
     async def delete_entity(
@@ -504,6 +558,24 @@ def create_app(
         project = state.require_project()
         result = await scheduling_jobs.cancel_round(round_id)
         return {"round": result, "revision": project.revision}
+
+    @app.get("/v1/timetable/settings")
+    async def timetable_settings() -> dict[str, Any]:
+        return TimetableSettingsService(state.require_project()).read()
+
+    @app.put("/v1/timetable/templates")
+    async def save_timetable_template(request: EntityWriteRequest) -> dict[str, Any]:
+        project = state.require_project()
+        template = request.data.get("template")
+        if isinstance(template, dict) and template.get("id"):
+            BackupService(project, workspace).create_backup(reason="pre-destructive")
+        return TimetableSettingsService(project).save(request.data, request.expected_revision)
+
+    @app.delete("/v1/timetable/templates/{template_id}")
+    async def delete_timetable_template(template_id: str, expected_revision: int = Query(ge=0)) -> dict[str, Any]:
+        project = state.require_project()
+        BackupService(project, workspace).create_backup(reason="pre-destructive")
+        return TimetableSettingsService(project).delete(template_id, expected_revision)
 
     @app.get("/v1/scheduling/sessions")
     async def list_scheduling_sessions() -> dict[str, Any]:

@@ -26,7 +26,7 @@ const entityOptions = [
   ["course_plan", "课程计划"], ["teaching_task", "教学任务"],
 ];
 const targetFields: Record<string, Array<[string, string]>> = {
-  teacher: [["employee_no", "工号"], ["name", "姓名（必填）"], ["department", "部门"], ["status", "状态"]],
+  teacher: [["name", "姓名（必填）"], ["department", "部门"], ["status", "状态"]],
   subject: [["name", "科目名称（必填）"], ["code", "代码"], ["category", "分类"], ["default_duration_slots", "默认连续课时"], ["requires_special_room", "需要专用教室"]],
   grade: [["name", "年级名称（必填）"], ["code", "代码"], ["sort_order", "排序"]],
   room_type: [["name", "类型名称（必填）"], ["code", "代码"], ["description", "说明"]],
@@ -164,8 +164,8 @@ onMounted(loadHistory);
 
 <template>
   <section class="module-view">
-    <div class="module-heading"><div><p class="eyebrow">LOCAL IMPORT</p><h2>CSV / Excel 批量导入</h2><p>原文件、预览、字段映射和确认结果只保存在当前本地项目。</p></div><span>Revision {{ revision }}</span></div>
-    <div class="invariant-banner"><strong>预览不写业务数据</strong><span>确认前重新校验文件哈希、字段和引用，并先创建完整备份；任一行失败则整批回滚。</span></div>
+    <div class="module-heading"><div><p class="eyebrow">快捷录入</p><h2>数据导入</h2><p>从表格批量导入教师、班级、课程等资料。</p></div><span>已自动保存</span></div>
+    <div class="invariant-banner"><strong>可以放心预览</strong><span>点击“确认导入”前不会改动项目；发现问题时会提示到具体行。</span></div>
     <p v-if="errorMessage" class="form-message error-copy">{{ errorMessage }}</p>
     <p v-if="notice" class="form-message notice-copy">{{ notice }}</p>
 
@@ -179,7 +179,7 @@ onMounted(loadHistory);
 
     <div v-if="preview" class="import-layout">
       <article class="panel data-panel">
-        <div class="panel-heading"><div><p class="eyebrow">FIELD MAPPING</p><h3>字段映射</h3></div><span>{{ preview.rowCount }} 行</span></div>
+        <div class="panel-heading"><div><p class="eyebrow">对应字段</p><h3>确认每列代表什么</h3></div><span>{{ preview.rowCount }} 行</span></div>
         <label v-if="preview.availableSheets.length > 1" class="mapping-sheet">工作表<select v-model="selectedSheet" @change="remap"><option v-for="item in preview.availableSheets" :key="item">{{ item }}</option></select></label>
         <div class="mapping-list">
           <label v-for="header in preview.headers" :key="header"><span>{{ header }}</span><select v-model="mapping[header]"><option value="">不导入</option><option v-for="[key, label] in targetFields[entityType]" :key="key" :value="key">{{ label }}</option></select></label>
@@ -188,7 +188,7 @@ onMounted(loadHistory);
       </article>
 
       <article class="panel preview-panel">
-        <div class="panel-heading"><div><p class="eyebrow">PREVIEW</p><h3>数据预览</h3></div><span :class="{ 'error-copy': preview.errors.length }">{{ preview.errors.length }} 错误 · {{ preview.warnings.length }} 警告</span></div>
+        <div class="panel-heading"><div><p class="eyebrow">导入预览</p><h3>请核对数据</h3></div><span :class="{ 'error-copy': preview.errors.length }">{{ preview.errors.length }} 个错误 · {{ preview.warnings.length }} 个提醒</span></div>
         <div class="preview-table-wrap"><table><thead><tr><th v-for="header in mappedColumns" :key="header">{{ header }}</th></tr></thead><tbody><tr v-for="(row, index) in preview.previewRows.slice(0, 20)" :key="index"><td v-for="header in mappedColumns" :key="header">{{ row[mapping[header]] }}</td></tr></tbody></table></div>
         <ul v-if="preview.errors.length" class="issue-list error-copy"><li v-for="item in preview.errors.slice(0, 20)" :key="item.row">第 {{ item.row }} 行：{{ item.messages.join('；') }}</li></ul>
         <ul v-if="preview.warnings.length" class="issue-list"><li v-for="item in preview.warnings.slice(0, 10)" :key="`${item.row}-${item.message}`">第 {{ item.row }} 行：{{ item.message }}</li></ul>
@@ -197,7 +197,7 @@ onMounted(loadHistory);
     </div>
 
     <article class="panel history-panel">
-      <div class="panel-heading"><div><p class="eyebrow">IMPORT HISTORY</p><h3>导入记录</h3></div><span>{{ history.length }} 次</span></div>
+      <div class="panel-heading"><div><p class="eyebrow">最近操作</p><h3>导入记录</h3></div><span>{{ history.length }} 次</span></div>
       <div class="data-list"><div v-for="item in history" :key="String(item.id)" class="data-row"><span><strong>{{ item.source_name }} · {{ item.status }}</strong><small>{{ item.created_at }} · {{ (item.summary as Record<string, unknown>).entityType }} · {{ (item.summary as Record<string, unknown>).rowCount }} 行</small></span><b v-if="item.status === 'confirmed'">已写入</b><b v-else>未写入</b></div></div>
     </article>
   </section>
