@@ -19,6 +19,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use tauri::{AppHandle, Manager, RunEvent, State};
+use tauri_plugin_opener::OpenerExt;
 
 const PROTOCOL_VERSION: &str = "1";
 const SIDECAR_READY_TIMEOUT: Duration = Duration::from_secs(30);
@@ -418,6 +419,14 @@ fn open_purchase_page(app: AppHandle) -> Result<purchase::PurchaseLaunchResult, 
     purchase::open(&app, &runtime_root(&app)?)
 }
 
+#[tauri::command]
+fn open_registration_page(app: AppHandle) -> Result<(), String> {
+    // Fixed public destination: no account data or caller-supplied URLs.
+    app.opener()
+        .open_url("https://shiyi.karios.site", None::<&str>)
+        .map_err(|_| "无法打开注册页面，请使用浏览器访问 https://shiyi.karios.site".into())
+}
+
 impl Drop for SidecarRuntime {
     fn drop(&mut self) {
         self.shutdown_and_wait();
@@ -650,6 +659,7 @@ pub fn run() {
             auth_sign_out,
             license_activate,
             open_purchase_page,
+            open_registration_page,
             start_sidecar,
             sidecar_request,
             stop_sidecar,

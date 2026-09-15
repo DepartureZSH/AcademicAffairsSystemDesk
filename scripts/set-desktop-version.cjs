@@ -13,6 +13,8 @@ for (const file of ['apps/desktop/package.json','apps/desktop/package-lock.json'
   } else if (file.endsWith('package-lock.json')) {
     const lock = JSON.parse(text); lock.version = version; lock.packages[''].version = version;
     updated = JSON.stringify(lock, null, 2) + '\n';
+  } else if (file.endsWith('Cargo.toml') || file === 'pyproject.toml') {
+    updated = text.replace(/^(version = ")[^"]+(")/m, `$1${version}$2`);
   } else {
     updated = text.replaceAll(previous,version);
   }

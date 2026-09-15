@@ -245,6 +245,9 @@ nav:where(:not(.web-course-editor *)) { display: grid; gap: 7px; }
 .sidebar-toggle:where(:not(.web-course-editor *)) { margin-left: auto; border: 0; border-radius: 6px; padding: 5px; display: grid; place-items: center; background: transparent; color: #afbec2; }
 .sidebar-toggle:hover:where(:not(.web-course-editor *)) { background: rgba(255,255,255,.08); color: #fff; }
 .sidebar nav:where(:not(.web-course-editor *)) { gap: 4px; }
+.sidebar .primary-nav { min-height: 0; overflow-y: auto; }
+.sidebar-bottom { margin-top: auto; flex-shrink: 0; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.12); }
+.sidebar-bottom .local-status { margin-top: 8px; }
 .nav-item:where(:not(.web-course-editor *)) { justify-content: flex-start; gap: 12px; min-height: 42px; border-radius: 7px; padding: 10px 12px; white-space: nowrap; }
 .nav-item svg:where(:not(.web-course-editor *)) { flex: 0 0 auto; }
 .nav-item.active:where(:not(.web-course-editor *)) { background: #2f7d6d; box-shadow: none; color: #fff; }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import { confirm, open, save } from "@tauri-apps/plugin-dialog";
 import {
   Activity,
@@ -53,6 +54,8 @@ const navItems: NavItem[] = [
   { key: "planning", label: "课程计划", icon: NotebookPen },
   { key: "constraints", label: "约束配置", icon: SlidersHorizontal },
   { key: "runs", label: "排课运行", icon: Activity },
+];
+const aiNavItems: NavItem[] = [
   { key: "ai-settings", label: "AI 设置", icon: SlidersHorizontal },
   { key: "agent", label: "AI 助手", icon: NotebookPen },
 ];
@@ -252,6 +255,17 @@ async function openPurchasePage() {
     gateError.value = String(error);
   } finally {
     gateBusy.value = false;
+  }
+}
+
+async function openRegistrationPage() {
+  gateError.value = "";
+  gateNotice.value = "";
+  try {
+    await invoke("open_registration_page");
+    gateNotice.value = "已在浏览器打开注册页面，注册完成后请返回这里登录。";
+  } catch {
+    gateError.value = "无法打开浏览器，请访问 https://shiyi.karios.site 注册。";
   }
 }
 
@@ -577,7 +591,7 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
         </button>
       </div>
 
-      <nav aria-label="主要功能">
+      <nav class="primary-nav" aria-label="主要功能">
         <button
           v-for="item in navItems"
           :key="item.key"
@@ -592,9 +606,20 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
         </button>
       </nav>
 
+      <div class="sidebar-bottom">
+        <nav aria-label="AI 功能">
+          <button v-for="item in aiNavItems" :key="item.key" class="nav-item"
+            :class="{ active: item.key === activeView }"
+            :disabled="!gate?.canStartSidecar || !currentProject"
+            :title="sidebarCollapsed ? item.label : undefined" @click="navigate(item.key)">
+            <component :is="item.icon" :size="19" aria-hidden="true" />
+            <span class="nav-label">{{ item.label }}</span>
+          </button>
+        </nav>
       <div class="local-status" :title="runtime?.running ? '本地服务已连接' : '本地服务未启动'">
         <span class="status-dot" :class="runtime?.running ? 'online' : 'offline'"></span>
         <span class="nav-label">{{ runtime?.running ? "数据保存在本机" : gate?.license.active ? "正在准备" : "等待登录" }}</span>
+      </div>
       </div>
     </aside>
 
@@ -667,7 +692,7 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
             </button>
           </form>
           <div class="auth-actions">
-            <button class="link-button" @click="authMode = authMode === 'signup' ? 'signin' : 'signup'">{{ authMode === "signup" ? "返回登录" : "注册账号" }}</button>
+            <button v-if="authMode === 'signin'" type="button" class="link-button" :disabled="gateBusy" @click="openRegistrationPage">去注册</button>
             <button class="link-button" @click="authMode = authMode === 'reset' || authMode === 'recover' ? 'signin' : 'reset'">{{ authMode === "reset" || authMode === "recover" ? "返回登录" : "忘记密码" }}</button>
           </div>
         </article>
