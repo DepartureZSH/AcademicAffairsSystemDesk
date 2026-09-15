@@ -2,7 +2,7 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { onMounted, ref } from "vue";
 
-const version = ref("0.2.7");
+const version = ref("0.2.8");
 
 onMounted(async () => {
   try {

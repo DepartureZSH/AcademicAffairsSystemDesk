@@ -57,7 +57,7 @@ if ([IO.Path]::GetExtension($resolvedInstaller) -in @('.exe', '.msi')) {
     try {
         & 7z.exe x $resolvedInstaller "-o$extractDirectory" -y | Out-Null
         if ($LASTEXITCODE -ne 0) { throw '无法解包 Windows 安装包。' }
-        $innerNames = @('karios-stt-desktop.exe', 'stt-sidecar.exe')
+        $innerNames = @('时奕排课入口.exe', '时奕排课后台服务.exe')
         if ([IO.Path]::GetExtension($resolvedInstaller) -eq '.msi') {
             # 7-Zip 会透明展开 MSI 内嵌的 app.cab。
             $innerNames = @('Path', 'Bin_stt_sidecar.exe')

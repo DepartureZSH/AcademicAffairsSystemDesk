@@ -1,7 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "时奕教务排课",
-  "version": "0.2.7",
+  "mainBinaryName": "时奕排课入口",
+  "version": "0.2.8",
   "identifier": "tech.karios.stt.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -41,7 +42,7 @@
     "active": true,
     "targets": ["nsis", "msi"],
     "icon": ["icons/icon.ico"],
-    "externalBin": ["binaries/stt-sidecar"],
+    "externalBin": ["binaries/时奕排课后台服务"],
     "resources": {
       "../../../config/services.yaml": "config/services.yaml",
       "../../../LICENSE": "legal/LICENSE.txt",

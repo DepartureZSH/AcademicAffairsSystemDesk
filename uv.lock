@@ -225,7 +225,7 @@ wheels = [
 
 [[package]]
 name = "karios-stt-desktop"
-version = "0.2.7"
+version = "0.2.8"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

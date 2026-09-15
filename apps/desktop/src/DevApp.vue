@@ -16,7 +16,7 @@ const aiPages = [{id:'ai-settings',label:'AI 设置',icon:SlidersHorizontal},{id
 <template>
   <div class="browser-preview">
     <header class="browser-preview-header">
-      <img src="/app-icon.png" alt="" width="32" height="32" /><strong>时奕教务排课</strong><span>本地开发预览 · v0.2.7</span>
+      <img src="/app-icon.png" alt="" width="32" height="32" /><strong>时奕教务排课</strong><span>本地开发预览 · v0.2.8</span>
       <small>独立测试项目 · 修改自动保留在本机（模板需点击保存）</small>
     </header>
     <div class="browser-preview-body">

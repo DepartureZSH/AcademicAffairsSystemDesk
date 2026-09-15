@@ -322,6 +322,25 @@ def test_release_desktop_uses_windows_gui_subsystem() -> None:
     assert "$subsystem -ne 2" in subsystem_check
 
 
+def test_windows_entry_names_and_uninstall_registration_are_localized() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads((root / "apps/desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
+    assert config["mainBinaryName"] == "时奕排课入口"
+    assert config["bundle"]["externalBin"] == ["binaries/时奕排课后台服务"]
+    windows_config = json.loads((root / "apps/desktop/src-tauri/tauri.windows.conf.json").read_text(encoding="utf-8"))
+    assert windows_config["bundle"]["externalBin"] == []
+    assert windows_config["bundle"]["resources"]["binaries/时奕排课后台服务-x86_64-pc-windows-msvc.exe"] == "时奕排课后台服务.exe"
+    installer = (root / "apps/desktop/src-tauri/nsis/installer.nsi").read_text(encoding="utf-8")
+    assert 'WriteUninstaller "$INSTDIR\\卸载.exe"' in installer
+    uninstall_registration = next(line for line in installer.splitlines() if '"UninstallString"' in line and 'WriteRegStr' in line)
+    assert '卸载.exe' in uninstall_registration
+    assert 'uninstall.exe' not in uninstall_registration
+    assert 'Delete "$INSTDIR\\stt-sidecar.exe"' in installer
+    assert 'WriteRegStr SHCTX "${UNINSTKEY}" "MainBinaryName" "${MAINBINARYNAME}.exe"' in installer
+    runtime = (root / "apps/desktop/src-tauri/src/lib.rs").read_text(encoding="utf-8")
+    assert '"时奕排课后台服务.exe"' in runtime
+
+
 def test_frozen_sidecar_windows_metadata_matches_tauri_product() -> None:
     root = Path(__file__).resolve().parents[1]
     config = json.loads(
@@ -338,7 +357,7 @@ def test_frozen_sidecar_windows_metadata_matches_tauri_product() -> None:
     assert "StringStruct('ProductName', '时奕教务排课')" in rendered
     assert f"StringStruct('ProductVersion', '{config['version']}')" in rendered
     assert "StringStruct('CompanyName', '杭州格若时科技有限公司')" in rendered
-    assert "StringStruct('OriginalFilename', 'stt-sidecar.exe')" in rendered
+    assert "StringStruct('OriginalFilename', '时奕排课后台服务.exe')" in rendered
 
     build_script = (root / "scripts" / "build-sidecar.ps1").read_text(encoding="utf-8")
     assert "generate_windows_version_info.py" in build_script

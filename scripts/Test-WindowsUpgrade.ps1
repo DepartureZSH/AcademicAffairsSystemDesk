@@ -185,8 +185,8 @@ try {
     if ($upgradeExitCode -notin @(0, 3010)) { throw "升级失败，退出码 $upgradeExitCode。" }
     $installedEntry = Assert-InstalledVersion -ExpectedVersion $current.Version -Context '升级后检查'
     $installDirectory = Resolve-InstallDirectory -Entry $installedEntry
-    $mainExecutable = Get-ChildItem -LiteralPath $installDirectory -Filter 'karios-stt-desktop.exe' -File -Recurse | Select-Object -First 1
-    $sidecarExecutable = Get-ChildItem -LiteralPath $installDirectory -Filter 'stt-sidecar.exe' -File -Recurse | Select-Object -First 1
+    $mainExecutable = Get-ChildItem -LiteralPath $installDirectory -Filter '时奕排课入口.exe' -File -Recurse | Select-Object -First 1
+    $sidecarExecutable = Get-ChildItem -LiteralPath $installDirectory -Filter '时奕排课后台服务.exe' -File -Recurse | Select-Object -First 1
     if (-not $mainExecutable -or -not $sidecarExecutable) { throw '升级后缺少主程序或 Sidecar。' }
     $mainHash = (Get-FileHash -LiteralPath $mainExecutable.FullName -Algorithm SHA256).Hash
     $sidecarHash = (Get-FileHash -LiteralPath $sidecarExecutable.FullName -Algorithm SHA256).Hash

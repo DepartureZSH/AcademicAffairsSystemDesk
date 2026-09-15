@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$SidecarPath = 'apps/desktop/src-tauri/binaries/stt-sidecar-x86_64-pc-windows-msvc.exe',
+    [string]$SidecarPath = 'apps/desktop/src-tauri/binaries/时奕排课后台服务-x86_64-pc-windows-msvc.exe',
     [int]$StartupTimeoutSeconds = 30,
     [int]$SchedulingTimeoutSeconds = 45
 )

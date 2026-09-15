@@ -17,7 +17,7 @@ from .schema import MIGRATIONS, SCHEMA_V1, SCHEMA_VERSION
 from stt_desktop.lesson_config import parse_lesson_config, parse_task_config
 
 FORMAT_VERSION = 1
-APP_VERSION = "0.2.7"
+APP_VERSION = "0.2.8"
 ALGORITHM_PROTOCOL_VERSION = "1"
 
 

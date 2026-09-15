@@ -170,9 +170,9 @@ fn sidecar_launch(_root: &Path) -> Result<SidecarLaunch, String> {
         .parent()
         .ok_or("桌面程序路径缺少父目录")?
         .join(if cfg!(windows) {
-            "stt-sidecar.exe"
+            "时奕排课后台服务.exe"
         } else {
-            "stt-sidecar"
+            "时奕排课后台服务"
         });
     if installed.is_file() {
         return Ok(SidecarLaunch {

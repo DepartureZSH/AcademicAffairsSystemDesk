@@ -39,7 +39,7 @@ if (-not $SkipSync) {
     finally { Pop-Location }
 }
 
-$binaryName = "stt-sidecar-$targetTriple"
+$binaryName = "时奕排课后台服务-$targetTriple"
 $fontData = "$fontDirectory$([IO.Path]::PathSeparator)stt_desktop/assets/fonts"
 Push-Location $repositoryRoot
 try {
