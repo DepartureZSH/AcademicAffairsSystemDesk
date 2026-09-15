@@ -156,7 +156,8 @@ try {
         throw "冻结 Sidecar 未在 $StartupTimeoutSeconds 秒内就绪：$errorText"
     }
     if ([int]$ready.pid -ne $process.Id) { throw '启动器 PID 与就绪消息不匹配。' }
-    if ([int]$ready.workerPid -le 0 -or [int]$ready.workerPid -eq $process.Id) {
+    $isOnedir = Test-Path -LiteralPath (Join-Path (Split-Path -Parent $resolvedSidecar) '_internal')
+    if ([int]$ready.workerPid -le 0 -or ($isOnedir -and [int]$ready.workerPid -ne $process.Id) -or (-not $isOnedir -and [int]$ready.workerPid -eq $process.Id)) {
         throw 'Sidecar 工作进程 PID 无效。'
     }
 

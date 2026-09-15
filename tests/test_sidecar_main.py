@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from stt_desktop import sidecar_main
 
 
@@ -19,3 +21,13 @@ def test_frozen_onefile_worker_reports_launcher_and_worker_pids(monkeypatch) -> 
     monkeypatch.setattr(sidecar_main.os, "getppid", lambda: 1234)
 
     assert sidecar_main._ready_process_ids() == (1234, 5678)
+
+
+def test_frozen_onedir_reports_current_pid_even_with_pyinstaller_environment(monkeypatch) -> None:
+    monkeypatch.setattr(sidecar_main.sys, "frozen", True, raising=False)
+    runtime = Path(sidecar_main.sys.executable).resolve().parent / "_internal"
+    monkeypatch.setattr(sidecar_main.sys, "_MEIPASS", str(runtime), raising=False)
+    monkeypatch.setenv("_PYI_APPLICATION_HOME_DIR", str(runtime))
+    monkeypatch.setattr(sidecar_main.os, "getpid", lambda: 5678)
+    monkeypatch.setattr(sidecar_main.os, "getppid", lambda: 1234)
+    assert sidecar_main._ready_process_ids() == (5678, 5678)

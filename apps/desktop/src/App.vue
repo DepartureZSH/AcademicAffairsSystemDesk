@@ -170,8 +170,8 @@ async function bootstrapWorkspace() {
   workspaceError.value = "";
   try {
     runtime.value = await startSidecar(preferredWorkspacePath.value || undefined);
-    health.value = await localApi.health();
-    await refreshProjects();
+    const [serviceHealth] = await Promise.all([localApi.health(), refreshProjects()]);
+    health.value = serviceHealth;
     if (currentProject.value) {
       const reopened = await localApi.openProject(currentProject.value.id);
       currentProject.value = reopened.project;

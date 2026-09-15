@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "时奕教务排课",
   "mainBinaryName": "时奕排课入口",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "identifier": "tech.karios.stt.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",

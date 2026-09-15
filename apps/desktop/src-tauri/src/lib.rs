@@ -227,13 +227,22 @@ fn runtime_status(state: State<'_, Mutex<SidecarManager>>) -> RuntimeStatus {
 }
 
 #[tauri::command]
-fn start_sidecar(
+async fn start_sidecar(
     app: AppHandle,
-    state: State<'_, Mutex<SidecarManager>>,
+    workspace_path: Option<String>,
+) -> Result<RuntimeStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || start_sidecar_blocking(app, workspace_path))
+        .await
+        .map_err(|_| "本地服务启动任务异常，请重试".to_string())?
+}
+
+fn start_sidecar_blocking(
+    app: AppHandle,
     workspace_path: Option<String>,
 ) -> Result<RuntimeStatus, String> {
     let root = runtime_root(&app)?;
     access_gate::ensure_sidecar_allowed(&root)?;
+    let state = app.state::<Mutex<SidecarManager>>();
     let mut manager = state.lock();
     if let Some(runtime) = manager.runtime.as_mut() {
         if matches!(runtime.child.try_wait(), Ok(None)) {

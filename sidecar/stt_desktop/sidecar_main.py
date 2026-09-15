@@ -27,7 +27,10 @@ def _take_required_environment(name: str) -> str:
 def _ready_process_ids() -> tuple[int, int]:
     """Return the launcher PID expected by Tauri and this server worker PID."""
     worker_pid = os.getpid()
-    frozen_onefile_worker = bool(getattr(sys, "frozen", False)) and bool(
+    frozen_onedir = Path(getattr(sys, "_MEIPASS", "")).resolve() == (
+        Path(sys.executable).resolve().parent / "_internal"
+    )
+    frozen_onefile_worker = not frozen_onedir and bool(getattr(sys, "frozen", False)) and bool(
         os.environ.get("_PYI_APPLICATION_HOME_DIR")
     )
     launcher_pid = os.getppid() if frozen_onefile_worker else worker_pid

@@ -330,6 +330,10 @@ def test_windows_entry_names_and_uninstall_registration_are_localized() -> None:
     windows_config = json.loads((root / "apps/desktop/src-tauri/tauri.windows.conf.json").read_text(encoding="utf-8"))
     assert windows_config["bundle"]["externalBin"] == []
     assert windows_config["bundle"]["resources"]["binaries/时奕排课后台服务-x86_64-pc-windows-msvc.exe"] == "时奕排课后台服务.exe"
+    assert windows_config["bundle"]["resources"]["binaries/_internal/"] == "_internal/"
+    build_script = (root / "scripts/build-sidecar.ps1").read_text(encoding="utf-8")
+    assert "--onedir" in build_script
+    assert "--onefile" not in build_script
     installer = (root / "apps/desktop/src-tauri/nsis/installer.nsi").read_text(encoding="utf-8")
     assert 'WriteUninstaller "$INSTDIR\\卸载.exe"' in installer
     uninstall_registration = next(line for line in installer.splitlines() if '"UninstallString"' in line and 'WriteRegStr' in line)

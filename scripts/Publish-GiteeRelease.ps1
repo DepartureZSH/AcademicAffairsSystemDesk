@@ -16,7 +16,8 @@ $notes = Get-Content -LiteralPath (Join-Path $ReleaseDirectory 'RELEASE-NOTES.md
 $tokenLine = Get-Content -LiteralPath .env | Where-Object { $_ -match '^\s*GITEE_ACCESS_TOKEN\s*=' } | Select-Object -Last 1
 if (-not $tokenLine) { throw '上传需要在 .env 配置 GITEE_ACCESS_TOKEN；客户端无需此令牌' }
 $token = ($tokenLine -split '=',2)[1].Trim().Trim('"').Trim("'")
-if (-not $token) { throw '发布令牌为空' }
+if ($token -notmatch '^[A-Za-z0-9_-]+$') { throw '发布令牌格式不适合安全传递' }
+if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) { throw '上传需要 curl.exe' }
 $headers = @{ Authorization = "Bearer $token" }
 $api = 'https://gitee.com/api/v5'
 $repo = 'hangzhou-greos-time/academic-affairs-system-desk'
@@ -60,7 +61,26 @@ foreach ($name in @("STT_${version}_x64-setup.exe", "STT_${version}_x64-setup.ex
     }
     try {
         Write-Output "开始上传：$name"
-        $null = Invoke-RestMethod -Method Post -Uri $endpoint -Headers $headers -Form @{ file=$file; access_token=$token } -TimeoutSec 600
+        $responseDirectory = Join-Path $root '.local'
+        New-Item -ItemType Directory -Path $responseDirectory -Force | Out-Null
+        $responsePath = (Join-Path $responseDirectory "gitee-upload-$version-$name.json").Replace('\','/')
+        $uploadPath = $file.FullName.Replace('\','/')
+        # Pass credentials through stdin, never argv or persistent git configuration.
+        $curlConfiguration = @"
+url = "$endpoint"
+header = "Authorization: Bearer $token"
+header = "Expect:"
+form = "access_token=$token"
+form = "file=@$uploadPath"
+output = "$responsePath"
+"@
+        $curlConfiguration | & curl.exe --config - --http1.1 --silent --show-error --connect-timeout 30 --max-time 300 --speed-limit 1024 --speed-time 60 --write-out 'HTTP %{http_code}; uploaded %{size_upload} bytes; time %{time_total}s'
+        $uploadExit = $LASTEXITCODE
+        $curlConfiguration = $null
+        if ($uploadExit -ne 0) { throw '上传连接失败' }
+        $confirmedAssets = Invoke-RestMethod $endpoint -TimeoutSec 30
+        $confirmed = $confirmedAssets | Where-Object name -eq $name
+        if (-not $confirmed -or $confirmed.size -ne $file.Length) { throw '服务器未确认附件完整保存' }
         Write-Output "上传成功：$name"
     } catch { throw ("上传未确认成功：$name，请先查询附件再重试，HTTP " + [int]$_.Exception.Response.StatusCode) }
 }
