@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "时奕教务排课",
   "mainBinaryName": "时奕排课入口",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "identifier": "tech.karios.stt.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -52,8 +52,7 @@
       "../../../TRADEMARKS.md": "legal/TRADEMARKS.md",
       "../../../CODE_SIGNING_POLICY.md": "legal/CODE_SIGNING_POLICY.md",
       "../../../THIRD_PARTY_NOTICES.md": "legal/THIRD_PARTY_NOTICES.md",
-      "../../../sidecar/stt_desktop/assets/fonts/OFL-1.1.txt": "legal/Noto-Sans-SC-OFL-1.1.txt",
-      "../../../fixtures/mock/purchase.html": "mock/purchase.html"
+      "../../../sidecar/stt_desktop/assets/fonts/OFL-1.1.txt": "legal/Noto-Sans-SC-OFL-1.1.txt"
     },
     "publisher": "杭州格若时科技有限公司",
     "copyright": "Copyright © 2026 杭州格若时科技有限公司",

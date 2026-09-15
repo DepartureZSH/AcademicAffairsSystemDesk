@@ -345,6 +345,23 @@ def test_windows_entry_names_and_uninstall_registration_are_localized() -> None:
     assert '"时奕排课后台服务.exe"' in runtime
 
 
+def test_release_excludes_mock_purchase_and_cleans_only_legacy_fixture() -> None:
+    root = Path(__file__).resolve().parents[1]
+    for filename in ("tauri.conf.json", "tauri.windows.conf.json"):
+        config = json.loads((root / "apps/desktop/src-tauri" / filename).read_text(encoding="utf-8"))
+        resources = config["bundle"]["resources"]
+        for path in (*resources.keys(), *resources.values()):
+            assert "mock" not in path.lower()
+            assert "purchase.html" not in path.lower()
+    assert (root / "fixtures/mock/purchase.html").is_file()
+    installer = (root / "apps/desktop/src-tauri/nsis/installer.nsi").read_text(encoding="utf-8")
+    assert 'Delete "$INSTDIR\\mock\\purchase.html"' in installer
+    assert 'RMDir "$INSTDIR\\mock"' in installer
+    assert 'RMDir /r "$INSTDIR\\mock"' not in installer
+    purchase = (root / "apps/desktop/src-tauri/src/purchase.rs").read_text(encoding="utf-8")
+    assert 'root.join("mock/purchase.html")' not in purchase
+
+
 def test_frozen_sidecar_windows_metadata_matches_tauri_product() -> None:
     root = Path(__file__).resolve().parents[1]
     config = json.loads(

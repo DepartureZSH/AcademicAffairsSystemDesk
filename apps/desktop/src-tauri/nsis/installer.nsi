@@ -709,6 +709,9 @@ Section Install
   ; Remove only obsolete application binaries from the previous English naming.
   Delete "$INSTDIR\uninstall.exe"
   Delete "$INSTDIR\stt-sidecar.exe"
+  ; Clean the obsolete bundled fixture, preserving any other files in this folder.
+  Delete "$INSTDIR\mock\purchase.html"
+  RMDir "$INSTDIR\mock"
 
   ; Save $INSTDIR in registry for future installations
   WriteRegStr SHCTX "${MANUPRODUCTKEY}" "" $INSTDIR

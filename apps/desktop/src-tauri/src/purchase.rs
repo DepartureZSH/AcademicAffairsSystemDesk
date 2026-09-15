@@ -42,11 +42,9 @@ fn mock_purchase_path(root: &Path) -> Result<PathBuf, String> {
         .canonicalize()
         .map_err(|error| format!("无法解析应用资源目录: {error}"))?;
     let path = root.join("fixtures/mock/purchase.html");
-    let packaged_path = root.join("mock/purchase.html");
-    let candidate = if path.is_file() { path } else { packaged_path };
-    let candidate = candidate
+    let candidate = path
         .canonicalize()
-        .map_err(|_| "找不到随应用发布的 Mock 购买页".to_string())?;
+        .map_err(|_| "找不到开发环境的 Mock 购买页（发行版不提供）".to_string())?;
     if !candidate.starts_with(&root) {
         return Err("Mock 购买页不在应用资源目录内".into());
     }
