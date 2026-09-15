@@ -617,10 +617,19 @@ async fn check_for_update(
 }
 
 #[tauri::command]
+async fn download_checked_update(
+    pending: State<'_, app_updates::PendingUpdate>,
+    progress: tauri::ipc::Channel<app_updates::DownloadProgress>,
+) -> Result<(), String> {
+    app_updates::download(pending, progress).await
+}
+
+#[tauri::command]
 async fn install_checked_update(
+    app: AppHandle,
     pending: State<'_, app_updates::PendingUpdate>,
 ) -> Result<(), String> {
-    app_updates::install(pending).await
+    app_updates::install(app, pending).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -664,6 +673,7 @@ pub fn run() {
             sidecar_request,
             stop_sidecar,
             check_for_update,
+            download_checked_update,
             install_checked_update
         ])
         .build(tauri::generate_context!())

@@ -84,6 +84,13 @@ const workspaceError = ref("");
 const workspaceNotice = ref("");
 const updateBusy = ref(false);
 const availableUpdate = ref<UpdateStatus | null>(null);
+const updateModalOpen = ref(false);
+const updateMessage = ref("");
+const updateError = ref("");
+const updateReady = ref(false);
+const updateDownloaded = ref(0);
+const updateTotal = ref<number | null>(null);
+const updatePercent = computed(() => updateTotal.value ? Math.min(100, Math.round(updateDownloaded.value / updateTotal.value * 100)) : undefined);
 const preferredWorkspacePath = ref(savedWorkspacePath() ?? "");
 const sidebarCollapsed = ref(localStorage.getItem("stt-sidebar-collapsed") === "true");
 const accountMenuOpen = ref(false);
@@ -508,31 +515,59 @@ async function importProjectArchive() {
 }
 
 async function checkForUpdate() {
+  updateModalOpen.value = true;
+  if (updateBusy.value || updateReady.value) return;
   updateBusy.value = true;
-  workspaceError.value = "";
+  updateError.value = "";
+  updateMessage.value = "正在查询最新内测版本…";
+  availableUpdate.value = null;
   try {
     availableUpdate.value = await updater.check();
-    workspaceNotice.value = availableUpdate.value.message;
+    updateMessage.value = availableUpdate.value.message;
+    if (availableUpdate.value.available) await downloadUpdate();
   } catch (error) {
-    workspaceError.value = String(error);
+    updateError.value = String(error);
+    updateMessage.value = "检查更新未完成";
+  } finally {
+    updateBusy.value = false;
+  }
+}
+
+async function downloadUpdate() {
+  updateBusy.value = true;
+  updateError.value = "";
+  updateDownloaded.value = 0;
+  updateTotal.value = null;
+  updateMessage.value = "正在下载更新，完成后将校验安装包…";
+  try {
+    await updater.download(({ downloaded, total }) => {
+      updateDownloaded.value = downloaded;
+      updateTotal.value = total;
+    });
+    updateReady.value = true;
+    updateMessage.value = "下载完成，安装包已通过安全校验。请先保存工作，再安装更新。";
+  } catch (error) {
+    updateError.value = String(error);
+    updateMessage.value = "更新尚未准备好，未执行安装";
   } finally {
     updateBusy.value = false;
   }
 }
 
 async function installUpdate() {
-  if (!availableUpdate.value?.available) return;
+  updateModalOpen.value = true;
+  if (!updateReady.value || updateBusy.value) return;
   const accepted = await confirm(
-    `已验证版本 ${availableUpdate.value.version} 的 Ed25519 更新签名。安装将关闭并重新启动应用，是否继续？`,
+    `版本 ${availableUpdate.value?.version} 已通过安全校验。请确认已保存工作，安装将退出应用，是否继续？`,
     { title: "安装时奕教务排课更新", kind: "info" },
   );
   if (!accepted) return;
   updateBusy.value = true;
-  workspaceError.value = "";
+  updateError.value = "";
   try {
     await updater.install();
   } catch (error) {
-    workspaceError.value = String(error);
+    updateError.value = String(error);
     updateBusy.value = false;
   }
 }
@@ -627,7 +662,7 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
       <header class="topbar">
         <h1>{{ pageTitle }}</h1>
         <div class="topbar-badges">
-          <button v-if="availableUpdate?.available" class="text-button" :disabled="updateBusy" @click="installUpdate">安装 {{ availableUpdate.version }}</button>
+          <button v-if="availableUpdate?.available" class="text-button" @click="updateModalOpen = true">{{ updateReady ? '安装更新' : '查看下载' }} {{ availableUpdate.version }}</button>
           <div v-if="gate?.auth.authenticated" class="account-menu">
             <button class="account-trigger" @click="accountMenuOpen = !accountMenuOpen">
               <span class="account-avatar">{{ gate.auth.user?.email?.slice(0, 1).toUpperCase() }}</span>
@@ -636,7 +671,7 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
             <div v-if="accountMenuOpen" class="account-popover">
               <button :disabled="!currentProject" @click="navigate('backups')"><DatabaseBackup :size="16" />数据备份</button>
               <button @click="navigate('about')"><Info :size="16" />软件信息</button>
-              <button :disabled="updateBusy" @click="checkForUpdate"><RefreshCw :size="16" />{{ updateBusy ? "检查中…" : "检查更新" }}</button>
+              <button @click="checkForUpdate"><RefreshCw :size="16" />{{ updateBusy ? "查看更新进度" : "检查更新" }}</button>
               <button :disabled="workspaceBusy || gateBusy" @click="restartLocalService"><RefreshCw :size="16" />重启本地服务</button>
               <button :disabled="gateBusy" @click="signOut"><LogOut :size="16" />退出登录</button>
             </div>
@@ -800,4 +835,35 @@ onUnmounted(() => { if (membershipTimer) clearInterval(membershipTimer); });
       </template>
     </section>
   </main>
+  <Teleport to="body">
+    <div v-if="updateModalOpen" class="stt-update-overlay">
+      <section class="stt-update-dialog" role="dialog" aria-modal="true" aria-labelledby="stt-update-title">
+        <h2 id="stt-update-title">检查更新</h2>
+        <p v-if="availableUpdate">当前版本 {{ availableUpdate.currentVersion }} · 最新版本 {{ availableUpdate.version }}</p>
+        <p role="status" aria-live="polite">{{ updateMessage }}</p>
+        <pre v-if="availableUpdate?.notes" class="stt-update-notes">{{ availableUpdate.notes }}</pre>
+        <template v-if="updateDownloaded > 0 && !updateReady">
+          <progress :value="updatePercent" max="100" aria-label="更新下载进度"></progress>
+          <p>{{ (updateDownloaded / 1048576).toFixed(1) }} MB <template v-if="updateTotal">/ {{ (updateTotal / 1048576).toFixed(1) }} MB · {{ updatePercent }}%</template></p>
+        </template>
+        <p v-if="updateError" class="stt-update-error" role="alert">{{ updateError }}</p>
+        <div class="stt-update-actions">
+          <button class="secondary-button" @click="updateModalOpen = false">{{ updateBusy ? '后台下载 / 稍后查看' : '稍后' }}</button>
+          <button v-if="updateError && !updateReady" class="primary-button" :disabled="updateBusy" @click="availableUpdate?.available ? downloadUpdate() : checkForUpdate()">重试</button>
+          <button v-if="updateReady" class="primary-button" :disabled="updateBusy" @click="installUpdate">退出并安装</button>
+        </div>
+      </section>
+    </div>
+  </Teleport>
 </template>
+
+<style scoped>
+.stt-update-overlay { position: fixed; inset: 0; z-index: 10000; background: #10292266; display: grid; place-items: center; padding: 24px; }
+.stt-update-dialog { width: min(560px, 100%); max-height: 85vh; overflow: auto; padding: 28px; border-radius: 16px; background: #fff; color: #183b36; box-shadow: 0 20px 70px #10292233; font: inherit; }
+.stt-update-dialog h2 { margin: 0 0 16px; font-size: 20px; }
+.stt-update-dialog p { line-height: 1.7; font-size: 14px; }
+.stt-update-notes { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 230px; overflow: auto; font: inherit; font-size: 14px; line-height: 1.7; padding: 16px; background: #f3f7f5; border-radius: 8px; }
+.stt-update-dialog progress { width: 100%; accent-color: #317c71; }
+.stt-update-error { color: #b42318; }
+.stt-update-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+</style>

@@ -34,8 +34,5 @@ services:
       accepted: true
 
   updates:
-    provider: static-update-manifest
-    mode: mock
-    mock:
-      update_available: false
-      manifest_path: fixtures/mock/update-manifest.json
+    provider: gitee-public-releases
+    mode: real

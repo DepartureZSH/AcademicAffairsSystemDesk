@@ -1,21 +1,19 @@
 use parking_lot::Mutex;
+use semver::Version;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::HashMap;
-use std::path::Path;
-use tauri::{AppHandle, State};
+use std::{path::Path, time::Duration};
+use tauri::{ipc::Channel, AppHandle, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-#[derive(Debug, Deserialize)]
-struct RawConfig {
-    services: HashMap<String, RawService>,
-}
+const REPO: &str = "https://gitee.com/hangzhou-greos-time/academic-affairs-system-desk";
+const API: &str =
+    "https://gitee.com/api/v5/repos/hangzhou-greos-time/academic-affairs-system-desk/releases";
 
 #[derive(Debug, Deserialize)]
-struct RawService {
-    mode: String,
+struct Release {
+    tag_name: String,
     #[serde(default)]
-    mock: HashMap<String, Value>,
+    draft: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -29,109 +27,215 @@ pub struct UpdateStatus {
     message: String,
 }
 
-pub struct PendingUpdate(pub Mutex<Option<Update>>);
-
-impl Default for PendingUpdate {
-    fn default() -> Self {
-        Self(Mutex::new(None))
-    }
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadProgress {
+    downloaded: u64,
+    total: Option<u64>,
 }
 
-fn update_service(root: &Path) -> Result<RawService, String> {
-    let content = std::fs::read_to_string(root.join("config/services.yaml"))
-        .map_err(|_| "无法读取更新服务配置".to_string())?;
-    let mut config: RawConfig =
-        serde_yaml::from_str(&content).map_err(|_| "更新服务配置格式无效".to_string())?;
-    config
-        .services
-        .remove("updates")
-        .ok_or_else(|| "服务配置缺少 updates".to_string())
+#[derive(Default)]
+struct Pending {
+    update: Option<Update>,
+    bytes: Option<Vec<u8>>,
+    busy: bool,
+}
+#[derive(Default)]
+pub struct PendingUpdate(Mutex<Pending>);
+struct Operation<'a>(&'a PendingUpdate);
+impl Drop for Operation<'_> {
+    fn drop(&mut self) {
+        self.0 .0.lock().busy = false;
+    }
+}
+fn begin(pending: &PendingUpdate) -> Result<Operation<'_>, String> {
+    let mut state = pending.0.lock();
+    if state.busy {
+        return Err("更新操作正在进行，请稍候".into());
+    }
+    state.busy = true;
+    Ok(Operation(pending))
+}
+
+fn latest(releases: &[Release]) -> Option<(&Release, Version)> {
+    releases
+        .iter()
+        .filter(|r| !r.draft)
+        .filter_map(|r| {
+            Version::parse(r.tag_name.strip_prefix('v').unwrap_or(&r.tag_name))
+                .ok()
+                .map(|v| (r, v))
+        })
+        .max_by(|a, b| a.1.cmp(&b.1))
+}
+fn valid_download(url: &str, tag: &str) -> bool {
+    url.starts_with(&format!("{REPO}/releases/download/{tag}/"))
+        && !url.contains('?')
+        && !url.contains('#')
+        && !url.contains("/../")
 }
 
 pub async fn check(
     app: AppHandle,
-    root: &Path,
+    _root: &Path,
     pending: State<'_, PendingUpdate>,
 ) -> Result<UpdateStatus, String> {
-    let service = update_service(root)?;
-    let current_version = app.package_info().version.to_string();
-    if service.mode == "mock" {
-        pending.0.lock().take();
-        let available = service
-            .mock
-            .get("update_available")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+    let _operation = begin(&pending)?;
+    {
+        let mut state = pending.0.lock();
+        state.update = None;
+        state.bytes = None;
+    }
+    let current = app.package_info().version.clone();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .user_agent("STT-Desktop-Updater")
+        .build()
+        .map_err(|_| "无法初始化更新连接")?;
+    let mut releases = Vec::new();
+    for page in 1..=10 {
+        let response = client
+            .get(format!("{API}?page={page}&per_page=100"))
+            .send()
+            .await
+            .map_err(|_| "无法连接 Gitee，请检查网络后重试")?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "Gitee 查询失败（HTTP {}），请稍后重试",
+                response.status().as_u16()
+            ));
+        }
+        let items: Vec<Release> = response
+            .json()
+            .await
+            .map_err(|_| "Gitee 返回的版本列表格式异常")?;
+        let done = items.len() < 100;
+        releases.extend(items);
+        if done {
+            break;
+        }
+        if page == 10 {
+            return Err("版本列表过长，无法可靠确定最新版本".into());
+        }
+    }
+    let (release, version) = latest(&releases).ok_or("Gitee 暂无可识别的发布版本")?;
+    if version <= current {
         return Ok(UpdateStatus {
-            mode: "mock".into(),
+            mode: "real".into(),
             available: false,
-            current_version,
-            version: None,
+            current_version: current.to_string(),
+            version: Some(version.to_string()),
             notes: None,
-            message: if available {
-                "Mock 清单声明有更新，但测试模式禁止安装未签名远程制品".into()
-            } else {
-                "Mock 更新服务：当前已是最新版本".into()
-            },
+            message: "当前已是最新版本（含内测版）".into(),
         });
     }
-    if service.mode != "real" {
-        return Err("updates.mode 只允许 mock 或 real".into());
-    }
-
-    let update = app
-        .updater()
-        .map_err(|error| format!("更新器初始化失败: {error}"))?
+    let endpoint = format!(
+        "{REPO}/releases/download/{}/latest-beta.json",
+        release.tag_name
+    );
+    let mut update = app
+        .updater_builder()
+        .endpoints(vec![endpoint.parse().map_err(|_| "更新地址无效")?])
+        .map_err(|_| "更新地址无效")?
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|_| "更新器初始化失败")?
         .check()
         .await
-        .map_err(|error| format!("检查更新失败: {error}"))?;
-    let status = if let Some(update) = update.as_ref() {
-        UpdateStatus {
-            mode: "real".into(),
-            available: true,
-            current_version,
-            version: Some(update.version.clone()),
-            notes: update.body.clone(),
-            message: format!("发现新版本 {}", update.version),
-        }
-    } else {
-        UpdateStatus {
-            mode: "real".into(),
-            available: false,
-            current_version,
-            version: None,
-            notes: None,
-            message: "当前已是最新版本".into(),
-        }
+        .map_err(|_| {
+            "发现新版，但无法读取有效更新清单。请稍后重试或联系发布者补齐 latest-beta.json 和签名"
+        })?
+        .ok_or("发布标签与更新清单版本不一致")?;
+    if update.version != version.to_string()
+        || !valid_download(update.download_url.as_str(), &release.tag_name)
+        || update.signature.trim().is_empty()
+    {
+        return Err("更新清单的版本、下载地址或签名不符合要求，已阻止下载".into());
+    }
+    update.timeout = Some(Duration::from_secs(1800));
+    let status = UpdateStatus {
+        mode: "real".into(),
+        available: true,
+        current_version: current.to_string(),
+        version: Some(update.version.clone()),
+        notes: update.body.clone(),
+        message: format!("发现新版本 {}，正在下载", update.version),
     };
-    *pending.0.lock() = update;
+    pending.0.lock().update = Some(update);
     Ok(status)
 }
 
-pub async fn install(pending: State<'_, PendingUpdate>) -> Result<(), String> {
-    let update = pending
-        .0
-        .lock()
-        .take()
-        .ok_or_else(|| "没有已校验且待安装的更新".to_string())?;
-    update
-        .download_and_install(|_, _| {}, || {})
+pub async fn download(
+    pending: State<'_, PendingUpdate>,
+    progress: Channel<DownloadProgress>,
+) -> Result<(), String> {
+    let _operation = begin(&pending)?;
+    let update = pending.0.lock().update.clone().ok_or("请先检查更新")?;
+    pending.0.lock().bytes = None;
+    let mut downloaded = 0;
+    let bytes = update
+        .download(
+            |size, total| {
+                downloaded += size as u64;
+                let _ = progress.send(DownloadProgress { downloaded, total });
+            },
+            || {},
+        )
         .await
-        .map_err(|error| format!("下载或安装更新失败: {error}"))
+        .map_err(|_| "更新包下载或签名校验失败，未执行安装。请检查网络后重试")?;
+    // The plugin verifies the signature before returning these bytes.
+    pending.0.lock().bytes = Some(bytes);
+    Ok(())
+}
+
+pub async fn install(app: AppHandle, pending: State<'_, PendingUpdate>) -> Result<(), String> {
+    let _operation = begin(&pending)?;
+    let (update, bytes) = {
+        let mut state = pending.0.lock();
+        let update = state.update.clone().ok_or("请先检查更新")?;
+        let bytes = state.bytes.take().ok_or("请先下载并通过签名校验")?;
+        (update, bytes)
+    };
+    use tauri::Manager;
+    if let Err(error) = super::stop_sidecar(app.state()).await {
+        pending.0.lock().bytes = Some(bytes);
+        return Err(format!("尚未安装：{error}"));
+    }
+    let result = update
+        .install(&bytes)
+        .map_err(|_| "安装更新失败，请关闭其他应用实例后重试".to_string());
+    if result.is_err() {
+        pending.0.lock().bytes = Some(bytes);
+    }
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn mock_update_defaults_to_unavailable() {
-        let service: RawService = serde_yaml::from_str("mode: mock\nmock: {}\n").unwrap();
-        assert_eq!(service.mode, "mock");
-        assert!(!service
-            .mock
-            .get("update_available")
-            .and_then(Value::as_bool)
-            .unwrap_or(false));
+    fn selects_semver_including_beta_not_api_order() {
+        let list: Vec<Release> = serde_json::from_str(r#"[{"tag_name":"v0.2.9"},{"tag_name":"v0.2.10-beta.1"},{"tag_name":"v9.0.0","draft":true},{"tag_name":"invalid"}]"#).unwrap();
+        assert_eq!(latest(&list).unwrap().1.to_string(), "0.2.10-beta.1");
+    }
+    #[test]
+    fn rejects_foreign_downloads() {
+        assert!(valid_download(
+            &format!("{REPO}/releases/download/v0.2.7/STT.exe"),
+            "v0.2.7"
+        ));
+        assert!(!valid_download("https://evil.example/STT.exe", "v0.2.7"));
+        assert!(!valid_download(
+            &format!("{REPO}/releases/download/v0.2.6/STT.exe"),
+            "v0.2.7"
+        ));
+    }
+    #[test]
+    fn operations_are_exclusive_and_release_on_error() {
+        let state = PendingUpdate::default();
+        let operation = begin(&state).unwrap();
+        assert!(begin(&state).is_err());
+        drop(operation);
+        assert!(begin(&state).is_ok());
     }
 }
